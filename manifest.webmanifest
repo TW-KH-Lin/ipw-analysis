@@ -1,0 +1,28 @@
+{
+  "id": "./iphone.html",
+  "name": "IPW Analysis",
+  "short_name": "IPW",
+  "description": "Offline IPW workbook cleaning and statistical analysis.",
+  "start_url": "./iphone.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone"],
+  "orientation": "any",
+  "background_color": "#f6f8fa",
+  "theme_color": "#123f61",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "./icons/ipw-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/ipw-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

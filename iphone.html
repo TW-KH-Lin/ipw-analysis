@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="IPW Analysis">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#123f61">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'">
+    <title>IPW Analysis iPhone</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icons/ipw-180.png">
+    <link rel="stylesheet" href="iphone.css?v=3">
+    <script defer src="vendor/xlsx.full.min.js"></script>
+    <script type="module" src="iphone-app.js?v=29"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">IPW HTML</p>
+          <h1>Analysis</h1>
+        </div>
+        <label class="file-button">
+          <span>Open</span>
+          <input id="workbook-file" type="file" accept=".xlsx,.xlsm,.xls,.xlsb">
+        </label>
+      </header>
+
+      <section class="source-strip" aria-label="Workbook source">
+        <label>
+          Source
+          <select id="source-sheet" disabled></select>
+        </label>
+        <label>
+          Filter by
+          <select id="filter-mode" disabled>
+            <option value="all">All data</option>
+            <option value="lots">Selected lots</option>
+            <option value="classification">Classification</option>
+          </select>
+        </label>
+        <label>
+          Type
+          <select id="type-filter" disabled></select>
+        </label>
+      </section>
+
+      <section id="filter-options-panel" class="filter-options-panel" hidden>
+        <div class="filter-options-heading">
+          <strong id="filter-options-title">Lots</strong>
+          <div class="compact-actions">
+            <button id="select-all-filters" type="button">All</button>
+            <button id="clear-all-filters" type="button">None</button>
+          </div>
+        </div>
+        <div id="filter-options" class="choice-grid"></div>
+      </section>
+
+      <div class="local-workbook-action">
+        <button id="load-local-workbook" class="command" type="button">Load Test.xlsx from Mac</button>
+      </div>
+
+      <p id="status" class="status" role="status">Open an IPW workbook.</p>
+
+      <nav class="tabbar" aria-label="Analysis screens">
+        <button class="tab is-active" type="button" data-panel="data-panel">Data</button>
+        <button class="tab" type="button" data-panel="clean-panel">Clean</button>
+        <button class="tab" type="button" data-panel="gaussian-panel">Gaussian</button>
+        <button class="tab" type="button" data-panel="lot-panel">Lot</button>
+        <button class="tab" type="button" data-panel="correlation-panel">Correlation</button>
+        <button class="tab" type="button" data-panel="export-panel">Export</button>
+      </nav>
+
+      <section id="data-panel" class="panel is-active" aria-label="Data overview">
+        <div class="metric-grid" id="data-metrics"></div>
+        <div class="section-heading">
+          <h2>Summary</h2>
+          <label>Parameter<select id="summary-parameter" disabled></select></label>
+        </div>
+        <div id="summary-table" class="table-wrap"></div>
+        <div class="section-heading">
+          <h2>Preview</h2>
+        </div>
+        <div id="preview-table" class="table-wrap"></div>
+      </section>
+
+      <section id="clean-panel" class="panel" aria-label="Build clean data">
+        <div class="section-heading"><h2>Build from Auswertung</h2></div>
+        <div class="form-grid">
+          <label>Create<select id="clean-output" disabled><option value="clean">Clean_Data</option><option value="corrected">Clean_Data_Cor</option></select></label>
+          <label>Reference temperature (C)<input id="reference-temperature" inputmode="decimal" value="21" disabled></label>
+          <label>Reference humidity (%)<input id="reference-humidity" inputmode="decimal" value="55" disabled></label>
+        </div>
+        <button id="build-clean-data" class="command primary section-command" type="button" disabled>Build Data and Summary</button>
+        <div id="build-result" class="result-block"></div>
+
+        <div class="section-heading">
+          <h2>Generated Summary</h2>
+          <label>Parameter<select id="generated-summary-parameter" disabled></select></label>
+        </div>
+        <div id="generated-summary-table" class="table-wrap"></div>
+
+        <div class="section-heading"><h2>Classify Lots</h2></div>
+        <div class="form-grid classification-editor">
+          <label>Lot<select id="classification-lot" disabled></select></label>
+          <label>Classification<input id="classification-value" autocomplete="off" placeholder="Enter classification" disabled></label>
+        </div>
+        <button id="apply-classification" class="command section-command" type="button" disabled>Apply to Lot</button>
+        <div id="classification-table" class="table-wrap compact-table"></div>
+      </section>
+
+      <section id="gaussian-panel" class="panel" aria-label="Gaussian fit">
+        <div class="form-grid">
+          <label>Data scope<select id="gaussian-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
+          <label>Parameter<select id="gaussian-parameter" disabled></select></label>
+          <label>Fit method<select id="gaussian-method" disabled><option value="standard">Standard Gaussian</option><option value="nacl-truncated">NaCl truncated, limit 1.0</option></select></label>
+          <label>Bin width<input id="gaussian-bin-width" inputmode="decimal" placeholder="Auto" disabled></label>
+          <label>Start<input id="gaussian-start" inputmode="decimal" placeholder="Auto" disabled></label>
+          <label>End<input id="gaussian-end" inputmode="decimal" placeholder="Auto" disabled></label>
+        </div>
+        <fieldset class="zone-fieldset">
+          <legend>Zones</legend>
+          <div id="gaussian-zones" class="zone-grid"></div>
+        </fieldset>
+        <button id="run-gaussian" class="command primary" type="button" disabled>Run Gaussian Fit</button>
+        <div id="gaussian-result" class="result-block"></div>
+      </section>
+
+      <section id="lot-panel" class="panel" aria-label="New lot assessment">
+        <div class="form-grid">
+          <label>Data scope<select id="assessment-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
+          <label>Parameter<select id="assessment-parameter" disabled></select></label>
+          <label>Lot<select id="assessment-lot" disabled></select></label>
+          <label>Reference<select id="assessment-reference" disabled><option value="history">Robust history</option><option value="manual">Manual mu / sigma</option></select></label>
+          <label>Monitor limit<input id="assessment-monitor" inputmode="decimal" value="1" disabled></label>
+          <label>Out-of-range limit<input id="assessment-outlier" inputmode="decimal" value="2" disabled></label>
+          <label>Manual mu<input id="assessment-mu" inputmode="decimal" placeholder="Manual only" disabled></label>
+          <label>Manual sigma<input id="assessment-sigma" inputmode="decimal" placeholder="Manual only" disabled></label>
+        </div>
+        <button id="run-assessment" class="command primary" type="button" disabled>Run Lot Assessment</button>
+        <div id="assessment-result" class="result-block"></div>
+      </section>
+
+      <section id="correlation-panel" class="panel" aria-label="Correlation plot">
+        <div class="form-grid">
+          <label>Data scope<select id="correlation-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
+          <label>Y parameter<select id="correlation-y" disabled></select></label>
+          <label>X parameter<select id="correlation-x" disabled></select></label>
+          <label>Zone scope<select id="correlation-scope" disabled><option value="all">All matched Zones</option><option value="1">Zone 1</option><option value="2">Zone 2</option><option value="3">Zone 3</option><option value="4">Zone 4</option><option value="5">Zone 5</option><option value="6">Zone 6</option></select></label>
+          <label>Extreme pairs<select id="correlation-outliers" disabled><option value="keep">Keep all pairs</option><option value="ratio">Remove ratio extremes</option></select></label>
+          <label>Maximum removal %<input id="correlation-removal" inputmode="decimal" value="0.5" disabled></label>
+        </div>
+        <button id="run-correlation" class="command primary" type="button" disabled>Run Correlation</button>
+        <div id="correlation-result" class="result-block"></div>
+      </section>
+
+      <section id="export-panel" class="panel" aria-label="Export">
+        <div class="form-grid">
+          <label>Parameter<select id="export-parameter" disabled></select></label>
+        </div>
+        <fieldset class="zone-fieldset">
+          <legend>Zones</legend>
+          <div id="export-zones" class="zone-grid"></div>
+        </fieldset>
+        <div class="button-grid">
+          <button id="download-summary" class="command" type="button" disabled>Summary CSV</button>
+          <button id="download-origin" class="command" type="button" disabled>Origin CSV</button>
+          <button id="download-workbook" class="command primary" type="button" disabled>Analysis XLSX</button>
+        </div>
+        <div id="export-result" class="result-block"></div>
+      </section>
+    </main>
+  </body>
+</html>
