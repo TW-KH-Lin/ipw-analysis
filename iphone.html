@@ -11,9 +11,9 @@
     <title>IPW Analysis iPhone</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/ipw-180.png">
-    <link rel="stylesheet" href="iphone.css?v=3">
+    <link rel="stylesheet" href="iphone.css?v=4">
     <script defer src="vendor/xlsx.full.min.js"></script>
-    <script type="module" src="iphone-app.js?v=29"></script>
+    <script type="module" src="iphone-app.js?v=30"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -68,6 +68,7 @@
         <button class="tab is-active" type="button" data-panel="data-panel">Data</button>
         <button class="tab" type="button" data-panel="clean-panel">Clean</button>
         <button class="tab" type="button" data-panel="gaussian-panel">Gaussian</button>
+        <button class="tab" type="button" data-panel="trend-panel">Trend</button>
         <button class="tab" type="button" data-panel="lot-panel">Lot</button>
         <button class="tab" type="button" data-panel="correlation-panel">Correlation</button>
         <button class="tab" type="button" data-panel="export-panel">Export</button>
@@ -124,8 +125,25 @@
           <legend>Zones</legend>
           <div id="gaussian-zones" class="zone-grid"></div>
         </fieldset>
-        <button id="run-gaussian" class="command primary" type="button" disabled>Run Gaussian Fit</button>
+        <div class="analysis-actions">
+          <button id="recommend-gaussian" class="command" type="button" disabled>Recommend Settings</button>
+          <button id="run-gaussian" class="command primary" type="button" disabled>Run Gaussian Fit</button>
+          <button id="save-gaussian-snapshot" class="command" type="button" disabled>Save Chart Snapshot</button>
+        </div>
         <div id="gaussian-result" class="result-block"></div>
+        <div id="gaussian-snapshots" class="result-block"></div>
+      </section>
+
+      <section id="trend-panel" class="panel" aria-label="Parameter trend">
+        <div class="form-grid">
+          <label>Data scope<select id="trend-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
+          <label>Parameter<select id="trend-parameter" disabled></select></label>
+          <label>Start date<input id="trend-start" type="date" disabled></label>
+          <label>End date<input id="trend-end" type="date" disabled></label>
+          <label>Rolling batches<input id="trend-window" inputmode="numeric" value="5" disabled></label>
+        </div>
+        <button id="run-trend" class="command primary section-command" type="button" disabled>Build Parameter Trend</button>
+        <div id="trend-result" class="result-block"></div>
       </section>
 
       <section id="lot-panel" class="panel" aria-label="New lot assessment">

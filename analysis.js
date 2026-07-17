@@ -134,6 +134,17 @@ export function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+export function percentile(values, probability) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  if (probability <= 0) return sorted[0];
+  if (probability >= 1) return sorted[sorted.length - 1];
+  const position = (sorted.length - 1) * probability;
+  const lowIndex = Math.floor(position);
+  const highIndex = Math.min(sorted.length - 1, lowIndex + 1);
+  return sorted[lowIndex] + (position - lowIndex) * (sorted[highIndex] - sorted[lowIndex]);
+}
+
 export function robustHistory(values) {
   if (values.length < 5) return { ...meanAndSigma(values), excluded: 0 };
   const center = median(values);
@@ -151,6 +162,40 @@ function niceBinWidth(rawWidth) {
   const fraction = rawWidth / 10 ** exponent;
   const rounded = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
   return rounded * 10 ** exponent;
+}
+
+export function recommendGaussianSettings(values, options = {}) {
+  if (values.length < 2) throw new Error("At least two numeric visible values are required.");
+  const method = options.method || "standard";
+  const lowerLimit = method === "nacl-truncated" ? Number(options.lowerLimit ?? 1) : null;
+  const recordedValues = method === "nacl-truncated" ? values.filter((value) => value >= lowerLimit) : values;
+  if (recordedValues.length < 2) throw new Error("At least two recorded values are required above the detection limit.");
+  const stats = meanAndSigma(recordedValues);
+  const q1 = percentile(recordedValues, 0.25);
+  const q3 = percentile(recordedValues, 0.75);
+  const iqr = q3 - q1;
+  const range = stats.max - stats.min;
+  let rawWidth = iqr > 0 ? 2 * iqr / Math.cbrt(recordedValues.length) : 0;
+  if (!(rawWidth > 0) && stats.sigma > 0) rawWidth = 3.5 * stats.sigma / Math.cbrt(recordedValues.length);
+  if (!(rawWidth > 0) && range > 0) rawWidth = range / 12;
+  if (!(rawWidth > 0)) rawWidth = 1;
+
+  let binWidth = niceBinWidth(rawWidth);
+  if (range > 0) {
+    const binCount = Math.ceil(range / binWidth);
+    if (binCount < 8) binWidth = niceBinWidth(range / 12);
+    if (binCount > 80) binWidth = niceBinWidth(range / 40);
+  }
+  if (!(binWidth > 0)) binWidth = 1;
+
+  const start = method === "nacl-truncated"
+    ? lowerLimit
+    : Math.floor(stats.min / binWidth) * binWidth;
+  let end = method === "nacl-truncated"
+    ? start + binWidth * Math.ceil((stats.max - start) / binWidth)
+    : Math.ceil(stats.max / binWidth) * binWidth;
+  if (end <= start) end = start + binWidth;
+  return { n: recordedValues.length, q1, q3, iqr, binWidth, start, end };
 }
 
 export function gaussianFit(values, userBinWidth, userStart, userEnd) {
@@ -232,10 +277,221 @@ export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd,
     end,
     bins,
     sse,
+    low25: percentile(included, 0.025),
+    high25: percentile(included, 0.975),
+    low15: percentile(included, 0.15),
+    high15: percentile(included, 0.85),
     method,
     lowerLimit,
     correctionApplied: Boolean(truncatedStats?.correctionApplied)
   };
+}
+
+export function getTrendParameters(headers) {
+  const regional = getRegionalParameters(headers).filter((parameter) =>
+    zoneColumns(headers, parameter)?.every((index) => index >= 0)
+  );
+  for (const scalarName of ["Visco.", "Water"]) {
+    const index = headerIndex(headers, scalarName);
+    if (index >= 0 && !regional.includes(headers[index])) regional.push(headers[index]);
+  }
+  return regional.sort((a, b) => a.localeCompare(b));
+}
+
+export function buildTrendDateLookup(table) {
+  const lookup = new Map();
+  const headerRowIndex = table.slice(0, 30).findIndex((row) =>
+    rawHeaderIndex(row, "ChargenNr") >= 0 && rawHeaderIndex(row, "Nummer") >= 0 && rawHeaderIndex(row, "Probenzeit") >= 0
+  );
+  if (headerRowIndex < 0) return lookup;
+  const headers = table[headerRowIndex];
+  const lotColumn = rawHeaderIndex(headers, "ChargenNr");
+  const batchColumn = rawHeaderIndex(headers, "Nummer");
+  const typeColumn = rawHeaderIndex(headers, "Ziehart");
+  const dateColumn = rawHeaderIndex(headers, "Probenzeit");
+  const sampleTypeColumn = rawHeaderIndex(headers, "Probentyp");
+  for (const row of table.slice(headerRowIndex + 1)) {
+    if (sampleTypeColumn >= 0 && /^proben?$/i.test(text(row[sampleTypeColumn]))) continue;
+    const lot = text(row[lotColumn]);
+    const batch = text(row[batchColumn]);
+    const type = typeColumn >= 0 ? text(row[typeColumn]) : "";
+    const date = trendDateValue(row[dateColumn]);
+    if (!lot || !batch || !Number.isFinite(date)) continue;
+    const key = trendKey(lot, batch, type);
+    const existing = lookup.get(key);
+    if (!Number.isFinite(existing) || date < existing) lookup.set(key, date);
+  }
+  return lookup;
+}
+
+export function buildParameterTrend(headers, rows, parameter, dateLookup = new Map(), options = {}) {
+  const lotColumn = headerIndex(headers, "Lot");
+  const batchColumn = headerIndex(headers, "N");
+  const typeColumn = headerIndex(headers, "Type");
+  if (lotColumn < 0 || batchColumn < 0) throw new Error("The source sheet must contain Lot and N columns.");
+  const regionalColumns = zoneColumns(headers, parameter);
+  const regional = Boolean(regionalColumns?.every((index) => index >= 0));
+  const scalarColumn = regional ? -1 : headerIndex(headers, parameter);
+  if (!regional && scalarColumn < 0) throw new Error(`Parameter column is missing: ${parameter}`);
+  const rollingWindow = Math.trunc(Number(options.rollingWindow ?? 5));
+  if (rollingWindow < 1 || rollingWindow > 200) throw new Error("Use a rolling window between 1 and 200 batches.");
+  const startDate = trendDateBound(options.startDate, false);
+  const endDate = trendDateBound(options.endDate, true);
+  if (Number.isFinite(startDate) && Number.isFinite(endDate) && endDate < startDate) {
+    throw new Error("End date must be on or after start date.");
+  }
+
+  const batches = [];
+  let fallbackCount = 0;
+  for (const row of rows) {
+    const lot = text(row[lotColumn]);
+    const batch = text(row[batchColumn]);
+    const type = typeColumn >= 0 ? text(row[typeColumn]) : "";
+    let date = dateLookup.get(trendKey(lot, batch, type));
+    let fallback = false;
+    if (!Number.isFinite(date)) {
+      date = trendDateFromLot(lot);
+      fallback = Number.isFinite(date);
+    }
+    if (!Number.isFinite(date)) continue;
+    if (Number.isFinite(startDate) && date < startDate) continue;
+    if (Number.isFinite(endDate) && date > endDate) continue;
+    const zoneValues = regional
+      ? regionalColumns.map((column) => isNumeric(row[column]) ? number(row[column]) : null)
+      : [];
+    const values = regional ? zoneValues.filter(Number.isFinite) : isNumeric(row[scalarColumn]) ? [number(row[scalarColumn])] : [];
+    if (!values.length) continue;
+    const stats = meanAndSigma(values);
+    batches.push({ date, lot, batch: row[batchColumn], type, mean: stats.mean, sigma: stats.sigma, n: stats.n, zones: zoneValues, fallback });
+    if (fallback) fallbackCount += 1;
+  }
+  if (!batches.length) throw new Error("No visible parameter values remain in the selected date range.");
+
+  batches.sort(compareTrendRows);
+  let previousLot = "";
+  let lotStart = 0;
+  let rollingSum = 0;
+  batches.forEach((item, index) => {
+    const currentLot = trendIdentity(item.lot);
+    if (index === 0 || currentLot !== previousLot) {
+      rollingSum = 0;
+      lotStart = index;
+    }
+    rollingSum += item.mean;
+    if (index - lotStart + 1 > rollingWindow) rollingSum -= batches[index - rollingWindow].mean;
+    item.rollingMean = rollingSum / Math.min(index - lotStart + 1, rollingWindow);
+    previousLot = currentLot;
+  });
+
+  const lotGroups = new Map();
+  for (const item of batches) {
+    const key = trendIdentity(item.lot);
+    if (!lotGroups.has(key)) lotGroups.set(key, { lot: item.lot, date: item.date, values: [] });
+    const group = lotGroups.get(key);
+    group.date = Math.min(group.date, item.date);
+    if (regional) group.values.push(...item.zones.filter(Number.isFinite));
+    else group.values.push(item.mean);
+  }
+  const lots = [...lotGroups.values()].map((group) => ({
+    lot: group.lot,
+    date: group.date,
+    ...meanAndSigma(group.values)
+  })).sort(compareTrendRows);
+  const lotStats = meanAndSigma(lots.map((lot) => lot.mean));
+  const batchStats = meanAndSigma(batches.map((batch) => batch.mean));
+  const zoneBias = regional ? Array.from({ length: 6 }, (_, index) => {
+    const values = batches.map((batch) => batch.zones[index]).filter(Number.isFinite);
+    const biases = batches
+      .filter((batch) => batch.n > 1 && Number.isFinite(batch.zones[index]))
+      .map((batch) => batch.zones[index] - batch.mean);
+    const valueStats = meanAndSigma(values);
+    const biasStats = meanAndSigma(biases);
+    const standardError = biasStats.n > 1 ? biasStats.sigma / Math.sqrt(biasStats.n) : 0;
+    const ciLow = biasStats.n > 1 ? biasStats.mean - 1.96 * standardError : 0;
+    const ciHigh = biasStats.n > 1 ? biasStats.mean + 1.96 * standardError : 0;
+    const signal = biasStats.n < 3 ? "Insufficient"
+      : ciLow > 0 ? "Consistently high"
+        : ciHigh < 0 ? "Consistently low"
+          : "No clear bias";
+    return {
+      zone: index + 1,
+      n: biasStats.n,
+      meanValue: valueStats.mean,
+      meanBias: biasStats.mean,
+      biasSigma: biasStats.sigma,
+      ciLow,
+      ciHigh,
+      signal
+    };
+  }) : [];
+
+  return {
+    parameter,
+    regional,
+    rollingWindow,
+    batches,
+    lots,
+    lotCenter: lotStats.mean,
+    lotSigma: lotStats.sigma,
+    batchCenter: batchStats.mean,
+    batchSigma: batchStats.sigma,
+    zoneBias,
+    fallbackCount,
+    lookupCount: dateLookup.size
+  };
+}
+
+function rawHeaderIndex(headers, name) {
+  const wanted = text(name).toLowerCase().replace(/[\s._-]+/g, "");
+  return headers.findIndex((header) => text(header).toLowerCase().replace(/[\s._-]+/g, "") === wanted);
+}
+
+function trendIdentity(value) {
+  const rendered = text(value);
+  if (rendered && Number.isFinite(Number(rendered))) return String(Number(rendered));
+  return rendered.toUpperCase();
+}
+
+function trendKey(lot, batch, type) {
+  return `${trendIdentity(lot)}|${trendIdentity(batch)}|${trendIdentity(type)}`;
+}
+
+function trendDateValue(value) {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.getTime();
+  if (typeof value === "number" && value > 0) return Date.UTC(1899, 11, 30) + value * 86400000;
+  const parsed = Date.parse(text(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function trendDateFromLot(lot) {
+  const rendered = text(lot);
+  if (!/^\d{2}/.test(rendered)) return null;
+  const prefix = Number(rendered.slice(0, 2));
+  const year = prefix <= 79 ? 2000 + prefix : 1900 + prefix;
+  const yearStart = Date.UTC(year, 0, 1);
+  const nextYearStart = Date.UTC(year + 1, 0, 1);
+  const sequence = rendered.slice(2);
+  let fraction = /^\d+$/.test(sequence) && sequence ? Number(sequence) / 10 ** sequence.length : 0;
+  fraction = Math.max(0, Math.min(0.999999, fraction));
+  return yearStart + fraction * (nextYearStart - yearStart);
+}
+
+function trendDateBound(value, endOfDay) {
+  if (value === undefined || value === null || value === "") return null;
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  if (!Number.isFinite(date.getTime())) throw new Error("Enter a valid trend date.");
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    return Date.UTC(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+  }
+  if (endOfDay) date.setHours(23, 59, 59, 999);
+  else date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function compareTrendRows(a, b) {
+  return a.date - b.date || text(a.lot).localeCompare(text(b.lot), undefined, { numeric: true }) ||
+    text(a.batch).localeCompare(text(b.batch), undefined, { numeric: true });
 }
 
 export function collectParameterValues(rows, zoneIndexes, includedZones) {
