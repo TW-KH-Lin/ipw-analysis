@@ -210,7 +210,7 @@ async function parseWorkbook(data, fileName) {
   state.gaussianSnapshots = [];
   state.trendDateLookup = null;
   state.lastTrend = null;
-  setStatus("Reading Clean_Data only...");
+  setStatus("Reading workbook data...");
   await yieldToBrowser();
   state.workbook = XLSX.read(data, {
     type: "array",
@@ -223,9 +223,40 @@ async function parseWorkbook(data, fileName) {
   });
   state.sheets = ["Clean_Data", "Clean_Data_Cor"].filter((name) => state.workbook.Sheets[name]);
   state.dataLabels = parseDataLabels(readWorkbookSheet(state.workbook, "Data_Labels"));
-  const sourceName = chooseCleanSource(state.sheets);
+  let sourceName;
+  let generatedFromAuswertung = null;
+  if (state.sheets.length) {
+    sourceName = chooseCleanSource(state.sheets);
+  } else {
+    setStatus("No Clean_Data sheet found. Building it from Auswertung...");
+    await yieldToBrowser();
+    const rawTable = readAuswertungTable(data);
+    const clean = buildCleanDataFromAuswertung(rawTable);
+    const summary = buildFullSummary(clean.headers, clean.rows);
+    state.generatedSources.set(GENERATED_CLEAN, [clean.headers, ...clean.rows]);
+    state.lastBuild = {
+      sourceName: GENERATED_CLEAN,
+      rows: clean.rows.length,
+      lots: getLotValues(clean.rows, headerIndex(clean.headers, "Lot")).length,
+      parameters: getRegionalParameters(clean.headers).length,
+      summaryRows: summary.rows.length,
+      removedProbeRows: clean.removedProbeRows,
+      removedVeRows: clean.removedVeRows,
+      removedVeLots: clean.removedVeLots,
+      corrected: false
+    };
+    sourceName = GENERATED_CLEAN;
+    generatedFromAuswertung = clean;
+  }
   refreshSourceSelect(sourceName);
   await selectSource(sourceName);
+  if (generatedFromAuswertung) {
+    setStatus(
+      `No Clean_Data sheet was present. Generated ${formatInteger(generatedFromAuswertung.rows.length)} rows from Auswertung in the browser.`,
+      false,
+      true
+    );
+  }
 }
 
 async function selectSource(sheetName) {
@@ -799,6 +830,14 @@ async function saveLabelsToCurrentWorkbook() {
     bookVBA: true,
     dense: false
   });
+  if (!workbook.Sheets.Clean_Data) {
+    const generated = state.generatedSources.get(GENERATED_CLEAN);
+    if (generated) {
+      replaceWorkbookSheet(workbook, "Clean_Data", generated);
+      const summary = buildFullSummary(generated[0], generated.slice(1));
+      replaceWorkbookSheet(workbook, "Summary", [summary.headers, ...summary.rows]);
+    }
+  }
   writeDataLabelsToWorkbook(workbook, state.headers, dataRows());
   const bytes = XLSX.write(workbook, {
     type: "array",
