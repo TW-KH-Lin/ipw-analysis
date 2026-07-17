@@ -11,9 +11,9 @@
     <title>IPW Analysis iPhone</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/ipw-180.png">
-    <link rel="stylesheet" href="iphone.css?v=4">
+    <link rel="stylesheet" href="iphone.css?v=5">
     <script defer src="vendor/xlsx.full.min.js"></script>
-    <script type="module" src="iphone-app.js?v=30"></script>
+    <script type="module" src="iphone-app.js?v=33"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -67,6 +67,8 @@
       <nav class="tabbar" aria-label="Analysis screens">
         <button class="tab is-active" type="button" data-panel="data-panel">Data</button>
         <button class="tab" type="button" data-panel="clean-panel">Clean</button>
+        <button class="tab" type="button" data-panel="merge-panel">Merge</button>
+        <button class="tab" type="button" data-panel="labels-panel">Labels</button>
         <button class="tab" type="button" data-panel="gaussian-panel">Gaussian</button>
         <button class="tab" type="button" data-panel="trend-panel">Trend</button>
         <button class="tab" type="button" data-panel="lot-panel">Lot</button>
@@ -110,6 +112,40 @@
         </div>
         <button id="apply-classification" class="command section-command" type="button" disabled>Apply to Lot</button>
         <div id="classification-table" class="table-wrap compact-table"></div>
+      </section>
+
+      <section id="merge-panel" class="panel" aria-label="Merge new lot workbook">
+        <div class="section-heading"><h2>New Lot Workbook</h2></div>
+        <label class="upload-button">
+          <span>Choose New Lot Excel File</span>
+          <input id="new-lot-file" type="file" accept=".xlsx,.xlsm,.xls,.xlsb" disabled>
+        </label>
+        <div id="merge-preview" class="result-block"><p class="empty-state">No new-lot workbook selected.</p></div>
+        <button id="merge-new-lots" class="command primary section-command" type="button" disabled>Merge New Lots</button>
+      </section>
+
+      <section id="labels-panel" class="panel" aria-label="Data labels">
+        <div class="form-grid">
+          <label>Lot<select id="label-lot" disabled></select></label>
+          <label>Batch N<select id="label-batch" disabled></select></label>
+          <label>Zone<select id="label-zone" disabled><option value="1">Zone 1</option><option value="2">Zone 2</option><option value="3">Zone 3</option><option value="4">Zone 4</option><option value="5">Zone 5</option><option value="6">Zone 6</option></select></label>
+        </div>
+        <fieldset class="zone-fieldset">
+          <legend>Parameters to Save</legend>
+          <div id="label-parameters" class="choice-grid parameter-choice-grid"></div>
+        </fieldset>
+        <div class="form-grid label-text-grid">
+          <label>Label<input id="label-text" autocomplete="off" disabled></label>
+          <label>Comment<textarea id="label-comment" rows="3" disabled></textarea></label>
+          <label>Notes<textarea id="label-notes" rows="3" disabled></textarea></label>
+        </div>
+        <div id="label-selection-preview" class="result-block"></div>
+        <div class="analysis-actions">
+          <button id="save-data-label" class="command primary" type="button" disabled>Save Label to Workbook</button>
+          <button id="remove-data-label" class="command" type="button" disabled>Remove Label</button>
+        </div>
+        <div class="section-heading"><h2>Saved Labels</h2></div>
+        <div id="data-labels-table" class="table-wrap"></div>
       </section>
 
       <section id="gaussian-panel" class="panel" aria-label="Gaussian fit">

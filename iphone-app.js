@@ -25,6 +25,18 @@ import {
   classificationMaps,
   correctCleanData
 } from "./clean-data.js?v=1";
+import {
+  buildDataLabel,
+  buildDataLabelsTable,
+  buildDataLabelValuesTable,
+  dataLabelCellCoordinates,
+  findDataLabel,
+  findRawHeaderRow,
+  mergeAuswertungTables,
+  parseDataLabels,
+  removeDataLabel,
+  upsertDataLabel
+} from "./data-management.js?v=3";
 
 const state = {
   workbook: null,
@@ -32,6 +44,8 @@ const state = {
   workbookName: "",
   sheets: [],
   generatedSources: new Map(),
+  newLotImport: null,
+  dataLabels: [],
   source: "",
   headers: [],
   rows: [],
@@ -93,6 +107,8 @@ function registerOfflineApp() {
 function bindEvents() {
   byId("workbook-file").addEventListener("change", (event) => runAction(() => openWorkbook(event.target.files[0])));
   byId("load-local-workbook").addEventListener("click", () => runAction(loadLocalWorkbook));
+  byId("new-lot-file").addEventListener("change", (event) => runAction(() => openNewLotWorkbook(event.target.files[0])));
+  byId("merge-new-lots").addEventListener("click", () => runAction(mergeNewLots));
   byId("source-sheet").addEventListener("change", () => runAction(() => selectSource(byId("source-sheet").value)));
   byId("filter-mode").addEventListener("change", () => {
     invalidateAnalyses();
@@ -113,6 +129,15 @@ function bindEvents() {
   byId("classification-value").addEventListener("keydown", (event) => {
     if (event.key === "Enter") runAction(applyLotClassification);
   });
+  byId("label-lot").addEventListener("change", () => {
+    syncLabelBatches();
+    syncLabelEditor();
+  });
+  byId("label-batch").addEventListener("change", syncLabelEditor);
+  byId("label-zone").addEventListener("change", syncLabelEditor);
+  byId("label-parameters").addEventListener("change", renderLabelSelectionPreview);
+  byId("save-data-label").addEventListener("click", () => runAction(saveDataLabel));
+  byId("remove-data-label").addEventListener("click", () => runAction(removeSelectedDataLabel));
   ["gaussian-data-scope", "trend-data-scope", "correlation-data-scope"].forEach((id) => {
     byId(id).addEventListener("change", invalidateAnalyses);
   });
@@ -175,6 +200,9 @@ async function parseWorkbook(data, fileName) {
   state.workbookName = fileName;
   state.originalData = data.slice(0);
   state.generatedSources = new Map();
+  state.newLotImport = null;
+  byId("new-lot-file").value = "";
+  state.dataLabels = [];
   state.lotClassifications = new Map();
   state.filterSelections = { lots: new Set(), classification: new Set() };
   state.filterInitialized = { lots: false, classification: false };
@@ -191,9 +219,10 @@ async function parseWorkbook(data, fileName) {
     cellHTML: false,
     cellText: true,
     dense: false,
-    sheets: ["Clean_Data", "Clean_Data_Cor"]
+    sheets: ["Clean_Data", "Clean_Data_Cor", "Data_Labels"]
   });
   state.sheets = ["Clean_Data", "Clean_Data_Cor"].filter((name) => state.workbook.Sheets[name]);
+  state.dataLabels = parseDataLabels(readWorkbookSheet(state.workbook, "Data_Labels"));
   const sourceName = chooseCleanSource(state.sheets);
   refreshSourceSelect(sourceName);
   await selectSource(sourceName);
@@ -221,6 +250,7 @@ async function selectSource(sheetName) {
   state.lastTrend = null;
   state.lastCorrelation = null;
   state.lastAssessment = null;
+  state.newLotImport = null;
   renderCurrentData();
   setStatus(`loaded: ${formatInteger(dataRows().length)} data rows, ${formatInteger(state.parameters.length)} parameters.`, false, true);
 }
@@ -248,6 +278,213 @@ function readWorkbookSheet(workbook, sheetName) {
   const trimmed = table.map((row) => normalizeRow(row)).filter((row) => !isEmptyRow(row));
   const width = trimmed.reduce((max, row) => Math.max(max, row.length), 0);
   return trimmed.map((row) => normalizeRow(row, width));
+}
+
+async function openNewLotWorkbook(file) {
+  if (!file) return;
+  if (!state.originalData) throw new Error("Open the workbook that contains Auswertung first.");
+  setStatus(`Checking ${file.name}...`);
+  await yieldToBrowser();
+  const XLSX = getXlsx();
+  const importData = await file.arrayBuffer();
+  const importWorkbook = XLSX.read(importData, {
+    type: "array",
+    cellDates: true,
+    cellFormula: true,
+    cellHTML: false,
+    cellText: true,
+    dense: false
+  });
+  const sourceSheet = ["Auswertung", ...importWorkbook.SheetNames.filter((name) => name !== "Auswertung")]
+    .find((name) => findRawHeaderRow(readWorkbookSheet(importWorkbook, name)));
+  if (!sourceSheet) throw new Error("The new-lot workbook has no sheet with ChargenNr and Nummer headers.");
+  const importTable = readWorkbookSheet(importWorkbook, sourceSheet);
+  const existingTable = readAuswertungTable(state.originalData);
+  const preview = mergeAuswertungTables(existingTable, importTable);
+  state.newLotImport = { fileName: file.name, sourceSheet, importTable, preview };
+  renderMergePreview();
+  byId("merge-new-lots").disabled = Boolean(preview.missingHeaders.length || !preview.addedRows);
+  if (preview.missingHeaders.length) {
+    setStatus(`New-lot workbook is missing ${preview.missingHeaders.length} Auswertung headers.`, true);
+  } else {
+    setStatus(
+      `${file.name}: ${formatInteger(preview.addedRows)} new rows ready, ${formatInteger(preview.duplicateRows)} duplicates skipped.`,
+      false,
+      true
+    );
+  }
+}
+
+function readAuswertungTable(data) {
+  const XLSX = getXlsx();
+  const workbook = XLSX.read(data.slice(0), {
+    type: "array",
+    cellDates: true,
+    cellFormula: true,
+    cellHTML: false,
+    cellText: true,
+    dense: false,
+    sheets: ["Auswertung"]
+  });
+  const table = readWorkbookSheet(workbook, "Auswertung");
+  if (!table.length) throw new Error("The current workbook does not contain a readable Auswertung sheet.");
+  return table;
+}
+
+function renderMergePreview() {
+  const container = byId("merge-preview");
+  if (!state.newLotImport) {
+    container.innerHTML = '<p class="empty-state">No new-lot workbook selected.</p>';
+    byId("merge-new-lots").disabled = true;
+    return;
+  }
+  const current = state.newLotImport;
+  const result = current.preview;
+  const warning = result.missingHeaders.length
+    ? `<p class="merge-warning">Missing headers: ${escapeHtml(result.missingHeaders.join(", "))}</p>`
+    : "";
+  container.innerHTML = `
+    <div class="metric-grid">
+      ${metric("File", current.fileName)}
+      ${metric("Source sheet", current.sourceSheet)}
+      ${metric("Rows to add", formatInteger(result.addedRows))}
+      ${metric("New lots", formatInteger(result.lots.length))}
+      ${metric("Duplicates", formatInteger(result.duplicateRows))}
+      ${metric("Incomplete", formatInteger(result.incompleteRows))}
+    </div>
+    ${warning}
+    ${result.lots.length ? `<div class="table-wrap compact-table">${renderTable([
+      ["New lots"],
+      ...result.lots.map((lot) => [lot])
+    ])}</div>` : ""}
+  `;
+}
+
+async function mergeNewLots() {
+  if (!state.newLotImport) throw new Error("Choose a new-lot workbook first.");
+  if (state.newLotImport.preview.missingHeaders.length) throw new Error("The new-lot workbook is missing required Auswertung headers.");
+  const fileName = writableWorkbookName();
+  const saveHandle = await requestWorkbookSaveHandle(fileName);
+  setStatus("Merging Auswertung and rebuilding Clean_Data and Summary...");
+  await yieldToBrowser();
+  const XLSX = getXlsx();
+  const workbook = XLSX.read(state.originalData.slice(0), {
+    type: "array",
+    cellDates: true,
+    cellFormula: true,
+    cellHTML: false,
+    cellText: true,
+    cellStyles: true,
+    bookVBA: true,
+    dense: false
+  });
+  const existingTable = readWorkbookSheet(workbook, "Auswertung");
+  const merged = mergeAuswertungTables(existingTable, state.newLotImport.importTable);
+  if (!merged.addedRows) throw new Error("No new rows remain to merge.");
+  appendWorkbookRows(workbook.Sheets.Auswertung, merged.appendedRows);
+
+  const preserved = classificationMaps(state.headers, dataRows());
+  const clean = buildCleanDataFromAuswertung(merged.table, {
+    classificationByLot: state.lotClassifications,
+    classificationByKey: preserved.byKey
+  });
+  replaceWorkbookSheet(workbook, "Clean_Data", [clean.headers, ...clean.rows]);
+  const summary = buildFullSummary(clean.headers, clean.rows);
+  replaceWorkbookSheet(workbook, "Summary", [summary.headers, ...summary.rows]);
+  writeDataLabelsToWorkbook(workbook, clean.headers, clean.rows);
+
+  const bytes = XLSX.write(workbook, {
+    type: "array",
+    bookType: workbookBookType(fileName),
+    bookVBA: /\.xlsm$/i.test(fileName),
+    cellDates: true,
+    cellStyles: true,
+    compression: true
+  });
+  const saveMode = await saveWorkbookBytes(bytes, fileName, saveHandle);
+  byId("new-lot-file").value = "";
+  await parseWorkbook(bytes, fileName);
+  openPanel("merge-panel");
+  setStatus(
+    `${formatInteger(merged.addedRows)} rows merged into ${fileName}. ${saveMode === "direct" ? "Workbook replaced." : "Confirm Replace in Files."}`,
+    false,
+    true
+  );
+}
+
+function replaceWorkbookSheet(workbook, name, rows) {
+  const XLSX = getXlsx();
+  workbook.Sheets[name] = XLSX.utils.aoa_to_sheet(rows, { cellDates: true });
+  if (!workbook.SheetNames.includes(name)) workbook.SheetNames.push(name);
+}
+
+function appendWorkbookRows(sheet, rows) {
+  if (!sheet || !rows.length) return;
+  const XLSX = getXlsx();
+  const range = sheet["!ref"] ? XLSX.utils.decode_range(sheet["!ref"]) : { s: { r: 0, c: 0 }, e: { r: -1, c: 0 } };
+  let lastValueRow = range.e.r;
+  while (lastValueRow >= range.s.r) {
+    const hasValue = Array.from({ length: range.e.c - range.s.c + 1 }, (_, offset) => range.s.c + offset)
+      .some((column) => text(sheet[XLSX.utils.encode_cell({ r: lastValueRow, c: column })]?.v) !== "");
+    if (hasValue) break;
+    lastValueRow -= 1;
+  }
+  XLSX.utils.sheet_add_aoa(sheet, rows, { origin: { r: lastValueRow + 1, c: 0 }, cellDates: true });
+}
+
+async function requestWorkbookSaveHandle(fileName) {
+  if (typeof window.showSaveFilePicker !== "function") return null;
+  try {
+    return await window.showSaveFilePicker({
+      suggestedName: fileName,
+      types: [{
+        description: "Excel workbook",
+        accept: { [workbookMime(fileName)]: [fileExtension(fileName)] }
+      }]
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("Workbook save was cancelled.");
+    throw error;
+  }
+}
+
+async function saveWorkbookBytes(bytes, fileName, handle) {
+  if (handle) {
+    const writable = await handle.createWritable();
+    await writable.write(bytes);
+    await writable.close();
+    return "direct";
+  }
+  const file = new File([bytes], fileName, { type: workbookMime(fileName) });
+  if (navigator.share && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: fileName });
+      return "share";
+    } catch (error) {
+      if (error?.name === "AbortError") throw new Error("Workbook save was cancelled.");
+    }
+  }
+  downloadBlob(fileName, file);
+  return "download";
+}
+
+function writableWorkbookName() {
+  const name = state.workbookName || "IPW_Analysis.xlsx";
+  return /\.(?:xlsx|xlsm)$/i.test(name) ? name : name.replace(/\.[^.]+$/, "") + ".xlsx";
+}
+
+function workbookBookType(fileName) {
+  return /\.xlsm$/i.test(fileName) ? "xlsm" : "xlsx";
+}
+
+function workbookMime(fileName) {
+  return /\.xlsm$/i.test(fileName)
+    ? "application/vnd.ms-excel.sheet.macroEnabled.12"
+    : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+}
+
+function fileExtension(fileName) {
+  return /\.xlsm$/i.test(fileName) ? ".xlsm" : ".xlsx";
 }
 
 async function buildCleanData() {
@@ -381,11 +618,277 @@ function syncCorrectionInputs() {
   byId("reference-humidity").disabled = !enabled;
 }
 
+function renderLabelParameterChoices() {
+  const container = byId("label-parameters");
+  container.replaceChildren();
+  for (const parameter of state.parameters) {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    const caption = document.createElement("span");
+    input.type = "checkbox";
+    input.value = parameter;
+    input.disabled = !state.headers.length;
+    caption.textContent = parameter;
+    label.append(input, caption);
+    container.append(label);
+  }
+}
+
+function syncLabelBatches() {
+  if (!state.headers.length) return;
+  const lotColumn = headerIndex(state.headers, "Lot");
+  const batchColumn = headerIndex(state.headers, "N");
+  const lot = byId("label-lot").value;
+  const batches = new Set();
+  for (const row of dataRows()) {
+    if (sameDataValue(row[lotColumn], lot) && text(row[batchColumn])) batches.add(text(row[batchColumn]));
+  }
+  const values = [...batches].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const previous = byId("label-batch").value;
+  fillSelect(byId("label-batch"), values, values.includes(previous) ? previous : values[0]);
+  byId("label-batch").disabled = !values.length;
+  byId("save-data-label").disabled = !values.length;
+}
+
+function syncLabelEditor() {
+  if (!state.headers.length) return;
+  const existing = selectedDataLabel();
+  const selected = new Set(existing?.parameters || []);
+  byId("label-parameters").querySelectorAll("input").forEach((input) => {
+    input.checked = selected.has(input.value);
+  });
+  byId("label-text").value = existing?.label || "";
+  byId("label-comment").value = existing?.comment || "";
+  byId("label-notes").value = existing?.notes || "";
+  byId("remove-data-label").disabled = !existing;
+  renderLabelSelectionPreview();
+}
+
+function selectedDataLabel() {
+  return findDataLabel(
+    state.dataLabels,
+    byId("label-lot").value,
+    byId("label-batch").value,
+    Number(byId("label-zone").value)
+  );
+}
+
+function selectedLabelParameters() {
+  return [...byId("label-parameters").querySelectorAll("input:checked")].map((input) => input.value);
+}
+
+function renderLabelSelectionPreview() {
+  const container = byId("label-selection-preview");
+  if (!state.headers.length || !byId("label-batch").value) {
+    container.innerHTML = '<p class="empty-state">No batch selected.</p>';
+    return;
+  }
+  const lot = byId("label-lot").value;
+  const batch = byId("label-batch").value;
+  const zone = Number(byId("label-zone").value);
+  const lotColumn = headerIndex(state.headers, "Lot");
+  const batchColumn = headerIndex(state.headers, "N");
+  const row = dataRows().find((item) => sameDataValue(item[lotColumn], lot) && sameDataValue(item[batchColumn], batch));
+  const parameters = selectedLabelParameters();
+  const values = parameters.map((parameter) => {
+    const column = zoneColumns(state.headers, parameter)?.[zone - 1] ?? -1;
+    return [parameter, column >= 0 ? row?.[column] : ""];
+  });
+  container.innerHTML = `
+    <div class="metric-grid">
+      ${metric("Lot", lot)}
+      ${metric("Batch N", batch)}
+      ${metric("Zone", zone)}
+      ${metric("Saved", selectedDataLabel() ? "Yes" : "No")}
+    </div>
+    ${values.length ? `<div class="table-wrap compact-table">${renderTable([
+      ["Parameter", `Zone ${zone} value`],
+      ...values
+    ])}</div>` : ""}
+  `;
+}
+
+function renderDataLabelsTable() {
+  const container = byId("data-labels-table");
+  if (!state.dataLabels.length) {
+    container.innerHTML = '<p class="empty-state">No saved labels.</p>';
+    return;
+  }
+  container.innerHTML = renderTable([
+    ["Lot", "Batch N", "Zone", "Parameters", "Values", "Label", "Comment", "Notes", "Updated"],
+    ...state.dataLabels.map((item) => [
+      item.lot,
+      item.batch,
+      `Zone ${item.zone}`,
+      item.parameters.join(", "),
+      item.valuesText,
+      item.label,
+      item.comment,
+      item.notes,
+      formatDateTime(item.updated)
+    ])
+  ]);
+}
+
+async function saveDataLabel() {
+  const previous = state.dataLabels;
+  const label = buildDataLabel(state.headers, dataRows(), {
+    lot: byId("label-lot").value,
+    batch: byId("label-batch").value,
+    zone: byId("label-zone").value,
+    parameters: selectedLabelParameters(),
+    label: byId("label-text").value,
+    comment: byId("label-comment").value,
+    notes: byId("label-notes").value
+  });
+  state.dataLabels = upsertDataLabel(state.dataLabels, label);
+  try {
+    const saveMode = await saveLabelsToCurrentWorkbook();
+    renderDataLabelsTable();
+    renderPreviewTable();
+    syncLabelEditor();
+    setStatus(
+      `Label saved in ${writableWorkbookName()}. ${saveMode === "direct" ? "Workbook replaced." : "Confirm Replace in Files."}`,
+      false,
+      true
+    );
+  } catch (error) {
+    state.dataLabels = previous;
+    syncLabelEditor();
+    renderDataLabelsTable();
+    throw error;
+  }
+}
+
+async function removeSelectedDataLabel() {
+  const existing = selectedDataLabel();
+  if (!existing) throw new Error("No saved label matches that Lot, Batch N, and Zone.");
+  const previous = state.dataLabels;
+  state.dataLabels = removeDataLabel(state.dataLabels, existing.lot, existing.batch, existing.zone);
+  try {
+    const saveMode = await saveLabelsToCurrentWorkbook();
+    renderDataLabelsTable();
+    renderPreviewTable();
+    syncLabelEditor();
+    setStatus(
+      `Label removed from ${writableWorkbookName()}. ${saveMode === "direct" ? "Workbook replaced." : "Confirm Replace in Files."}`,
+      false,
+      true
+    );
+  } catch (error) {
+    state.dataLabels = previous;
+    syncLabelEditor();
+    renderDataLabelsTable();
+    throw error;
+  }
+}
+
+async function saveLabelsToCurrentWorkbook() {
+  const fileName = writableWorkbookName();
+  const saveHandle = await requestWorkbookSaveHandle(fileName);
+  setStatus("Saving labels and highlighted values...");
+  await yieldToBrowser();
+  const XLSX = getXlsx();
+  const workbook = XLSX.read(state.originalData.slice(0), {
+    type: "array",
+    cellDates: true,
+    cellFormula: true,
+    cellHTML: false,
+    cellText: true,
+    cellStyles: true,
+    bookVBA: true,
+    dense: false
+  });
+  writeDataLabelsToWorkbook(workbook, state.headers, dataRows());
+  const bytes = XLSX.write(workbook, {
+    type: "array",
+    bookType: workbookBookType(fileName),
+    bookVBA: /\.xlsm$/i.test(fileName),
+    cellDates: true,
+    cellStyles: true,
+    compression: true
+  });
+  const saveMode = await saveWorkbookBytes(bytes, fileName, saveHandle);
+  state.originalData = bytes.slice(0);
+  return saveMode;
+}
+
+function writeDataLabelsToWorkbook(workbook, fallbackHeaders, fallbackRows) {
+  const cleanTable = readWorkbookSheet(workbook, "Clean_Data");
+  const cleanHeader = findZonedHeaderRow(cleanTable);
+  const headers = cleanHeader?.headers || fallbackHeaders;
+  const rows = cleanHeader
+    ? normalizeRows(cleanTable.slice(cleanHeader.index + 1), headers.length).filter((row) => isDataRow(headers, row))
+    : fallbackRows;
+  replaceWorkbookSheet(workbook, "Data_Labels", buildDataLabelsTable(state.dataLabels));
+  replaceWorkbookSheet(workbook, "Data_Label_Values", buildDataLabelValuesTable(headers, rows, state.dataLabels));
+  styleDataLabelsInSheet(workbook, "Clean_Data");
+  styleDataLabelsInSheet(workbook, "Clean_Data_Cor");
+}
+
+function styleDataLabelsInSheet(workbook, sheetName) {
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) return;
+  clearAppCellComments(sheet);
+  if (!state.dataLabels.length) return;
+  const table = readWorkbookSheet(workbook, sheetName);
+  const headerRow = findZonedHeaderRow(table);
+  if (!headerRow) return;
+  const headers = headerRow.headers;
+  const rows = normalizeRows(table.slice(headerRow.index + 1), headers.length);
+  for (const item of state.dataLabels) {
+    for (const coordinate of dataLabelCellCoordinates(headers, rows, [item])) {
+      styleWorkbookCell(sheet, headerRow.index + 1 + coordinate.row, coordinate.column, item);
+    }
+  }
+}
+
+function clearAppCellComments(sheet) {
+  for (const [address, cell] of Object.entries(sheet)) {
+    if (address.startsWith("!") || !cell?.c) continue;
+    cell.c = cell.c.filter((comment) => comment.a !== "IPW Analysis");
+    if (!cell.c.length) delete cell.c;
+  }
+}
+
+function styleWorkbookCell(sheet, row, column, item) {
+  if (row < 0 || column < 0) return;
+  const XLSX = getXlsx();
+  const address = XLSX.utils.encode_cell({ r: row, c: column });
+  const cell = sheet[address];
+  if (!cell) return;
+  cell.s = {
+    ...(cell.s || {}),
+    fill: { patternType: "solid", fgColor: { rgb: "FFFF6666" } },
+    font: { ...(cell.s?.font || {}), bold: true }
+  };
+  const details = [
+    "[IPW LABEL]",
+    `Lot: ${text(item.lot)}`,
+    `Batch N: ${text(item.batch)}`,
+    `Zone: ${item.zone}`,
+    `Parameters: ${item.parameters.join(", ")}`,
+    ...(item.label ? [`Label: ${item.label}`] : []),
+    ...(item.comment ? [`Comment: ${item.comment}`] : []),
+    ...(item.notes ? [`Notes: ${item.notes}`] : []),
+    ...(item.updated ? [`Updated: ${formatDateTime(item.updated)}`] : [])
+  ].join("\n");
+  const existing = cell.c?.find((comment) => comment.a === "IPW Analysis");
+  if (existing) existing.t += `\n\n${details}`;
+  else cell.c = [...(cell.c || []), { a: "IPW Analysis", t: details }];
+}
+
+function sameDataValue(first, second) {
+  if (isNumeric(first) && isNumeric(second)) return number(first) === number(second);
+  return text(first).toUpperCase() === text(second).toUpperCase();
+}
+
 function populateWorkbookControls() {
   const parameter = state.parameters[0];
   const secondParameter = state.parameters[1] || state.parameters[0];
   fillSelect(byId("type-filter"), [ALL, ...state.types], ALL, (value) => value === ALL ? "All types" : value);
   fillSelect(byId("classification-lot"), state.lots, byId("classification-lot").value || state.lots[0]);
+  fillSelect(byId("label-lot"), state.lots, byId("label-lot").value || state.lots[0]);
   [
     "summary-parameter",
     "generated-summary-parameter",
@@ -406,9 +909,17 @@ function populateWorkbookControls() {
     "reference-temperature",
     "reference-humidity",
     "build-clean-data",
+    "new-lot-file",
     "classification-lot",
     "classification-value",
     "apply-classification",
+    "label-lot",
+    "label-batch",
+    "label-zone",
+    "label-text",
+    "label-comment",
+    "label-notes",
+    "save-data-label",
     "summary-parameter",
     "gaussian-data-scope",
     "gaussian-parameter",
@@ -457,6 +968,10 @@ function populateWorkbookControls() {
   syncFilterSelections();
   renderFilterOptions();
   syncAssessmentLots();
+  renderLabelParameterChoices();
+  syncLabelBatches();
+  syncLabelEditor();
+  renderDataLabelsTable();
 }
 
 function renderCurrentData() {
@@ -466,6 +981,9 @@ function renderCurrentData() {
   renderSummaryTable();
   renderPreviewTable();
   renderClassificationTable();
+  renderMergePreview();
+  renderDataLabelsTable();
+  renderLabelSelectionPreview();
   renderBuildResult();
   renderGeneratedSummaryTable();
   clearResult("gaussian-result");
@@ -648,8 +1166,36 @@ function renderSummaryTable() {
 function renderPreviewTable() {
   const rows = filteredRows().slice(0, PREVIEW_ROWS);
   const headers = state.headers.slice(0, PREVIEW_COLUMNS);
-  const body = rows.map((row) => row.slice(0, PREVIEW_COLUMNS));
-  byId("preview-table").innerHTML = renderTable([headers, ...body], { empty: "No data rows." });
+  if (!rows.length) {
+    byId("preview-table").innerHTML = '<p class="empty-state">No data rows.</p>';
+    return;
+  }
+  byId("preview-table").innerHTML = `
+    <table>
+      <thead><tr>${headers.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((row) => `<tr>${headers.map((_, index) => {
+        const className = previewCellIsLabeled(row, index) ? ' class="labeled-cell"' : "";
+        return `<td${className}>${formatCell(row[index])}</td>`;
+      }).join("")}</tr>`).join("")}</tbody>
+    </table>
+  `;
+}
+
+function previewCellIsLabeled(row, column) {
+  if (!state.dataLabels.length) return false;
+  const lotColumn = headerIndex(state.headers, "Lot");
+  const batchColumn = headerIndex(state.headers, "N");
+  const labels = state.dataLabels.filter((item) =>
+    sameDataValue(row[lotColumn], item.lot) && sameDataValue(row[batchColumn], item.batch)
+  );
+  if (!labels.length) return false;
+  if (column === lotColumn || column === batchColumn) return true;
+  const match = text(state.headers[column]).match(/^(.+)_([1-6])$/);
+  if (!match) return false;
+  const parameter = match[1].toUpperCase();
+  const zone = Number(match[2]);
+  return labels.some((item) => item.zone === zone &&
+    item.parameters.some((value) => text(value).toUpperCase() === parameter));
 }
 
 function buildSummaryRows(parameter) {
@@ -1160,7 +1706,8 @@ function downloadAnalysisWorkbook() {
       ...assessment.grid.map((row) => [row.batch, ...assessment.availableZones.map((zone) => row.values[zone - 1])])
     ]);
   }
-  XLSX.writeFile(workbook, `${baseFileName()}_analysis.xlsx`);
+  writeDataLabelsToWorkbook(workbook, state.headers, exportRows);
+  XLSX.writeFile(workbook, `${baseFileName()}_analysis.xlsx`, { cellStyles: true });
 }
 
 function appendSheet(workbook, name, rows) {
@@ -1650,6 +2197,9 @@ function drawEmptyState() {
   byId("build-result").innerHTML = `<p class="empty-state">No generated data.</p>`;
   byId("generated-summary-table").innerHTML = `<p class="empty-state">No generated summary.</p>`;
   byId("classification-table").innerHTML = `<p class="empty-state">No lots.</p>`;
+  byId("merge-preview").innerHTML = `<p class="empty-state">No new-lot workbook selected.</p>`;
+  byId("data-labels-table").innerHTML = `<p class="empty-state">No saved labels.</p>`;
+  byId("label-selection-preview").innerHTML = `<p class="empty-state">No workbook loaded.</p>`;
 }
 
 function openPanel(panelId) {
@@ -1765,7 +2315,10 @@ function csvCell(value) {
 }
 
 function downloadText(fileName, content, type) {
-  const blob = new Blob([content], { type });
+  downloadBlob(fileName, new Blob([content], { type }));
+}
+
+function downloadBlob(fileName, blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -1835,6 +2388,10 @@ async function runAction(action) {
       }
     });
     byId("save-gaussian-snapshot").disabled = !state.lastGaussian;
+    const merge = state.newLotImport?.preview;
+    byId("merge-new-lots").disabled = !merge || Boolean(merge.missingHeaders.length || !merge.addedRows);
+    byId("save-data-label").disabled = !state.headers.length || !byId("label-batch").value;
+    byId("remove-data-label").disabled = !selectedDataLabel();
   }
 }
 

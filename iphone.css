@@ -31,15 +31,21 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
 button,
 label,
 select,
-input {
+input,
+textarea {
   -webkit-tap-highlight-color: transparent;
+}
+
+textarea {
+  resize: vertical;
 }
 
 h1,
@@ -101,6 +107,34 @@ h2 {
   width: 100%;
   min-height: 100%;
   opacity: 0;
+}
+
+.upload-button {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 48px;
+  place-items: center;
+  border: 1px solid var(--blue);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--blue-dark);
+  cursor: pointer;
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.upload-button input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 100%;
+  opacity: 0;
+}
+
+.upload-button:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 .source-strip {
@@ -189,8 +223,13 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.parameter-choice-grid {
+  max-height: 230px;
+}
+
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-height: 44px;
   padding: 8px 9px;
@@ -202,6 +241,7 @@ select {
 
 input:disabled,
 select:disabled,
+textarea:disabled,
 button:disabled {
   cursor: not-allowed;
   opacity: 0.52;
@@ -209,6 +249,7 @@ button:disabled {
 
 input:focus,
 select:focus,
+textarea:focus,
 button:focus {
   outline: 3px solid #b9d9ea;
   outline-offset: 1px;
@@ -490,6 +531,21 @@ tr:last-child td {
 .snapshot-table table,
 .bias-table table {
   min-width: 100%;
+}
+
+.label-text-grid textarea {
+  min-height: 76px;
+}
+
+.labeled-cell {
+  background: #ffb0aa;
+  color: #78120d;
+  font-weight: 700;
+}
+
+.merge-warning {
+  color: var(--red);
+  font-weight: 700;
 }
 
 .status-ok {
