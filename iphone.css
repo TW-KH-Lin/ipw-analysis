@@ -548,6 +548,23 @@ tr:last-child td {
   font-weight: 700;
 }
 
+.mapping-result {
+  margin: 10px 0 0;
+  padding: 9px 10px;
+  border: 1px solid #a9d3ba;
+  border-radius: 6px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mapping-result.is-error {
+  border-color: #efb1ac;
+  background: var(--red-soft);
+  color: var(--red);
+}
+
 .status-ok {
   background: var(--green-soft);
   color: var(--green);

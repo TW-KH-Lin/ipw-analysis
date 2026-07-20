@@ -1,5 +1,36 @@
 import { getRegionalParameters, headerIndex, isNumeric, number, text, zoneColumns } from "./analysis.js?v=12";
 
+const MASTER_ROLL_ZONE_ENDS = {
+  9: {
+    25: [7, 14, 21, 28, 35, 42],
+    20: [8, 17, 25, 34, 42, 51],
+    18: [9, 19, 28, 38, 47, 57]
+  },
+  10: {
+    25: [7, 15, 22, 30, 37, 45],
+    20: [9, 19, 28, 38, 47, 57]
+  },
+  17: {
+    25: [10, 20, 30, 40, 50, 60]
+  }
+};
+
+export function getMasterRollWidths(machineId) {
+  const widths = MASTER_ROLL_ZONE_ENDS[Number(machineId)];
+  return widths ? Object.keys(widths).map(Number).sort((a, b) => b - a) : [];
+}
+
+export function getMasterRollZone(machineId, rollWidth, rollNo) {
+  const machine = MASTER_ROLL_ZONE_ENDS[Number(machineId)];
+  if (!machine) return "Unknown Machine";
+  const zoneEnds = machine[Number(rollWidth)];
+  if (!zoneEnds) return "Invalid Width";
+  const roll = Number(rollNo);
+  if (!Number.isInteger(roll) || roll < 1) return "Invalid Roll";
+  const zoneIndex = zoneEnds.findIndex((end) => roll <= end);
+  return zoneIndex >= 0 ? `Zone ${zoneIndex + 1}` : "Invalid Roll";
+}
+
 export function findRawHeaderRow(table) {
   const index = table.slice(0, 30).findIndex((row) =>
     rawHeaderIndex(row, "ChargenNr") >= 0 && rawHeaderIndex(row, "Nummer") >= 0

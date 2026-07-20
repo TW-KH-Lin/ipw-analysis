@@ -32,11 +32,13 @@ import {
   dataLabelCellCoordinates,
   findDataLabel,
   findRawHeaderRow,
+  getMasterRollWidths,
+  getMasterRollZone,
   mergeAuswertungTables,
   parseDataLabels,
   removeDataLabel,
   upsertDataLabel
-} from "./data-management.js?v=3";
+} from "./data-management.js?v=4";
 
 const state = {
   workbook: null,
@@ -135,6 +137,9 @@ function bindEvents() {
   });
   byId("label-batch").addEventListener("change", syncLabelEditor);
   byId("label-zone").addEventListener("change", syncLabelEditor);
+  byId("label-machine").addEventListener("change", syncMasterRollControls);
+  byId("label-roll-width").addEventListener("change", updateMasterRollZone);
+  byId("label-roll-number").addEventListener("input", updateMasterRollZone);
   byId("label-parameters").addEventListener("change", renderLabelSelectionPreview);
   byId("save-data-label").addEventListener("click", () => runAction(saveDataLabel));
   byId("remove-data-label").addEventListener("click", () => runAction(removeSelectedDataLabel));
@@ -678,7 +683,83 @@ function syncLabelBatches() {
   const previous = byId("label-batch").value;
   fillSelect(byId("label-batch"), values, values.includes(previous) ? previous : values[0]);
   byId("label-batch").disabled = !values.length;
-  byId("save-data-label").disabled = !values.length;
+  updateLabelActionState();
+}
+
+function syncMasterRollControls() {
+  const machine = byId("label-machine").value;
+  const widthSelect = byId("label-roll-width");
+  const rollInput = byId("label-roll-number");
+  const automatic = Boolean(machine);
+  if (!automatic) {
+    widthSelect.replaceChildren();
+    widthSelect.disabled = true;
+    rollInput.disabled = true;
+    byId("label-zone").disabled = !state.headers.length;
+    byId("master-roll-result").hidden = true;
+    updateLabelActionState();
+    renderLabelSelectionPreview();
+    return;
+  }
+  const widths = getMasterRollWidths(machine).map(String);
+  const previous = widthSelect.value;
+  fillSelect(widthSelect, widths, widths.includes(previous) ? previous : widths[0]);
+  widthSelect.disabled = false;
+  rollInput.disabled = false;
+  byId("label-zone").disabled = true;
+  updateMasterRollZone();
+}
+
+function currentMasterRollMapping() {
+  const machine = byId("label-machine").value;
+  if (!machine) {
+    return { automatic: false, valid: true, zone: Number(byId("label-zone").value), result: "" };
+  }
+  const width = byId("label-roll-width").value;
+  const roll = byId("label-roll-number").value.trim();
+  const result = roll ? getMasterRollZone(machine, width, roll) : "";
+  const match = result.match(/^Zone ([1-6])$/);
+  return {
+    automatic: true,
+    valid: Boolean(match),
+    machine,
+    width,
+    roll,
+    zone: match ? Number(match[1]) : null,
+    result
+  };
+}
+
+function updateMasterRollZone() {
+  const mapping = currentMasterRollMapping();
+  const output = byId("master-roll-result");
+  if (!mapping.automatic || !mapping.roll) {
+    output.hidden = true;
+    updateLabelActionState();
+    return;
+  }
+  output.hidden = false;
+  output.classList.toggle("is-error", !mapping.valid);
+  if (!mapping.valid) {
+    output.textContent = mapping.result === "Invalid Width"
+      ? "This roll width is not available for the selected machine."
+      : "This roll number is outside the valid range for the selected machine and width.";
+    updateLabelActionState();
+    return;
+  }
+  const previousZone = Number(byId("label-zone").value);
+  byId("label-zone").value = String(mapping.zone);
+  output.textContent = `Machine ${mapping.machine}, width ${mapping.width}, roll ${mapping.roll}: Zone ${mapping.zone}.`;
+  updateLabelActionState();
+  if (mapping.zone !== previousZone) syncLabelEditor();
+  else renderLabelSelectionPreview();
+}
+
+function updateLabelActionState() {
+  const mapping = currentMasterRollMapping();
+  const ready = Boolean(state.headers.length && byId("label-batch").value && mapping.valid);
+  byId("save-data-label").disabled = !ready;
+  byId("remove-data-label").disabled = !ready || !selectedDataLabel();
 }
 
 function syncLabelEditor() {
@@ -691,7 +772,7 @@ function syncLabelEditor() {
   byId("label-text").value = existing?.label || "";
   byId("label-comment").value = existing?.comment || "";
   byId("label-notes").value = existing?.notes || "";
-  byId("remove-data-label").disabled = !existing;
+  updateLabelActionState();
   renderLabelSelectionPreview();
 }
 
@@ -721,6 +802,7 @@ function renderLabelSelectionPreview() {
   const batchColumn = headerIndex(state.headers, "N");
   const row = dataRows().find((item) => sameDataValue(item[lotColumn], lot) && sameDataValue(item[batchColumn], batch));
   const parameters = selectedLabelParameters();
+  const mapping = currentMasterRollMapping();
   const values = parameters.map((parameter) => {
     const column = zoneColumns(state.headers, parameter)?.[zone - 1] ?? -1;
     return [parameter, column >= 0 ? row?.[column] : ""];
@@ -731,6 +813,7 @@ function renderLabelSelectionPreview() {
       ${metric("Batch N", batch)}
       ${metric("Zone", zone)}
       ${metric("Saved", selectedDataLabel() ? "Yes" : "No")}
+      ${mapping.automatic ? metric("Master roll", `${mapping.machine} / ${mapping.width} / ${mapping.roll || "-"}`) : ""}
     </div>
     ${values.length ? `<div class="table-wrap compact-table">${renderTable([
       ["Parameter", `Zone ${zone} value`],
@@ -762,6 +845,10 @@ function renderDataLabelsTable() {
 }
 
 async function saveDataLabel() {
+  const mapping = currentMasterRollMapping();
+  if (mapping.automatic && !mapping.valid) {
+    throw new Error("Enter a valid master roll number before saving the label.");
+  }
   const previous = state.dataLabels;
   const label = buildDataLabel(state.headers, dataRows(), {
     lot: byId("label-lot").value,
@@ -954,6 +1041,9 @@ function populateWorkbookControls() {
     "apply-classification",
     "label-lot",
     "label-batch",
+    "label-machine",
+    "label-roll-width",
+    "label-roll-number",
     "label-zone",
     "label-text",
     "label-comment",
@@ -1009,6 +1099,7 @@ function populateWorkbookControls() {
   syncAssessmentLots();
   renderLabelParameterChoices();
   syncLabelBatches();
+  syncMasterRollControls();
   syncLabelEditor();
   renderDataLabelsTable();
 }
@@ -2239,6 +2330,7 @@ function drawEmptyState() {
   byId("merge-preview").innerHTML = `<p class="empty-state">No new-lot workbook selected.</p>`;
   byId("data-labels-table").innerHTML = `<p class="empty-state">No saved labels.</p>`;
   byId("label-selection-preview").innerHTML = `<p class="empty-state">No workbook loaded.</p>`;
+  byId("master-roll-result").hidden = true;
 }
 
 function openPanel(panelId) {
@@ -2429,8 +2521,7 @@ async function runAction(action) {
     byId("save-gaussian-snapshot").disabled = !state.lastGaussian;
     const merge = state.newLotImport?.preview;
     byId("merge-new-lots").disabled = !merge || Boolean(merge.missingHeaders.length || !merge.addedRows);
-    byId("save-data-label").disabled = !state.headers.length || !byId("label-batch").value;
-    byId("remove-data-label").disabled = !selectedDataLabel();
+    updateLabelActionState();
   }
 }
 
