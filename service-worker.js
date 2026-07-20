@@ -1,9 +1,9 @@
-const CACHE_NAME = "ipw-analysis-v8";
+const CACHE_NAME = "ipw-analysis-v9";
 const APP_SHELL = [
   "./index.html",
   "./iphone.html",
   "./iphone.css?v=6",
-  "./iphone-app.js?v=35",
+  "./iphone-app.js?v=36",
   "./analysis.js?v=12",
   "./clean-data.js?v=1",
   "./data-management.js?v=4",
@@ -25,6 +25,10 @@ self.addEventListener("activate", (event) => {
       .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("fetch", (event) => {

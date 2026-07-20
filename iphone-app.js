@@ -97,9 +97,17 @@ function configureLocalWorkbookButton() {
 
 function registerOfflineApp() {
   if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
-  navigator.serviceWorker.register("./service-worker.js", { scope: "./" })
-    .then(() => {
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+  navigator.serviceWorker.register("./service-worker.js", { scope: "./", updateViaCache: "none" })
+    .then(async (registration) => {
       document.documentElement.dataset.offlineReady = "true";
+      await registration.update();
+      registration.waiting?.postMessage({ type: "SKIP_WAITING" });
     })
     .catch((error) => {
       console.warn("Offline cache registration failed.", error);
