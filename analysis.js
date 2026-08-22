@@ -702,7 +702,7 @@ export function buildLotAssessment(headers, rows, parameter, selectedLot, refere
   return { references, grid, availableZones, monitorCount, outOfRangeCount, noHistoryCount, overall };
 }
 
-export function buildCorrelation(headers, rows, xParameter, yParameter, scope, outlierMethod, removalPct) {
+export function buildCorrelation(headers, rows, xParameter, yParameter, scope, outlierMethod, removalValue) {
   const lotColumn = headerIndex(headers, "Lot");
   const batchColumn = headerIndex(headers, "N");
   const xZones = zoneColumns(headers, xParameter);
@@ -723,10 +723,13 @@ export function buildCorrelation(headers, rows, xParameter, yParameter, scope, o
     }
   }
   if (pairs.length < 3) throw new Error("At least three visible numeric pairs are required.");
-  if (outlierMethod === "ratio") removeRatioExtremes(pairs, removalPct);
+  if (outlierMethod === "ratio") removeRatioExtremes(pairs, removalValue);
+  else if (["x-largest", "x-smallest", "y-largest", "y-smallest"].includes(outlierMethod)) {
+    removeAxisExtremes(pairs, outlierMethod, removalValue);
+  }
   const included = pairs.filter((pair) => pair.included);
   if (included.length < 3) throw new Error("Too few pairs remain after extreme-pair removal.");
-  return { pairs, included, ...pearsonAndLine(included) };
+  return { pairs, included, totalN: pairs.length, excludedN: pairs.length - included.length, ...pearsonAndLine(included) };
 }
 
 function removeRatioExtremes(pairs, removalPct) {
@@ -736,7 +739,31 @@ function removeRatioExtremes(pairs, removalPct) {
   if (ratioPairs.length < 3) return;
   const center = median(ratioPairs.map((item) => item.ratio));
   ratioPairs.sort((a, b) => Math.abs(b.ratio - center) - Math.abs(a.ratio - center));
-  ratioPairs.slice(0, Math.min(maxRemove, ratioPairs.length - 3)).forEach((item) => { item.pair.included = false; });
+  ratioPairs.slice(0, Math.min(maxRemove, ratioPairs.length - 3)).forEach((item) => {
+    item.pair.included = false;
+    item.pair.exclusionReason = "Ratio extreme";
+  });
+}
+
+function removeAxisExtremes(pairs, method, removalValue) {
+  const count = Number(removalValue);
+  if (!Number.isInteger(count) || count < 0) throw new Error("Points to remove (N) must be a whole number of zero or more.");
+  if (count > pairs.length - 3) throw new Error(`Points to remove (N) must be ${pairs.length - 3} or fewer so at least three pairs remain.`);
+  if (!count) return;
+  const axis = method.startsWith("x-") ? "x" : "y";
+  const largest = method.endsWith("largest");
+  const label = `${largest ? "Largest" : "Smallest"} ${axis.toUpperCase()}`;
+  pairs
+    .map((pair, index) => ({ pair, index }))
+    .sort((left, right) => {
+      const difference = largest ? right.pair[axis] - left.pair[axis] : left.pair[axis] - right.pair[axis];
+      return difference || left.index - right.index;
+    })
+    .slice(0, count)
+    .forEach(({ pair }) => {
+      pair.included = false;
+      pair.exclusionReason = label;
+    });
 }
 
 function pearsonAndLine(pairs) {

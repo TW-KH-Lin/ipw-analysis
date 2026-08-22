@@ -18,7 +18,7 @@ import {
   recommendGaussianSettings,
   text,
   zoneColumns
-} from "./analysis.js?v=13";
+} from "./analysis.js?v=14";
 import {
   buildCleanDataFromAuswertung,
   buildFullSummary,
@@ -207,8 +207,20 @@ function bindEvents() {
   ["trend-parameter", "trend-start", "trend-end", "trend-window"].forEach((id) => {
     byId(id).addEventListener(id === "trend-parameter" ? "change" : "input", invalidateTrend);
   });
-  byId("correlation-y").addEventListener("change", syncCorrelationZones);
-  byId("correlation-x").addEventListener("change", syncCorrelationZones);
+  byId("correlation-y").addEventListener("change", () => {
+    syncCorrelationZones();
+    invalidateCorrelation();
+  });
+  byId("correlation-x").addEventListener("change", () => {
+    syncCorrelationZones();
+    invalidateCorrelation();
+  });
+  byId("correlation-scope").addEventListener("change", invalidateCorrelation);
+  byId("correlation-outliers").addEventListener("change", () => {
+    syncCorrelationRemovalInput();
+    invalidateCorrelation();
+  });
+  byId("correlation-removal").addEventListener("input", invalidateCorrelation);
   byId("export-parameter").addEventListener("change", () => {
     syncZoneChoices("export-zones", byId("export-parameter").value);
     renderExportNote();
@@ -1182,6 +1194,7 @@ function populateWorkbookControls() {
   syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
   syncZoneChoices("export-zones", byId("export-parameter").value);
   syncCorrelationZones();
+  syncCorrelationRemovalInput();
   syncCorrectionInputs();
   syncPeriodMode();
   syncClassificationInput();
@@ -1223,9 +1236,14 @@ function invalidateAnalyses() {
   invalidateGaussian();
   invalidateTrend();
   invalidatePeriod();
-  state.lastCorrelation = null;
+  invalidateCorrelation();
   invalidateAssessment();
   invalidateRelease();
+}
+
+function invalidateCorrelation() {
+  state.lastCorrelation = null;
+  clearResult("correlation-result");
 }
 
 function invalidateGaussian() {
@@ -2261,36 +2279,41 @@ function createCorrelation() {
   const xParameter = byId("correlation-x").value;
   if (xParameter === yParameter) throw new Error("Select two different parameters.");
   const scope = byId("correlation-data-scope").value;
+  const removalMethod = byId("correlation-outliers").value;
+  const removalValue = requiredNumber("correlation-removal");
   const result = buildCorrelation(
     state.headers,
     rowsForAnalysis("correlation-data-scope"),
     xParameter,
     yParameter,
     byId("correlation-scope").value,
-    byId("correlation-outliers").value,
-    requiredNumber("correlation-removal")
+    removalMethod,
+    removalValue
   );
-  state.lastCorrelation = { xParameter, yParameter, scope, result };
+  state.lastCorrelation = { xParameter, yParameter, scope, removalMethod, removalValue, result };
   renderCorrelationResult();
-  setStatus(`Correlation: ${formatInteger(result.rawN)} included pairs.`, false, true);
+  setStatus(`Correlation: ${formatInteger(result.rawN)} included, ${formatInteger(result.excludedN)} excluded.`, false, true);
 }
 
 function renderCorrelationResult() {
   const current = state.lastCorrelation;
   if (!current) return;
   const { result } = current;
-  const excluded = result.pairs.length - result.included.length;
+  const displayPairs = [
+    ...result.pairs.filter((pair) => !pair.included),
+    ...result.pairs.filter((pair) => pair.included)
+  ];
   byId("correlation-result").innerHTML = `
     <div class="metric-grid">
-      ${metric("Pairs", formatInteger(result.rawN))}
-      ${metric("Excluded", formatInteger(excluded))}
+      ${metric("Included", formatInteger(result.rawN))}
+      ${metric("Excluded", formatInteger(result.excludedN))}
       ${metric("Pearson r", formatNumber(result.r, 4))}
       ${metric("Slope", formatNumber(result.slope, 4))}
     </div>
     <div class="chart-card"><canvas id="correlation-chart" aria-label="Matched-zone correlation scatter plot"></canvas></div>
     <div class="table-wrap mini-table">${renderTable([
       ["Lot", "Batch N", "Zone", "X", "Y", "Status"],
-      ...result.pairs.slice(0, 80).map((pair) => [pair.lot, pair.batch, `Zone ${pair.zone}`, pair.x, pair.y, pair.included ? "Included" : "Excluded"])
+      ...displayPairs.slice(0, 80).map((pair) => [pair.lot, pair.batch, `Zone ${pair.zone}`, pair.x, pair.y, pair.included ? "Included" : `Excluded: ${pair.exclusionReason || "Extreme"}`])
     ])}</div>
   `;
   requestAnimationFrame(() => drawScatter(byId("correlation-chart"), current));
@@ -2428,13 +2451,16 @@ function downloadAnalysisWorkbook() {
       ["X parameter", xParameter],
       ["Y parameter", yParameter],
       ["Data scope", state.lastCorrelation.scope],
+      ["Pair removal", state.lastCorrelation.removalMethod],
+      ["Removal value", state.lastCorrelation.removalValue],
       ["Included pairs", result.rawN],
+      ["Excluded pairs", result.excludedN],
       ["Pearson r", result.r],
       ["Slope", result.slope],
       ["Intercept", result.intercept],
       [],
       ["Lot", "Batch N", "Zone", "X value", "Y value", "Status"],
-      ...result.pairs.map((pair) => [pair.lot, pair.batch, `Zone ${pair.zone}`, pair.x, pair.y, pair.included ? "Included" : "Excluded ratio extreme"])
+      ...result.pairs.map((pair) => [pair.lot, pair.batch, `Zone ${pair.zone}`, pair.x, pair.y, pair.included ? "Included" : `Excluded: ${pair.exclusionReason || "Extreme"}`])
     ]);
   }
   if (state.lastAssessment) {
@@ -2631,6 +2657,33 @@ function syncCorrelationZones() {
   if (byId("correlation-scope").selectedOptions[0]?.disabled) byId("correlation-scope").value = "all";
 }
 
+function syncCorrelationRemovalInput() {
+  const method = byId("correlation-outliers").value;
+  const input = byId("correlation-removal");
+  const label = byId("correlation-removal-label");
+  const previousKind = input.dataset.removalKind;
+  if (previousKind === "percent") input.dataset.percentValue = input.value;
+  if (previousKind === "count") input.dataset.countValue = input.value;
+  const kind = method === "ratio" ? "percent" : method === "keep" ? "none" : "count";
+  if (kind === "percent") {
+    label.textContent = "Maximum removal %";
+    input.min = "0";
+    input.max = "50";
+    input.step = "0.1";
+    input.inputMode = "decimal";
+    input.value = input.dataset.percentValue || "0.5";
+  } else {
+    label.textContent = kind === "count" ? "Points to remove (N)" : "Points to remove";
+    input.min = "0";
+    input.removeAttribute("max");
+    input.step = "1";
+    input.inputMode = "numeric";
+    if (kind === "count") input.value = input.dataset.countValue || "1";
+  }
+  input.disabled = kind === "none";
+  input.dataset.removalKind = kind;
+}
+
 function renderTable(rows, options = {}) {
   if (!rows.length || rows.length === 1 && rows[0].length === 0) {
     return `<p class="empty-state">${options.empty || "No rows."}</p>`;
@@ -2699,18 +2752,18 @@ function drawScatter(canvas, current) {
   const pad = { left: 44, right: 16, top: 16, bottom: 34 };
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
-  const valuesX = current.result.pairs.map((pair) => pair.x);
-  const valuesY = current.result.pairs.map((pair) => pair.y);
+  const valuesX = current.result.included.map((pair) => pair.x);
+  const valuesY = current.result.included.map((pair) => pair.y);
   const extentX = paddedExtent(valuesX);
   const extentY = paddedExtent(valuesY);
   const xScale = (value) => pad.left + (value - extentX.min) / (extentX.max - extentX.min) * plotWidth;
   const yScale = (value) => pad.top + plotHeight - (value - extentY.min) / (extentY.max - extentY.min) * plotHeight;
   ctx.clearRect(0, 0, width, height);
   drawFrame(ctx, pad, width, height, colors);
-  for (const pair of current.result.pairs) {
+  for (const pair of current.result.included) {
     ctx.beginPath();
-    ctx.arc(xScale(pair.x), yScale(pair.y), pair.included ? 3 : 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = pair.included ? colors.blue : colors.muted;
+    ctx.arc(xScale(pair.x), yScale(pair.y), 3, 0, Math.PI * 2);
+    ctx.fillStyle = colors.blue;
     ctx.fill();
   }
   if (Number.isFinite(current.result.slope) && Number.isFinite(current.result.intercept)) {

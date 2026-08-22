@@ -13,13 +13,13 @@
     <link rel="apple-touch-icon" href="icons/ipw-180.png">
     <link rel="stylesheet" href="iphone.css?v=9">
     <script defer src="vendor/xlsx.full.min.js"></script>
-    <script type="module" src="iphone-app.js?v=40"></script>
+    <script type="module" src="iphone-app.js?v=41"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW HTML v13</p>
+          <p class="eyebrow">IPW HTML v14</p>
           <h1>Analysis</h1>
         </div>
         <label class="file-button">
@@ -280,8 +280,8 @@
           <label>Y parameter<select id="correlation-y" disabled></select></label>
           <label>X parameter<select id="correlation-x" disabled></select></label>
           <label>Zone scope<select id="correlation-scope" disabled><option value="all">All matched Zones</option><option value="1">Zone 1</option><option value="2">Zone 2</option><option value="3">Zone 3</option><option value="4">Zone 4</option><option value="5">Zone 5</option><option value="6">Zone 6</option></select></label>
-          <label>Extreme pairs<select id="correlation-outliers" disabled><option value="keep">Keep all pairs</option><option value="ratio">Remove ratio extremes</option></select></label>
-          <label>Maximum removal %<input id="correlation-removal" inputmode="decimal" value="0.5" disabled></label>
+          <label>Pair removal<select id="correlation-outliers" disabled><option value="keep">Keep all pairs</option><option value="ratio">Remove ratio extremes</option><option value="x-largest">Remove largest X</option><option value="x-smallest">Remove smallest X</option><option value="y-largest">Remove largest Y</option><option value="y-smallest">Remove smallest Y</option></select></label>
+          <label><span id="correlation-removal-label">Maximum removal %</span><input id="correlation-removal" type="number" inputmode="decimal" min="0" max="50" step="0.1" value="0.5" disabled></label>
         </div>
         <button id="run-correlation" class="command primary" type="button" disabled>Run Correlation</button>
         <div id="correlation-result" class="result-block"></div>
