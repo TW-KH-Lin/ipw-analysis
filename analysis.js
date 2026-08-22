@@ -291,7 +291,7 @@ export function getTrendParameters(headers) {
   const regional = getRegionalParameters(headers).filter((parameter) =>
     zoneColumns(headers, parameter)?.every((index) => index >= 0)
   );
-  for (const scalarName of ["Visco.", "Water"]) {
+  for (const scalarName of ["Visco.", "Water", "Temp.", "Humidity"]) {
     const index = headerIndex(headers, scalarName);
     if (index >= 0 && !regional.includes(headers[index])) regional.push(headers[index]);
   }

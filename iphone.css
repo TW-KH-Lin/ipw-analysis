@@ -503,6 +503,42 @@ tr:last-child td {
   margin: 12px 0;
 }
 
+.period-chart-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.period-chart-card details {
+  margin-top: 10px;
+}
+
+.period-chart-card summary,
+.skipped-list summary {
+  min-height: 36px;
+  padding: 8px 0;
+  color: var(--blue-dark);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.chart-caption,
+.result-note,
+.skipped-list p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.skipped-list {
+  margin-bottom: 12px;
+}
+
+.release-table td:nth-child(2) {
+  font-weight: 700;
+}
+
 .chart-card h3 {
   margin: 0 0 8px;
   font-size: 14px;
@@ -643,6 +679,10 @@ tr:last-child td {
 
 
   .trend-chart-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .period-chart-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

@@ -18,7 +18,7 @@ import {
   recommendGaussianSettings,
   text,
   zoneColumns
-} from "./analysis.js?v=12";
+} from "./analysis.js?v=13";
 import {
   buildCleanDataFromAuswertung,
   buildFullSummary,
@@ -39,6 +39,13 @@ import {
   removeDataLabel,
   upsertDataLabel
 } from "./data-management.js?v=4";
+import {
+  buildLotReleaseSummary,
+  buildPeriodComparison,
+  buildV90LotAssessment,
+  getV90Parameters,
+  getZmPlanSpecification
+} from "./v90-analysis.js?v=1";
 
 const state = {
   workbook: null,
@@ -53,6 +60,7 @@ const state = {
   rows: [],
   parameters: [],
   trendParameters: [],
+  v90Parameters: [],
   lots: [],
   types: [],
   lotClassifications: new Map(),
@@ -64,8 +72,10 @@ const state = {
   gaussianSnapshots: [],
   trendDateLookup: null,
   lastTrend: null,
+  lastPeriod: null,
   lastCorrelation: null,
-  lastAssessment: null
+  lastAssessment: null,
+  lastRelease: null
 };
 
 const ALL = "__all__";
@@ -154,10 +164,33 @@ function bindEvents() {
   ["gaussian-data-scope", "trend-data-scope", "correlation-data-scope"].forEach((id) => {
     byId(id).addEventListener("change", invalidateAnalyses);
   });
-  byId("assessment-data-scope").addEventListener("change", () => {
-    state.lastAssessment = null;
-    syncAssessmentLots();
-    clearResult("assessment-result");
+  [
+    "period-data-scope", "period-parameter", "period-plot",
+    "period-lot", "period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end"
+  ].forEach((id) => byId(id).addEventListener(id.includes("parameter") || id.includes("scope") || id.includes("plot") ? "change" : "input", invalidatePeriod));
+  byId("period-mode").addEventListener("change", () => {
+    syncPeriodMode();
+    invalidatePeriod();
+  });
+  byId("release-lot").addEventListener("change", invalidateRelease);
+  byId("release-reference").addEventListener("change", invalidateRelease);
+  byId("release-monitor").addEventListener("input", invalidateRelease);
+  byId("release-not-ok").addEventListener("input", invalidateRelease);
+  byId("assessment-lot").addEventListener("change", () => {
+    syncAssessmentReferenceLots();
+    invalidateAssessment();
+  });
+  byId("assessment-parameter").addEventListener("change", () => {
+    syncAssessmentReferenceMode();
+    invalidateAssessment();
+  });
+  byId("assessment-reference").addEventListener("change", () => {
+    syncAssessmentReferenceMode();
+    invalidateAssessment();
+  });
+  byId("assessment-reference-lot").addEventListener("change", invalidateAssessment);
+  ["assessment-monitor", "assessment-outlier", "assessment-mu", "assessment-sigma"].forEach((id) => {
+    byId(id).addEventListener("input", invalidateAssessment);
   });
   byId("summary-parameter").addEventListener("change", renderCurrentData);
   byId("generated-summary-parameter").addEventListener("change", renderGeneratedSummaryTable);
@@ -183,7 +216,12 @@ function bindEvents() {
   byId("run-gaussian").addEventListener("click", () => runAction(createGaussian));
   byId("save-gaussian-snapshot").addEventListener("click", () => runAction(saveGaussianSnapshot));
   byId("run-trend").addEventListener("click", () => runAction(createTrend));
+  byId("run-period").addEventListener("click", () => runAction(createPeriodComparison));
+  byId("save-period-plot").addEventListener("click", () => runAction(savePeriodPlot));
   byId("run-assessment").addEventListener("click", () => runAction(createAssessment));
+  byId("export-zm-plan").addEventListener("click", () => runAction(exportZmPlan));
+  byId("run-release").addEventListener("click", () => runAction(createReleaseSummary));
+  byId("download-release").addEventListener("click", () => runAction(downloadReleaseSummary));
   byId("run-correlation").addEventListener("click", () => runAction(createCorrelation));
   byId("download-summary").addEventListener("click", () => runAction(downloadSummaryCsv));
   byId("download-origin").addEventListener("click", () => runAction(downloadOriginCsv));
@@ -223,6 +261,8 @@ async function parseWorkbook(data, fileName) {
   state.gaussianSnapshots = [];
   state.trendDateLookup = null;
   state.lastTrend = null;
+  state.lastPeriod = null;
+  state.lastRelease = null;
   setStatus("Reading workbook data...");
   await yieldToBrowser();
   state.workbook = XLSX.read(data, {
@@ -285,6 +325,7 @@ async function selectSource(sheetName) {
   applyClassificationOverrides(state.headers, state.rows);
   state.parameters = getRegionalParameters(state.headers);
   state.trendParameters = getTrendParameters(state.headers);
+  state.v90Parameters = getV90Parameters(state.headers);
   if (!state.parameters.length) throw new Error("Clean_Data has no named parameter and Zone headers.");
   const lotColumn = headerIndex(state.headers, "Lot");
   state.lots = lotColumn >= 0 ? getLotValues(dataRows(), lotColumn) : [];
@@ -292,8 +333,10 @@ async function selectSource(sheetName) {
   populateWorkbookControls();
   state.lastGaussian = null;
   state.lastTrend = null;
+  state.lastPeriod = null;
   state.lastCorrelation = null;
   state.lastAssessment = null;
+  state.lastRelease = null;
   state.newLotImport = null;
   renderCurrentData();
   setStatus(`loaded: ${formatInteger(dataRows().length)} data rows, ${formatInteger(state.parameters.length)} parameters.`, false, true);
@@ -1028,12 +1071,15 @@ function populateWorkbookControls() {
     "generated-summary-parameter",
     "gaussian-parameter",
     "trend-parameter",
-    "assessment-parameter",
     "correlation-y",
     "correlation-x",
     "export-parameter"
   ].forEach((id) => fillSelect(byId(id), state.parameters, byId(id).value || parameter));
   fillSelect(byId("trend-parameter"), state.trendParameters, byId("trend-parameter").value || state.trendParameters[0]);
+  fillSelect(byId("assessment-parameter"), ["All parameters", ...state.v90Parameters], byId("assessment-parameter").value || "All parameters");
+  fillSelect(byId("period-parameter"), ["All parameters", ...state.v90Parameters], byId("period-parameter").value || "All parameters");
+  fillSelect(byId("period-lot"), state.lots, byId("period-lot").value || state.lots[0]);
+  fillSelect(byId("release-lot"), state.lots, byId("release-lot").value || state.lots[0]);
   byId("generated-summary-parameter").disabled = !state.lastBuild;
   if (byId("correlation-x").options.length > 1) byId("correlation-x").value = secondParameter;
   enableControls([
@@ -1072,15 +1118,34 @@ function populateWorkbookControls() {
     "trend-end",
     "trend-window",
     "run-trend",
-    "assessment-data-scope",
+    "period-data-scope",
+    "period-mode",
+    "period-parameter",
+    "period-plot",
+    "period-lot",
+    "period-a-start",
+    "period-a-end",
+    "period-b-start",
+    "period-b-end",
+    "period-c-start",
+    "period-c-end",
+    "run-period",
+    "release-lot",
+    "release-reference",
+    "release-monitor",
+    "release-not-ok",
+    "run-release",
     "assessment-parameter",
     "assessment-lot",
     "assessment-reference",
+    "assessment-reference-lot",
     "assessment-monitor",
     "assessment-outlier",
     "assessment-mu",
     "assessment-sigma",
     "run-assessment",
+    "zm-layout",
+    "zm-coordinates",
     "correlation-data-scope",
     "correlation-y",
     "correlation-x",
@@ -1095,16 +1160,26 @@ function populateWorkbookControls() {
   ]);
   byId("trend-parameter").disabled = !state.trendParameters.length;
   byId("run-trend").disabled = !state.trendParameters.length;
+  byId("period-parameter").disabled = !state.v90Parameters.length;
+  byId("run-period").disabled = !state.v90Parameters.length;
+  byId("release-lot").disabled = !state.lots.length;
+  byId("run-release").disabled = !state.lots.length;
+  byId("assessment-parameter").disabled = !state.v90Parameters.length;
+  byId("save-period-plot").disabled = !state.lastPeriod;
+  byId("download-release").disabled = !state.lastRelease;
+  byId("export-zm-plan").disabled = !state.lastAssessment || state.lastAssessment.parameter === "All parameters";
   byId("save-gaussian-snapshot").disabled = !state.lastGaussian;
   syncGaussianMethod();
   syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
   syncZoneChoices("export-zones", byId("export-parameter").value);
   syncCorrelationZones();
   syncCorrectionInputs();
+  syncPeriodMode();
   syncClassificationInput();
   syncFilterSelections();
   renderFilterOptions();
   syncAssessmentLots();
+  syncAssessmentReferenceMode();
   renderLabelParameterChoices();
   syncLabelBatches();
   syncMasterRollControls();
@@ -1126,8 +1201,10 @@ function renderCurrentData() {
   renderGeneratedSummaryTable();
   clearResult("gaussian-result");
   clearResult("trend-result");
+  clearResult("period-result");
   clearResult("correlation-result");
   clearResult("assessment-result");
+  clearResult("release-result");
   renderExportNote();
   renderGaussianSnapshots();
 }
@@ -1135,8 +1212,10 @@ function renderCurrentData() {
 function invalidateAnalyses() {
   invalidateGaussian();
   invalidateTrend();
+  invalidatePeriod();
   state.lastCorrelation = null;
-  state.lastAssessment = null;
+  invalidateAssessment();
+  invalidateRelease();
 }
 
 function invalidateGaussian() {
@@ -1148,6 +1227,24 @@ function invalidateGaussian() {
 function invalidateTrend() {
   state.lastTrend = null;
   clearResult("trend-result");
+}
+
+function invalidatePeriod() {
+  state.lastPeriod = null;
+  byId("save-period-plot").disabled = true;
+  clearResult("period-result");
+}
+
+function invalidateRelease() {
+  state.lastRelease = null;
+  byId("download-release").disabled = true;
+  clearResult("release-result");
+}
+
+function invalidateAssessment() {
+  state.lastAssessment = null;
+  byId("export-zm-plan").disabled = true;
+  clearResult("assessment-result");
 }
 
 function handleFilterOptionChange(event) {
@@ -1614,48 +1711,509 @@ function chartLegend(items) {
   ).join("")}</div>`;
 }
 
+function syncPeriodMode() {
+  const mode = byId("period-mode").value;
+  byId("period-a-period").hidden = mode === "lot-vs-period";
+  byId("period-a-lot").hidden = mode !== "lot-vs-period";
+  byId("period-c-period").hidden = mode !== "three-periods";
+}
+
+async function createPeriodComparison() {
+  const selectedParameter = byId("period-parameter").value;
+  const parameters = selectedParameter === "All parameters" ? state.v90Parameters : [selectedParameter];
+  if (!parameters.length) throw new Error("No V90 parameters are available.");
+  setStatus("Reading production dates and creating the comparison...");
+  const dateLookup = await loadTrendDateLookup();
+  const options = {
+    mode: byId("period-mode").value,
+    lotA: byId("period-lot").value,
+    aStart: byId("period-a-start").value,
+    aEnd: byId("period-a-end").value,
+    bStart: byId("period-b-start").value,
+    bEnd: byId("period-b-end").value,
+    cStart: byId("period-c-start").value,
+    cEnd: byId("period-c-end").value
+  };
+  const rows = rowsForAnalysis("period-data-scope");
+  const results = [];
+  const skipped = [];
+  for (const parameter of parameters) {
+    try {
+      results.push(buildPeriodComparison(state.headers, rows, parameter, dateLookup, options));
+    } catch (error) {
+      if (parameters.length === 1) throw error;
+      skipped.push(`${parameter}: ${error.message}`);
+    }
+    if (parameters.length > 4) await yieldToBrowser();
+  }
+  if (!results.length) throw new Error(skipped[0] || "No parameter comparison could be created.");
+  state.lastPeriod = {
+    results,
+    skipped,
+    plot: byId("period-plot").value,
+    scope: byId("period-data-scope").value,
+    mode: options.mode
+  };
+  renderPeriodResult();
+  byId("save-period-plot").disabled = false;
+  setStatus(
+    `${formatInteger(results.length)} period comparison plot(s) created${skipped.length ? `; ${formatInteger(skipped.length)} parameter(s) had no values` : ""}.`,
+    false,
+    true
+  );
+}
+
+function renderPeriodResult() {
+  const current = state.lastPeriod;
+  if (!current) return;
+  const normalized = current.plot === "normalized";
+  const cards = current.results.map((result, index) => {
+    const rows = periodComparisonRows(result);
+    return `<article class="chart-card period-chart-card">
+      <h3>${escapeHtml(result.parameter)}</h3>
+      ${chartLegend(result.datasets.map((dataset, colorIndex) => [dataset.key, TREND_COLORS[colorIndex]]))}
+      <p class="chart-caption">${result.datasets.map((dataset) => `${dataset.key}: ${dataset.label}`).map(escapeHtml).join(" | ")}</p>
+      <canvas id="period-chart-${index}" aria-label="${escapeHtml(result.parameter)} period comparison"></canvas>
+      <details${current.results.length === 1 ? " open" : ""}>
+        <summary>Comparison values</summary>
+        <div class="table-wrap mini-table">${renderTable(rows)}</div>
+      </details>
+    </article>`;
+  }).join("");
+  byId("period-result").innerHTML = `
+    <div class="metric-grid">
+      ${metric("Plots", formatInteger(current.results.length))}
+      ${metric("Plot type", normalized ? "Normalized" : "Mean +/- SD")}
+      ${metric("Data scope", current.scope === "all" ? "All lots" : "Filtered")}
+      ${metric("Skipped", formatInteger(current.skipped.length))}
+    </div>
+    ${current.skipped.length ? `<details class="skipped-list"><summary>Parameters without comparison data</summary><p>${current.skipped.map(escapeHtml).join("<br>")}</p></details>` : ""}
+    <div class="period-chart-grid">${cards}</div>
+  `;
+  requestAnimationFrame(drawPeriodCharts);
+}
+
+function periodComparisonRows(result) {
+  const header = ["Zone"];
+  result.datasets.forEach((dataset) => header.push(`${dataset.key} N`, `${dataset.key} Mean`, `${dataset.key} SD`, `${dataset.key} Normalized`));
+  const zoneIndexes = result.regional ? [0, 1, 2, 3, 4, 5, 6] : [6];
+  return [header, ...zoneIndexes.map((zoneIndex) => {
+    const row = [zoneIndex < 6 ? `Zone ${zoneIndex + 1}` : "All"];
+    result.datasets.forEach((dataset) => {
+      const stats = dataset.stats[zoneIndex];
+      row.push(stats.n, stats.mean, stats.sigma, stats.normalized);
+    });
+    return row;
+  })];
+}
+
+function drawPeriodCharts() {
+  const current = state.lastPeriod;
+  if (!current) return;
+  current.results.forEach((result, index) => drawPeriodChart(byId(`period-chart-${index}`), result, current.plot));
+}
+
+function drawPeriodChart(canvas, result, plotType) {
+  if (!canvas) return;
+  const zoneIndexes = result.regional ? [0, 1, 2, 3, 4, 5, 6] : [6];
+  const normalized = plotType === "normalized";
+  const values = result.datasets.flatMap((dataset) => zoneIndexes.flatMap((zoneIndex) => {
+    const item = dataset.stats[zoneIndex];
+    return normalized ? [item.normalized] : [item.mean - item.sigma, item.mean + item.sigma];
+  })).filter(Number.isFinite);
+  if (!values.length) return;
+  const { ctx, width, height, colors } = setupCanvas(canvas);
+  const pad = { left: 50, right: 12, top: 14, bottom: 42 };
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const yExtent = paddedExtent(normalized ? [...values, 1] : values);
+  const yScale = (value) => pad.top + plotHeight - (value - yExtent.min) / (yExtent.max - yExtent.min) * plotHeight;
+  ctx.clearRect(0, 0, width, height);
+  drawTrendGrid(ctx, pad, width, height, colors);
+  const slot = plotWidth / zoneIndexes.length;
+  if (normalized) {
+    result.datasets.forEach((dataset, datasetIndex) => {
+      ctx.beginPath();
+      zoneIndexes.forEach((zoneIndex, index) => {
+        const value = dataset.stats[zoneIndex].normalized;
+        if (!Number.isFinite(value)) return;
+        const x = pad.left + slot * (index + 0.5);
+        const y = yScale(value);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = TREND_COLORS[datasetIndex];
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      zoneIndexes.forEach((zoneIndex, index) => {
+        const value = dataset.stats[zoneIndex].normalized;
+        if (!Number.isFinite(value)) return;
+        ctx.beginPath();
+        ctx.arc(pad.left + slot * (index + 0.5), yScale(value), 3, 0, Math.PI * 2);
+        ctx.fillStyle = TREND_COLORS[datasetIndex];
+        ctx.fill();
+      });
+    });
+  } else {
+    const groupWidth = slot * 0.72;
+    const barWidth = groupWidth / result.datasets.length;
+    result.datasets.forEach((dataset, datasetIndex) => zoneIndexes.forEach((zoneIndex, index) => {
+      const item = dataset.stats[zoneIndex];
+      if (!Number.isFinite(item.mean)) return;
+      const x = pad.left + slot * index + (slot - groupWidth) / 2 + datasetIndex * barWidth;
+      const zeroY = yScale(Math.max(0, yExtent.min));
+      const meanY = yScale(item.mean);
+      ctx.fillStyle = TREND_COLORS[datasetIndex];
+      ctx.globalAlpha = 0.78;
+      ctx.fillRect(x + 1, Math.min(zeroY, meanY), Math.max(2, barWidth - 2), Math.abs(zeroY - meanY));
+      ctx.globalAlpha = 1;
+      if (Number.isFinite(item.sigma)) {
+        const centerX = x + barWidth / 2;
+        const top = yScale(item.mean + item.sigma);
+        const bottom = yScale(item.mean - item.sigma);
+        ctx.strokeStyle = TREND_COLORS[datasetIndex];
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.moveTo(centerX, top);
+        ctx.lineTo(centerX, bottom);
+        ctx.moveTo(centerX - 3, top);
+        ctx.lineTo(centerX + 3, top);
+        ctx.moveTo(centerX - 3, bottom);
+        ctx.lineTo(centerX + 3, bottom);
+        ctx.stroke();
+      }
+    }));
+  }
+  ctx.fillStyle = colors.muted;
+  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  ctx.textAlign = "center";
+  zoneIndexes.forEach((zoneIndex, index) => ctx.fillText(zoneIndex < 6 ? `Z${zoneIndex + 1}` : "All", pad.left + slot * (index + 0.5), height - 15));
+  ctx.textAlign = "left";
+  ctx.fillText(formatNumber(yExtent.max, 3), 4, pad.top + 8);
+  ctx.fillText(formatNumber(yExtent.min, 3), 4, height - pad.bottom);
+}
+
+function savePeriodPlot() {
+  const current = state.lastPeriod;
+  const canvases = current ? current.results.map((_, index) => byId(`period-chart-${index}`)).filter(Boolean) : [];
+  if (!canvases.length) throw new Error("Create a period comparison before saving the plot.");
+  let canvas = canvases[0];
+  if (canvases.length > 1) {
+    const columns = 2;
+    const cellWidth = 600;
+    const cellHeight = 390;
+    canvas = document.createElement("canvas");
+    canvas.width = cellWidth * columns;
+    canvas.height = cellHeight * Math.ceil(canvases.length / columns);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    canvases.forEach((source, index) => {
+      const x = index % columns * cellWidth;
+      const y = Math.floor(index / columns) * cellHeight;
+      ctx.fillStyle = "#162433";
+      ctx.font = "700 18px Aptos, Calibri, Arial, sans-serif";
+      ctx.fillText(current.results[index].parameter, x + 12, y + 24);
+      ctx.drawImage(source, x + 8, y + 32, cellWidth - 16, cellHeight - 40);
+    });
+  }
+  const parameter = current.results.length === 1 ? safeFilePart(current.results[0].parameter) : "All_Parameters";
+  const link = document.createElement("a");
+  link.href = canvas.toDataURL("image/png");
+  link.download = `${baseFileName()}_Period_Comparison_${parameter}_${fileDateStamp(new Date())}.png`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
+function createReleaseSummary() {
+  const selectedLot = byId("release-lot").value;
+  if (!selectedLot) throw new Error("Select the Lot to release.");
+  const useFiltered = byId("release-reference").value === "filtered";
+  const result = buildLotReleaseSummary(
+    state.headers,
+    dataRows(),
+    useFiltered ? filteredRows() : dataRows(),
+    selectedLot,
+    requiredNumber("release-monitor"),
+    requiredNumber("release-not-ok")
+  );
+  state.lastRelease = { result, reference: useFiltered ? "Filtered rows" : "All historical rows" };
+  renderReleaseResult();
+  byId("download-release").disabled = false;
+  setStatus(`Lot ${selectedLot} release status: ${result.overall}.`, result.overall === "NOT OK", result.overall === "OK");
+}
+
+function renderReleaseResult() {
+  const current = state.lastRelease;
+  if (!current) return;
+  const result = current.result;
+  byId("release-result").innerHTML = `
+    <div class="metric-grid">
+      ${metricHtml("Overall", statusBadge(result.overall))}
+      ${metric("Not OK", formatInteger(result.counts.notOk))}
+      ${metric("Monitor", formatInteger(result.counts.monitor))}
+      ${metric("No history", formatInteger(result.counts.noHistory))}
+    </div>
+    <p class="result-note">Reference: ${escapeHtml(current.reference)}; selected Lot excluded.</p>
+    <div class="table-wrap release-table">${renderReleaseTable(result.results)}</div>
+  `;
+}
+
+function renderReleaseTable(results) {
+  const headers = ["Parameter", "Status", "Lot N", "Ref N", "Lot Mean", "Ref Mean", "Delta", "Mean Z", "Lot CV", "Ref CV", "CV Ratio", "Max Zone Bias", "Monitor Points", "Not OK Points"];
+  return `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${results.map((item) => {
+    const values = [item.parameter, item.status, item.lotN, item.referenceN, item.lotMean, item.referenceMean, item.meanDelta, item.meanZ, item.lotCv, item.referenceCv, item.cvRatio, item.maxZoneBiasDelta, item.monitorPoints, item.notOkPoints];
+    return `<tr>${values.map((value, index) => index === 1 ? `<td class="${statusClass(value)}">${escapeHtml(value)}</td>` : `<td>${formatCell(value)}</td>`).join("")}</tr>`;
+  }).join("")}</tbody></table>`;
+}
+
+function downloadReleaseSummary() {
+  const current = state.lastRelease;
+  if (!current) throw new Error("Create a release summary before downloading it.");
+  const result = current.result;
+  const rows = [
+    ["Lot Release Summary", result.selectedLot],
+    ["Overall status", result.overall],
+    ["Reference", current.reference],
+    ["Monitor limit (SD)", result.monitorLimit],
+    ["Not OK limit (SD)", result.notOkLimit],
+    [],
+    ["Parameter", "Status", "Lot N", "Ref N", "Lot Mean", "Ref Mean", "Mean Delta", "Mean Z", "Lot CV", "Ref CV", "CV Ratio", "Max Zone Bias Delta", "Monitor Points", "Not OK Points"],
+    ...result.results.map((item) => [item.parameter, item.status, item.lotN, item.referenceN, item.lotMean, item.referenceMean, item.meanDelta, item.meanZ, item.lotCv, item.referenceCv, item.cvRatio, item.maxZoneBiasDelta, item.monitorPoints, item.notOkPoints])
+  ];
+  downloadText(`${baseFileName()}_Release_${safeFilePart(result.selectedLot)}.csv`, toCsv(rows), "text/csv;charset=utf-8");
+}
+
+function exportZmPlan() {
+  const current = state.lastAssessment;
+  if (!current) throw new Error("Run a New Lot Assessment before exporting a ZM plan.");
+  const parameter = current.parameter;
+  const columns = zoneColumns(state.headers, parameter);
+  if (parameter === "All parameters" || !columns?.every((column) => column >= 0)) {
+    throw new Error("Select and assess one complete Zone 1-6 parameter before exporting a ZM plan.");
+  }
+  const layoutName = byId("zm-layout").value;
+  const specification = getZmPlanSpecification(layoutName);
+  const lotColumn = headerIndex(state.headers, "Lot");
+  const batchColumn = headerIndex(state.headers, "N");
+  const lotRows = dataRows().filter((row) => sameDataValue(row[lotColumn], current.lot));
+  const totalRolls = specification.zoneRollCounts.reduce((sum, count) => sum + count, 0);
+  const planRows = Array.from({ length: 105 }, () => Array(totalRolls + 1).fill(""));
+  const merges = [];
+  planRows[0][1] = `${layoutName} - Lot ${current.lot} - ${parameter}`;
+  planRows[1][1] = `${specification.totalWidth} mm`;
+  merges.push({ s: { r: 0, c: 1 }, e: { r: 0, c: totalRolls } });
+  merges.push({ s: { r: 1, c: 1 }, e: { r: 1, c: totalRolls } });
+
+  let rollStart = 1;
+  let segmentStart = 1;
+  specification.zoneRollCounts.forEach((count, zoneIndex) => {
+    const rollEnd = rollStart + count - 1;
+    planRows[3][rollStart] = `ZONE ${zoneIndex + 1}`;
+    merges.push({ s: { r: 3, c: rollStart }, e: { r: 3, c: rollEnd } });
+    for (let column = rollStart; column <= rollEnd; column += 1) planRows[4][column] = column;
+    if ((zoneIndex + 1) % specification.zonesPerSegment === 0 || zoneIndex === 5) {
+      planRows[2][segmentStart] = `${specification.segmentWidth} mm`;
+      merges.push({ s: { r: 2, c: segmentStart }, e: { r: 2, c: rollEnd } });
+      segmentStart = rollEnd + 1;
+    }
+    rollStart = rollEnd + 1;
+  });
+
+  for (let measurement = 1; measurement <= 50; measurement += 1) {
+    const topRow = 5 + (measurement - 1) * 2;
+    const dataRow = topRow + 1;
+    planRows[topRow][0] = `M${measurement}`;
+    merges.push({ s: { r: topRow, c: 0 }, e: { r: dataRow, c: 0 } });
+    let zoneStart = 1;
+    specification.zoneRollCounts.forEach((count) => {
+      merges.push({ s: { r: dataRow, c: zoneStart }, e: { r: dataRow, c: zoneStart + count - 1 } });
+      zoneStart += count;
+    });
+  }
+
+  const assessmentRows = new Map(current.assessment.grid.map((row) => [planBatchIndex(row.batch), row]));
+  let writtenBatches = 0;
+  let writtenCells = 0;
+  const usedBatches = new Set();
+  for (const row of lotRows) {
+    const batch = planBatchIndex(row[batchColumn]);
+    if (batch < 1 || batch > 50 || usedBatches.has(batch)) continue;
+    usedBatches.add(batch);
+    writtenBatches += 1;
+    const dataRow = 6 + (batch - 1) * 2;
+    let zoneStart = 1;
+    ZONES.forEach((zone) => {
+      const value = row[columns[zone - 1]];
+      if (isNumeric(value)) {
+        planRows[dataRow][zoneStart] = number(value);
+        writtenCells += 1;
+      }
+      zoneStart += specification.zoneRollCounts[zone - 1];
+    });
+  }
+  if (!writtenBatches) throw new Error(`No Batch N values from Lot ${current.lot} match M1 through M50.`);
+
+  const XLSX = getXlsx();
+  const sheet = XLSX.utils.aoa_to_sheet(planRows);
+  sheet["!merges"] = merges;
+  sheet["!cols"] = [{ wch: 7 }, ...Array.from({ length: totalRolls }, () => ({ wch: 3.2 }))];
+  sheet["!rows"] = planRows.map((_, index) => ({ hpt: index < 5 ? 21 : 16 }));
+  const zoneColors = ["F4CCB8", "FFE5CC", "CCECF7", "DDEBF7", "E2EFDA", "EBF1DE"];
+  stylePlanCell(sheet, 0, 1, { fill: "123F61", color: "FFFFFF", bold: true, size: 14 });
+  stylePlanCell(sheet, 1, 1, { bold: true });
+  rollStart = 1;
+  specification.zoneRollCounts.forEach((count, zoneIndex) => {
+    const rollEnd = rollStart + count - 1;
+    for (let column = rollStart; column <= rollEnd; column += 1) {
+      stylePlanCell(sheet, 3, column, { fill: zoneColors[zoneIndex], color: "C00000", bold: true });
+      stylePlanCell(sheet, 4, column, { fill: zoneColors[zoneIndex], bold: true });
+    }
+    rollStart = rollEnd + 1;
+  });
+  for (const batch of usedBatches) {
+    const dataRow = 6 + (batch - 1) * 2;
+    const assessmentRow = assessmentRows.get(batch);
+    let zoneStart = 1;
+    ZONES.forEach((zone) => {
+      const assessmentColumn = current.assessment.columns.findIndex((column) => column.header === `${parameter}_${zone}`);
+      const status = assessmentColumn >= 0 ? assessmentRow?.states?.[assessmentColumn] : null;
+      const fill = status === "OUT OF RANGE" ? "FF0000" : status === "MONITOR" ? "FFC000" : status === "IN RANGE" ? "92D050" : "F2F2F2";
+      for (let column = zoneStart; column < zoneStart + specification.zoneRollCounts[zone - 1]; column += 1) {
+        stylePlanCell(sheet, dataRow, column, { fill, color: status === "OUT OF RANGE" ? "FFFFFF" : "000000", bold: true });
+      }
+      zoneStart += specification.zoneRollCounts[zone - 1];
+    });
+  }
+  const coordinateResult = markZmCoordinates(sheet, byId("zm-coordinates").value, totalRolls);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, safeSheetName(`${layoutName}_${current.lot}_${parameter}`));
+  XLSX.writeFile(workbook, `${layoutName}_${safeFilePart(current.lot)}_${safeFilePart(parameter)}.xlsx`, { cellStyles: true });
+  setStatus(
+    `${layoutName}: ${writtenBatches} Batch row(s), ${writtenCells} Zone value(s), ${coordinateResult.marked} coordinate(s) marked${coordinateResult.invalid.length ? `; invalid: ${coordinateResult.invalid.join(", ")}` : ""}.`,
+    Boolean(coordinateResult.invalid.length),
+    !coordinateResult.invalid.length
+  );
+}
+
+function stylePlanCell(sheet, row, column, options = {}) {
+  const XLSX = getXlsx();
+  const address = XLSX.utils.encode_cell({ r: row, c: column });
+  if (!sheet[address]) sheet[address] = { t: "s", v: "" };
+  sheet[address].s = {
+    fill: options.fill ? { patternType: "solid", fgColor: { rgb: options.fill } } : undefined,
+    font: { name: "Calibri", sz: options.size || 11, bold: Boolean(options.bold), color: { rgb: options.color || "000000" } },
+    alignment: { horizontal: "center", vertical: "center" },
+    border: {
+      top: { style: "thin", color: { rgb: "777777" } },
+      bottom: { style: "thin", color: { rgb: "777777" } },
+      left: { style: "thin", color: { rgb: "777777" } },
+      right: { style: "thin", color: { rgb: "777777" } }
+    }
+  };
+}
+
+function markZmCoordinates(sheet, input, totalRolls) {
+  const marked = [];
+  const invalid = [];
+  const tokens = text(input).split(",").map((item) => item.trim()).filter(Boolean);
+  for (const token of tokens) {
+    const match = token.match(/^M?(\d+)\s*\/\s*(\d+)(?:\s*-\s*(\d+))?$/i);
+    const measurement = match ? Number(match[1]) : 0;
+    const rollStart = match ? Number(match[2]) : 0;
+    const rollEnd = match && match[3] ? Number(match[3]) : rollStart;
+    if (!match || measurement < 1 || measurement > 50 || rollStart < 1 || rollEnd < rollStart || rollEnd > totalRolls) {
+      invalid.push(token);
+      continue;
+    }
+    const row = 5 + (measurement - 1) * 2;
+    for (let roll = rollStart; roll <= rollEnd; roll += 1) {
+      const address = getXlsx().utils.encode_cell({ r: row, c: roll });
+      sheet[address] = { t: "s", v: "X" };
+      stylePlanCell(sheet, row, roll, { fill: "FFFF00", color: "C00000", bold: true });
+      marked.push(`${measurement}/${roll}`);
+    }
+  }
+  return { marked: marked.length, invalid };
+}
+
+function planBatchIndex(value) {
+  const rendered = text(value).replace(/^M\s*/i, "");
+  const numeric = Number(rendered);
+  return Number.isFinite(numeric) && numeric >= 1 ? Math.round(numeric) : 0;
+}
+
 function createAssessment() {
   const parameter = byId("assessment-parameter").value;
   const lot = byId("assessment-lot").value;
-  if (!lot) throw new Error("No lot is available in the selected data scope.");
+  if (!lot) throw new Error("No Lot is available.");
   const mode = byId("assessment-reference").value;
-  const scope = byId("assessment-data-scope").value;
-  const assessment = buildLotAssessment(
+  const assessment = buildV90LotAssessment(
     state.headers,
-    rowsForAnalysis("assessment-data-scope"),
-    parameter,
-    lot,
-    mode,
-    optionalNumber("assessment-mu"),
-    optionalNumber("assessment-sigma"),
-    requiredNumber("assessment-monitor"),
-    requiredNumber("assessment-outlier")
+    dataRows(),
+    mode === "filtered" ? filteredRows() : dataRows(),
+    {
+      parameter,
+      selectedLot: lot,
+      referenceMode: mode,
+      referenceLot: byId("assessment-reference-lot").value,
+      manualMu: optionalNumber("assessment-mu"),
+      manualSigma: optionalNumber("assessment-sigma"),
+      monitorLimit: requiredNumber("assessment-monitor"),
+      outlierLimit: requiredNumber("assessment-outlier")
+    }
   );
-  state.lastAssessment = { parameter, lot, mode, scope, assessment };
+  state.lastAssessment = { parameter, lot, mode, assessment };
   renderAssessmentResult();
-  setStatus(`Lot assessment: ${assessment.overall}.`, assessment.overall === "OUT OF RANGE", assessment.overall === "OK");
+  byId("export-zm-plan").disabled = parameter === "All parameters" || !zoneColumns(state.headers, parameter)?.every((column) => column >= 0);
+  setStatus(`Lot assessment: ${assessment.overall}.`, assessment.overall === "NOT OK", assessment.overall === "OK");
 }
 
 function renderAssessmentResult() {
   const result = state.lastAssessment;
   if (!result) return;
-  const { parameter, assessment } = result;
-  const availableZones = assessment.availableZones;
+  const { assessment } = result;
   const rows = [
-    ["Batch N", ...availableZones.map((zone) => `${parameter}_${zone}`)],
-    ["Mu", ...availableZones.map((zone) => assessment.references[zone - 1].mean)],
-    ["Sigma", ...availableZones.map((zone) => assessment.references[zone - 1].sigma)],
-    ...assessment.grid.map((row) => [row.batch, ...availableZones.map((zone) => row.values[zone - 1])])
+    ["Batch N", ...assessment.columns.map((column) => column.header)],
+    ["Mu", ...assessment.columns.map((column) => column.reference.mean)],
+    ["Sigma", ...assessment.columns.map((column) => column.reference.sigma)],
+    ...assessment.grid.map((row) => [row.batch, ...row.values])
   ];
   byId("assessment-result").innerHTML = `
     <div class="metric-grid">
       ${metricHtml("Overall", statusBadge(assessment.overall))}
-      ${metric("Out of range", formatInteger(assessment.outOfRangeCount))}
-      ${metric("Check", formatInteger(assessment.monitorCount))}
+      ${metric("Compared", formatInteger(assessment.comparedCount))}
+      ${metric("Monitor", formatInteger(assessment.monitorCount))}
+      ${metric("Out of range", formatInteger(assessment.outlierCount))}
       ${metric("No history", formatInteger(assessment.noHistoryCount))}
+      ${metric("History excluded", formatInteger(assessment.historyExcluded))}
     </div>
-    <div class="table-wrap">${renderAssessmentTable(rows, assessment.grid, availableZones)}</div>
+    <div class="section-heading"><h2>Parameter Summary</h2></div>
+    <div class="table-wrap compact-table">${renderV90AssessmentSummary(assessment.summaries)}</div>
+    <div class="section-heading"><h2>Batch x Parameter x Zone</h2></div>
+    <div class="table-wrap">${renderV90AssessmentTable(rows, assessment.grid)}</div>
   `;
+}
+
+function renderV90AssessmentSummary(summaries) {
+  const headers = ["Parameter", "N", "Mean Z", "Z SD", "Monitor %", "Out %", "Signal"];
+  return `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${summaries.map((item) => `<tr>
+    <td>${escapeHtml(item.parameter)}</td><td>${formatCell(item.n)}</td><td>${formatCell(item.meanZ)}</td><td>${formatCell(item.zSigma)}</td>
+    <td>${escapeHtml(formatPercent(item.monitorPct))}</td><td>${escapeHtml(formatPercent(item.outlierPct))}</td>
+    <td class="${statusClass(item.signal)}">${escapeHtml(item.signal)}</td>
+  </tr>`).join("")}</tbody></table>`;
+}
+
+function renderV90AssessmentTable(rows, gridRows) {
+  const [headers, ...body] = rows;
+  return `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${body.map((row, rowIndex) => {
+    const states = rowIndex >= 2 ? gridRows[rowIndex - 2]?.states : null;
+    return `<tr>${headers.map((_, columnIndex) => {
+      const status = columnIndex > 0 ? states?.[columnIndex - 1] : null;
+      return `<td${status ? ` class="${statusClass(status)}"` : ""}>${formatCell(row[columnIndex])}</td>`;
+    }).join("")}</tr>`;
+  }).join("")}</tbody></table>`;
 }
 
 function createCorrelation() {
@@ -1811,6 +2369,19 @@ function downloadAnalysisWorkbook() {
       ] : [])
     ]);
   }
+  if (state.lastPeriod) {
+    const rows = [
+      ["Period / Lot Comparison"],
+      ["Data scope", state.lastPeriod.scope],
+      ["Mode", state.lastPeriod.mode],
+      ["Plot", state.lastPeriod.plot],
+      []
+    ];
+    state.lastPeriod.results.forEach((result) => {
+      rows.push([result.parameter], ...periodComparisonRows(result), []);
+    });
+    appendSheet(workbook, "Period_Comparison_App", rows);
+  }
   if (state.lastCorrelation) {
     const { xParameter, yParameter, result } = state.lastCorrelation;
     appendSheet(workbook, "Correlation_App", [
@@ -1832,16 +2403,33 @@ function downloadAnalysisWorkbook() {
       ["Parameter", assessmentParameter],
       ["Lot", lot],
       ["Reference", mode],
-      ["Data scope", state.lastAssessment.scope],
       ["Overall", assessment.overall],
-      ["Out of range", assessment.outOfRangeCount],
-      ["Check", assessment.monitorCount],
+      ["Compared", assessment.comparedCount],
+      ["Monitor", assessment.monitorCount],
+      ["Out of range", assessment.outlierCount],
       ["No history", assessment.noHistoryCount],
+      ["History excluded", assessment.historyExcluded],
       [],
-      ["Batch N", ...assessment.availableZones.map((zone) => `${assessmentParameter}_${zone}`)],
-      ["Mu", ...assessment.availableZones.map((zone) => assessment.references[zone - 1].mean)],
-      ["Sigma", ...assessment.availableZones.map((zone) => assessment.references[zone - 1].sigma)],
-      ...assessment.grid.map((row) => [row.batch, ...assessment.availableZones.map((zone) => row.values[zone - 1])])
+      ["Parameter", "N", "Mean Z", "Z SD", "Monitor %", "Out %", "Signal"],
+      ...assessment.summaries.map((item) => [item.parameter, item.n, item.meanZ, item.zSigma, item.monitorPct, item.outlierPct, item.signal]),
+      [],
+      ["Batch N", ...assessment.columns.map((column) => column.header)],
+      ["Mu", ...assessment.columns.map((column) => column.reference.mean)],
+      ["Sigma", ...assessment.columns.map((column) => column.reference.sigma)],
+      ...assessment.grid.map((row) => [row.batch, ...row.values])
+    ]);
+  }
+  if (state.lastRelease) {
+    const release = state.lastRelease.result;
+    appendSheet(workbook, "Lot_Release_App", [
+      ["Lot Release Summary", release.selectedLot],
+      ["Overall status", release.overall],
+      ["Reference", state.lastRelease.reference],
+      ["Monitor limit (SD)", release.monitorLimit],
+      ["Not OK limit (SD)", release.notOkLimit],
+      [],
+      ["Parameter", "Status", "Lot N", "Ref N", "Lot Mean", "Ref Mean", "Mean Delta", "Mean Z", "Lot CV", "Ref CV", "CV Ratio", "Max Zone Bias Delta", "Monitor Points", "Not OK Points"],
+      ...release.results.map((item) => [item.parameter, item.status, item.lotN, item.referenceN, item.lotMean, item.referenceMean, item.meanDelta, item.meanZ, item.lotCv, item.referenceCv, item.cvRatio, item.maxZoneBiasDelta, item.monitorPoints, item.notOkPoints])
     ]);
   }
   writeDataLabelsToWorkbook(workbook, state.headers, exportRows);
@@ -1883,12 +2471,32 @@ function rowsForAnalysis(scopeId) {
 
 function syncAssessmentLots() {
   if (!state.headers.length) return;
-  const lotColumn = headerIndex(state.headers, "Lot");
-  const lots = lotColumn >= 0 ? getLotValues(rowsForAnalysis("assessment-data-scope"), lotColumn) : [];
+  const lots = state.lots;
   const previous = byId("assessment-lot").value;
   fillSelect(byId("assessment-lot"), lots, lots.includes(previous) ? previous : lots[0]);
   byId("assessment-lot").disabled = !lots.length;
   byId("run-assessment").disabled = !lots.length;
+  syncAssessmentReferenceLots();
+}
+
+function syncAssessmentReferenceLots() {
+  const selectedLot = byId("assessment-lot").value;
+  const lots = state.lots.filter((lot) => text(lot).toUpperCase() !== text(selectedLot).toUpperCase());
+  const previous = byId("assessment-reference-lot").value;
+  fillSelect(byId("assessment-reference-lot"), lots, lots.includes(previous) ? previous : lots[0]);
+  byId("assessment-reference-lot").disabled = !lots.length || byId("assessment-reference").value !== "reference-lot";
+}
+
+function syncAssessmentReferenceMode() {
+  const mode = byId("assessment-reference").value;
+  byId("assessment-reference-lot-field").hidden = mode !== "reference-lot";
+  byId("assessment-reference-lot").disabled = mode !== "reference-lot" || !byId("assessment-reference-lot").options.length;
+  const manual = mode === "manual";
+  byId("assessment-mu").disabled = !manual;
+  byId("assessment-sigma").disabled = !manual;
+  if (manual && byId("assessment-parameter").value === "All parameters") {
+    byId("assessment-parameter").value = state.v90Parameters[0] || "";
+  }
 }
 
 function isDataRow(headers, row) {
@@ -2320,6 +2928,7 @@ function paddedExtent(values) {
 function redrawCharts() {
   if (state.lastGaussian && byId("gaussian-chart")) drawGaussian(byId("gaussian-chart"), state.lastGaussian.fit);
   if (state.lastTrend && byId("trend-lot-chart")) drawTrendCharts();
+  if (state.lastPeriod && byId("period-chart-0")) drawPeriodCharts();
   if (state.lastCorrelation && byId("correlation-chart")) drawScatter(byId("correlation-chart"), state.lastCorrelation);
 }
 
@@ -2383,9 +2992,9 @@ function statusBadge(status) {
 }
 
 function statusClass(status) {
-  if (status === "OK") return "status-ok";
-  if (status === "CHECK") return "status-check";
-  if (status === "OUT OF RANGE") return "status-bad";
+  if (status === "OK" || status === "IN RANGE") return "status-ok";
+  if (status === "CHECK" || status === "MONITOR") return "status-check";
+  if (status === "OUT OF RANGE" || status === "NOT OK" || status === "INVESTIGATE") return "status-bad";
   return "status-missing";
 }
 
@@ -2403,6 +3012,11 @@ function formatNumber(value, digits = 2) {
 function formatInteger(value) {
   if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) return "";
   return Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
+function formatPercent(value) {
+  if (!Number.isFinite(Number(value))) return "";
+  return Number(value).toLocaleString(undefined, { style: "percent", maximumFractionDigits: 1 });
 }
 
 function inputNumber(value) {

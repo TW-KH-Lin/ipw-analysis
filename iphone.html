@@ -11,15 +11,15 @@
     <title>IPW Analysis iPhone</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/ipw-180.png">
-    <link rel="stylesheet" href="iphone.css?v=6">
+    <link rel="stylesheet" href="iphone.css?v=7">
     <script defer src="vendor/xlsx.full.min.js"></script>
-    <script type="module" src="iphone-app.js?v=36"></script>
+    <script type="module" src="iphone-app.js?v=37"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW HTML v9</p>
+          <p class="eyebrow">IPW HTML v10</p>
           <h1>Analysis</h1>
         </div>
         <label class="file-button">
@@ -71,7 +71,9 @@
         <button class="tab" type="button" data-panel="labels-panel">Labels</button>
         <button class="tab" type="button" data-panel="gaussian-panel">Gaussian</button>
         <button class="tab" type="button" data-panel="trend-panel">Trend</button>
+        <button class="tab" type="button" data-panel="period-panel">Periods</button>
         <button class="tab" type="button" data-panel="lot-panel">Lot</button>
+        <button class="tab" type="button" data-panel="release-panel">Release</button>
         <button class="tab" type="button" data-panel="correlation-panel">Correlation</button>
         <button class="tab" type="button" data-panel="export-panel">Export</button>
       </nav>
@@ -186,19 +188,82 @@
         <div id="trend-result" class="result-block"></div>
       </section>
 
+      <section id="period-panel" class="panel" aria-label="Period and lot comparison">
+        <div class="form-grid">
+          <label>Data scope<select id="period-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
+          <label>Comparison mode<select id="period-mode" disabled><option value="two-periods">2 time periods</option><option value="three-periods">3 time periods</option><option value="lot-vs-period">Lot vs 1 period</option></select></label>
+          <label>Parameter<select id="period-parameter" disabled></select></label>
+          <label>Plot<select id="period-plot" disabled><option value="mean">Mean +/- SD</option><option value="normalized">Normalized Zone / All</option></select></label>
+        </div>
+        <fieldset id="period-a-period" class="zone-fieldset">
+          <legend>Dataset A</legend>
+          <div class="form-grid">
+            <label>Start date<input id="period-a-start" type="date" disabled></label>
+            <label>End date<input id="period-a-end" type="date" disabled></label>
+          </div>
+        </fieldset>
+        <fieldset id="period-a-lot" class="zone-fieldset" hidden>
+          <legend>Dataset A</legend>
+          <label>Lot<select id="period-lot" disabled></select></label>
+        </fieldset>
+        <fieldset class="zone-fieldset">
+          <legend>Dataset B</legend>
+          <div class="form-grid">
+            <label>Start date<input id="period-b-start" type="date" disabled></label>
+            <label>End date<input id="period-b-end" type="date" disabled></label>
+          </div>
+        </fieldset>
+        <fieldset id="period-c-period" class="zone-fieldset" hidden>
+          <legend>Dataset C</legend>
+          <div class="form-grid">
+            <label>Start date<input id="period-c-start" type="date" disabled></label>
+            <label>End date<input id="period-c-end" type="date" disabled></label>
+          </div>
+        </fieldset>
+        <div class="analysis-actions">
+          <button id="run-period" class="command primary" type="button" disabled>Create Comparison</button>
+          <button id="save-period-plot" class="command" type="button" disabled>Save Plot PNG</button>
+        </div>
+        <div id="period-result" class="result-block"></div>
+      </section>
+
       <section id="lot-panel" class="panel" aria-label="New lot assessment">
         <div class="form-grid">
-          <label>Data scope<select id="assessment-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
           <label>Parameter<select id="assessment-parameter" disabled></select></label>
           <label>Lot<select id="assessment-lot" disabled></select></label>
-          <label>Reference<select id="assessment-reference" disabled><option value="history">Robust history</option><option value="manual">Manual mu / sigma</option></select></label>
-          <label>Monitor limit<input id="assessment-monitor" inputmode="decimal" value="1" disabled></label>
-          <label>Out-of-range limit<input id="assessment-outlier" inputmode="decimal" value="2" disabled></label>
+          <label>Reference method<select id="assessment-reference" disabled><option value="history">Historical Zone Values</option><option value="filtered">Filtered Lots</option><option value="manual">Manual Mu / Sigma</option><option value="reference-lot">Reference Lot</option></select></label>
+          <label id="assessment-reference-lot-field" hidden>Reference Lot<select id="assessment-reference-lot" disabled></select></label>
+          <label>Monitor limit<input id="assessment-monitor" inputmode="decimal" value="2" disabled></label>
+          <label>Out-of-range limit<input id="assessment-outlier" inputmode="decimal" value="3" disabled></label>
           <label>Manual mu<input id="assessment-mu" inputmode="decimal" placeholder="Manual only" disabled></label>
           <label>Manual sigma<input id="assessment-sigma" inputmode="decimal" placeholder="Manual only" disabled></label>
         </div>
-        <button id="run-assessment" class="command primary" type="button" disabled>Run Lot Assessment</button>
+        <fieldset class="zone-fieldset">
+          <legend>ZM Plan Export</legend>
+          <div class="form-grid">
+            <label>Layout<select id="zm-layout" disabled><option>ZM17_20mm</option><option>ZM17_25mm</option><option>ZM9_18mm</option><option selected>ZM9_20mm</option><option>ZM9_25mm</option><option>ZM10_20mm</option><option>ZM10_25mm</option></select></label>
+            <label>Coordinates to mark<input id="zm-coordinates" autocomplete="off" placeholder="4/5-20, 31/5" disabled></label>
+          </div>
+        </fieldset>
+        <div class="analysis-actions">
+          <button id="run-assessment" class="command primary" type="button" disabled>Run Lot Assessment</button>
+          <button id="export-zm-plan" class="command" type="button" disabled>Export ZM Plan</button>
+        </div>
         <div id="assessment-result" class="result-block"></div>
+      </section>
+
+      <section id="release-panel" class="panel" aria-label="Lot release summary">
+        <div class="form-grid">
+          <label>Lot to release<select id="release-lot" disabled></select></label>
+          <label>Reference population<select id="release-reference" disabled><option value="all">All historical rows</option><option value="filtered">Filtered rows</option></select></label>
+          <label>Monitor limit (SD)<input id="release-monitor" inputmode="decimal" value="2" disabled></label>
+          <label>Not OK limit (SD)<input id="release-not-ok" inputmode="decimal" value="3" disabled></label>
+        </div>
+        <div class="analysis-actions">
+          <button id="run-release" class="command primary" type="button" disabled>Create Release Summary</button>
+          <button id="download-release" class="command" type="button" disabled>Release Summary CSV</button>
+        </div>
+        <div id="release-result" class="result-block"></div>
       </section>
 
       <section id="correlation-panel" class="panel" aria-label="Correlation plot">
