@@ -576,7 +576,7 @@ tr:last-child td {
   z-index: 2;
 }
 
-.zm-plan-table tr > :first-child {
+.zm-plan-table tr > th:first-child {
   position: sticky;
   left: 0;
   z-index: 3;
