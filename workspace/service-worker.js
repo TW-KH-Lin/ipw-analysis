@@ -1,0 +1,60 @@
+const CACHE_NAME = "ipw-workspace-v1";
+const APP_SHELL = [
+  "./index.html",
+  "./workspace.css?v=1",
+  "./workspace-ui.js?v=1",
+  "./manifest.webmanifest",
+  "../iphone.css?v=9",
+  "../iphone-app.js?v=40",
+  "../analysis.js?v=13",
+  "../v90-analysis.js?v=1",
+  "../clean-data.js?v=1",
+  "../data-management.js?v=4",
+  "../vendor/xlsx.full.min.js",
+  "../icons/ipw-180.png",
+  "../icons/ipw-192.png",
+  "../icons/ipw-512.png"
+];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("ipw-workspace-") && key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
+
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin || isWorkbookRequest(url)) return;
+
+  if (request.mode === "navigate") {
+    event.respondWith(fetch(request).catch(() => caches.match("./index.html")));
+    return;
+  }
+
+  event.respondWith(
+    caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+      if (response.ok) {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+      }
+      return response;
+    }))
+  );
+});
+
+function isWorkbookRequest(url) {
+  return /\/data\//i.test(url.pathname) || /\.(?:xlsx|xlsm|xlsb|xls)$/i.test(url.pathname);
+}
