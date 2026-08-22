@@ -75,7 +75,8 @@ const state = {
   lastPeriod: null,
   lastCorrelation: null,
   lastAssessment: null,
-  lastRelease: null
+  lastRelease: null,
+  lastZmPlan: null
 };
 
 const ALL = "__all__";
@@ -219,7 +220,11 @@ function bindEvents() {
   byId("run-period").addEventListener("click", () => runAction(createPeriodComparison));
   byId("save-period-plot").addEventListener("click", () => runAction(savePeriodPlot));
   byId("run-assessment").addEventListener("click", () => runAction(createAssessment));
-  byId("export-zm-plan").addEventListener("click", () => runAction(exportZmPlan));
+  byId("show-zm-plan").addEventListener("click", () => runAction(showZmPlan));
+  byId("apply-zm-label").addEventListener("click", () => runAction(() => updateZmPlanLabel(false)));
+  byId("remove-zm-label").addEventListener("click", () => runAction(() => updateZmPlanLabel(true)));
+  byId("zm-layout").addEventListener("change", invalidateZmPlan);
+  byId("zm-coordinates").addEventListener("input", invalidateZmPlan);
   byId("run-release").addEventListener("click", () => runAction(createReleaseSummary));
   byId("download-release").addEventListener("click", () => runAction(downloadReleaseSummary));
   byId("run-correlation").addEventListener("click", () => runAction(createCorrelation));
@@ -263,6 +268,7 @@ async function parseWorkbook(data, fileName) {
   state.lastTrend = null;
   state.lastPeriod = null;
   state.lastRelease = null;
+  state.lastZmPlan = null;
   setStatus("Reading workbook data...");
   await yieldToBrowser();
   state.workbook = XLSX.read(data, {
@@ -337,6 +343,8 @@ async function selectSource(sheetName) {
   state.lastCorrelation = null;
   state.lastAssessment = null;
   state.lastRelease = null;
+  state.lastZmPlan = null;
+  byId("show-zm-plan").disabled = true;
   state.newLotImport = null;
   renderCurrentData();
   setStatus(`loaded: ${formatInteger(dataRows().length)} data rows, ${formatInteger(state.parameters.length)} parameters.`, false, true);
@@ -1145,6 +1153,7 @@ function populateWorkbookControls() {
     "assessment-sigma",
     "run-assessment",
     "zm-layout",
+    "zm-mark-label",
     "zm-coordinates",
     "correlation-data-scope",
     "correlation-y",
@@ -1167,7 +1176,7 @@ function populateWorkbookControls() {
   byId("assessment-parameter").disabled = !state.v90Parameters.length;
   byId("save-period-plot").disabled = !state.lastPeriod;
   byId("download-release").disabled = !state.lastRelease;
-  byId("export-zm-plan").disabled = !state.lastAssessment || state.lastAssessment.parameter === "All parameters";
+  byId("show-zm-plan").disabled = !state.lastAssessment || state.lastAssessment.parameter === "All parameters";
   byId("save-gaussian-snapshot").disabled = !state.lastGaussian;
   syncGaussianMethod();
   syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
@@ -1204,6 +1213,7 @@ function renderCurrentData() {
   clearResult("period-result");
   clearResult("correlation-result");
   clearResult("assessment-result");
+  clearResult("zm-plan-result");
   clearResult("release-result");
   renderExportNote();
   renderGaussianSnapshots();
@@ -1243,8 +1253,18 @@ function invalidateRelease() {
 
 function invalidateAssessment() {
   state.lastAssessment = null;
-  byId("export-zm-plan").disabled = true;
+  byId("show-zm-plan").disabled = true;
   clearResult("assessment-result");
+  invalidateZmPlan();
+}
+
+function invalidateZmPlan() {
+  state.lastZmPlan = null;
+  byId("zm-label-measurement").disabled = true;
+  byId("zm-label-roll").disabled = true;
+  byId("apply-zm-label").disabled = true;
+  byId("remove-zm-label").disabled = true;
+  clearResult("zm-plan-result");
 }
 
 function handleFilterOptionChange(event) {
@@ -1985,13 +2005,13 @@ function downloadReleaseSummary() {
   downloadText(`${baseFileName()}_Release_${safeFilePart(result.selectedLot)}.csv`, toCsv(rows), "text/csv;charset=utf-8");
 }
 
-function exportZmPlan() {
+function showZmPlan() {
   const current = state.lastAssessment;
-  if (!current) throw new Error("Run a New Lot Assessment before exporting a ZM plan.");
+  if (!current) throw new Error("Run a New Lot Assessment before showing a ZM plan.");
   const parameter = current.parameter;
   const columns = zoneColumns(state.headers, parameter);
   if (parameter === "All parameters" || !columns?.every((column) => column >= 0)) {
-    throw new Error("Select and assess one complete Zone 1-6 parameter before exporting a ZM plan.");
+    throw new Error("Select and assess one complete Zone 1-6 parameter before showing a ZM plan.");
   }
   const layoutName = byId("zm-layout").value;
   const specification = getZmPlanSpecification(layoutName);
@@ -1999,123 +2019,50 @@ function exportZmPlan() {
   const batchColumn = headerIndex(state.headers, "N");
   const lotRows = dataRows().filter((row) => sameDataValue(row[lotColumn], current.lot));
   const totalRolls = specification.zoneRollCounts.reduce((sum, count) => sum + count, 0);
-  const planRows = Array.from({ length: 105 }, () => Array(totalRolls + 1).fill(""));
-  const merges = [];
-  planRows[0][1] = `${layoutName} - Lot ${current.lot} - ${parameter}`;
-  planRows[1][1] = `${specification.totalWidth} mm`;
-  merges.push({ s: { r: 0, c: 1 }, e: { r: 0, c: totalRolls } });
-  merges.push({ s: { r: 1, c: 1 }, e: { r: 1, c: totalRolls } });
-
-  let rollStart = 1;
-  let segmentStart = 1;
-  specification.zoneRollCounts.forEach((count, zoneIndex) => {
-    const rollEnd = rollStart + count - 1;
-    planRows[3][rollStart] = `ZONE ${zoneIndex + 1}`;
-    merges.push({ s: { r: 3, c: rollStart }, e: { r: 3, c: rollEnd } });
-    for (let column = rollStart; column <= rollEnd; column += 1) planRows[4][column] = column;
-    if ((zoneIndex + 1) % specification.zonesPerSegment === 0 || zoneIndex === 5) {
-      planRows[2][segmentStart] = `${specification.segmentWidth} mm`;
-      merges.push({ s: { r: 2, c: segmentStart }, e: { r: 2, c: rollEnd } });
-      segmentStart = rollEnd + 1;
-    }
-    rollStart = rollEnd + 1;
-  });
-
-  for (let measurement = 1; measurement <= 50; measurement += 1) {
-    const topRow = 5 + (measurement - 1) * 2;
-    const dataRow = topRow + 1;
-    planRows[topRow][0] = `M${measurement}`;
-    merges.push({ s: { r: topRow, c: 0 }, e: { r: dataRow, c: 0 } });
-    let zoneStart = 1;
-    specification.zoneRollCounts.forEach((count) => {
-      merges.push({ s: { r: dataRow, c: zoneStart }, e: { r: dataRow, c: zoneStart + count - 1 } });
-      zoneStart += count;
-    });
-  }
-
   const assessmentRows = new Map(current.assessment.grid.map((row) => [planBatchIndex(row.batch), row]));
-  let writtenBatches = 0;
-  let writtenCells = 0;
-  const usedBatches = new Set();
+  const batchValues = new Map();
   for (const row of lotRows) {
     const batch = planBatchIndex(row[batchColumn]);
-    if (batch < 1 || batch > 50 || usedBatches.has(batch)) continue;
-    usedBatches.add(batch);
-    writtenBatches += 1;
-    const dataRow = 6 + (batch - 1) * 2;
-    let zoneStart = 1;
-    ZONES.forEach((zone) => {
-      const value = row[columns[zone - 1]];
-      if (isNumeric(value)) {
-        planRows[dataRow][zoneStart] = number(value);
-        writtenCells += 1;
-      }
-      zoneStart += specification.zoneRollCounts[zone - 1];
-    });
-  }
-  if (!writtenBatches) throw new Error(`No Batch N values from Lot ${current.lot} match M1 through M50.`);
-
-  const XLSX = getXlsx();
-  const sheet = XLSX.utils.aoa_to_sheet(planRows);
-  sheet["!merges"] = merges;
-  sheet["!cols"] = [{ wch: 7 }, ...Array.from({ length: totalRolls }, () => ({ wch: 3.2 }))];
-  sheet["!rows"] = planRows.map((_, index) => ({ hpt: index < 5 ? 21 : 16 }));
-  const zoneColors = ["F4CCB8", "FFE5CC", "CCECF7", "DDEBF7", "E2EFDA", "EBF1DE"];
-  stylePlanCell(sheet, 0, 1, { fill: "123F61", color: "FFFFFF", bold: true, size: 14 });
-  stylePlanCell(sheet, 1, 1, { bold: true });
-  rollStart = 1;
-  specification.zoneRollCounts.forEach((count, zoneIndex) => {
-    const rollEnd = rollStart + count - 1;
-    for (let column = rollStart; column <= rollEnd; column += 1) {
-      stylePlanCell(sheet, 3, column, { fill: zoneColors[zoneIndex], color: "C00000", bold: true });
-      stylePlanCell(sheet, 4, column, { fill: zoneColors[zoneIndex], bold: true });
-    }
-    rollStart = rollEnd + 1;
-  });
-  for (const batch of usedBatches) {
-    const dataRow = 6 + (batch - 1) * 2;
+    if (batch < 1 || batch > 50 || batchValues.has(batch)) continue;
     const assessmentRow = assessmentRows.get(batch);
-    let zoneStart = 1;
-    ZONES.forEach((zone) => {
+    batchValues.set(batch, ZONES.map((zone) => {
+      const value = row[columns[zone - 1]];
       const assessmentColumn = current.assessment.columns.findIndex((column) => column.header === `${parameter}_${zone}`);
-      const status = assessmentColumn >= 0 ? assessmentRow?.states?.[assessmentColumn] : null;
-      const fill = status === "OUT OF RANGE" ? "FF0000" : status === "MONITOR" ? "FFC000" : status === "IN RANGE" ? "92D050" : "F2F2F2";
-      for (let column = zoneStart; column < zoneStart + specification.zoneRollCounts[zone - 1]; column += 1) {
-        stylePlanCell(sheet, dataRow, column, { fill, color: status === "OUT OF RANGE" ? "FFFFFF" : "000000", bold: true });
-      }
-      zoneStart += specification.zoneRollCounts[zone - 1];
-    });
+      return {
+        value: isNumeric(value) ? number(value) : null,
+        status: assessmentColumn >= 0 ? assessmentRow?.states?.[assessmentColumn] || "NO HISTORY" : "NO HISTORY"
+      };
+    }));
   }
-  const coordinateResult = markZmCoordinates(sheet, byId("zm-coordinates").value, totalRolls);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, safeSheetName(`${layoutName}_${current.lot}_${parameter}`));
-  XLSX.writeFile(workbook, `${layoutName}_${safeFilePart(current.lot)}_${safeFilePart(parameter)}.xlsx`, { cellStyles: true });
+  if (!batchValues.size) throw new Error(`No Batch N values from Lot ${current.lot} match M1 through M50.`);
+
+  const coordinateResult = parseZmCoordinates(byId("zm-coordinates").value, totalRolls);
+  const bulkLabel = text(byId("zm-mark-label").value) || "X";
+  state.lastZmPlan = {
+    layoutName,
+    specification,
+    totalRolls,
+    lot: current.lot,
+    parameter,
+    batchValues,
+    labels: new Map([...coordinateResult.marked].map((coordinate) => [coordinate, bulkLabel])),
+    invalidCoordinates: coordinateResult.invalid
+  };
+  byId("zm-label-measurement").disabled = false;
+  byId("zm-label-roll").max = String(totalRolls);
+  byId("zm-label-roll").disabled = false;
+  byId("apply-zm-label").disabled = false;
+  byId("remove-zm-label").disabled = false;
+  renderZmPlan();
   setStatus(
-    `${layoutName}: ${writtenBatches} Batch row(s), ${writtenCells} Zone value(s), ${coordinateResult.marked} coordinate(s) marked${coordinateResult.invalid.length ? `; invalid: ${coordinateResult.invalid.join(", ")}` : ""}.`,
+    `${layoutName}: ${batchValues.size} Batch row(s) shown, ${coordinateResult.marked.size} M/R area(s) labeled${coordinateResult.invalid.length ? `; invalid: ${coordinateResult.invalid.join(", ")}` : ""}.`,
     Boolean(coordinateResult.invalid.length),
     !coordinateResult.invalid.length
   );
 }
 
-function stylePlanCell(sheet, row, column, options = {}) {
-  const XLSX = getXlsx();
-  const address = XLSX.utils.encode_cell({ r: row, c: column });
-  if (!sheet[address]) sheet[address] = { t: "s", v: "" };
-  sheet[address].s = {
-    fill: options.fill ? { patternType: "solid", fgColor: { rgb: options.fill } } : undefined,
-    font: { name: "Calibri", sz: options.size || 11, bold: Boolean(options.bold), color: { rgb: options.color || "000000" } },
-    alignment: { horizontal: "center", vertical: "center" },
-    border: {
-      top: { style: "thin", color: { rgb: "777777" } },
-      bottom: { style: "thin", color: { rgb: "777777" } },
-      left: { style: "thin", color: { rgb: "777777" } },
-      right: { style: "thin", color: { rgb: "777777" } }
-    }
-  };
-}
-
-function markZmCoordinates(sheet, input, totalRolls) {
-  const marked = [];
+function parseZmCoordinates(input, totalRolls) {
+  const marked = new Set();
   const invalid = [];
   const tokens = text(input).split(",").map((item) => item.trim()).filter(Boolean);
   for (const token of tokens) {
@@ -2127,15 +2074,108 @@ function markZmCoordinates(sheet, input, totalRolls) {
       invalid.push(token);
       continue;
     }
-    const row = 5 + (measurement - 1) * 2;
     for (let roll = rollStart; roll <= rollEnd; roll += 1) {
-      const address = getXlsx().utils.encode_cell({ r: row, c: roll });
-      sheet[address] = { t: "s", v: "X" };
-      stylePlanCell(sheet, row, roll, { fill: "FFFF00", color: "C00000", bold: true });
-      marked.push(`${measurement}/${roll}`);
+      marked.add(`${measurement}/${roll}`);
     }
   }
-  return { marked: marked.length, invalid };
+  return { marked, invalid };
+}
+
+function renderZmPlan() {
+  const plan = state.lastZmPlan;
+  if (!plan) return;
+  const { specification } = plan;
+  const segments = [];
+  for (let zoneIndex = 0; zoneIndex < 6; zoneIndex += specification.zonesPerSegment) {
+    const counts = specification.zoneRollCounts.slice(zoneIndex, zoneIndex + specification.zonesPerSegment);
+    segments.push(counts.reduce((sum, count) => sum + count, 0));
+  }
+  const tableWidth = 70 + plan.totalRolls * 28;
+  const measurementRows = Array.from({ length: 50 }, (_, index) => {
+    const measurement = index + 1;
+    const zones = plan.batchValues.get(measurement) || Array.from({ length: 6 }, () => ({ value: null, status: "NO HISTORY" }));
+    return `<tr class="zm-coordinate-row">
+      <th rowspan="2">M${measurement}</th>
+      ${Array.from({ length: plan.totalRolls }, (_, rollIndex) => {
+        const coordinate = `${measurement}/${rollIndex + 1}`;
+        const label = plan.labels.get(coordinate) || "";
+        return `<td class="${label ? "is-marked" : ""}"><button type="button" class="zm-mark-button" data-measurement="${measurement}" data-roll="${rollIndex + 1}" aria-label="M${measurement} / R${rollIndex + 1}">${escapeHtml(label)}</button></td>`;
+      }).join("")}
+    </tr>
+    <tr class="zm-value-row">
+      ${zones.map((item, zoneIndex) => `<td colspan="${specification.zoneRollCounts[zoneIndex]}" class="${statusClass(item.status)}">${formatCell(item.value)}</td>`).join("")}
+    </tr>`;
+  }).join("");
+  byId("zm-plan-result").innerHTML = `
+    <div class="section-heading"><h2>ZM Plan</h2></div>
+    <div class="metric-grid">
+      ${metric("Layout", plan.layoutName)}
+      ${metric("Lot", plan.lot)}
+      ${metric("Parameter", plan.parameter)}
+      ${metric("Batches shown", formatInteger(plan.batchValues.size))}
+      ${metric("M/R labels", formatInteger(plan.labels.size))}
+    </div>
+    ${plan.invalidCoordinates.length ? `<p class="mapping-result is-error">Invalid coordinates: ${plan.invalidCoordinates.map(escapeHtml).join(", ")}</p>` : ""}
+    <div class="table-wrap zm-plan-wrap">
+      <table class="zm-plan-table" style="min-width:${tableWidth}px">
+        <colgroup><col class="zm-m-col">${Array.from({ length: plan.totalRolls }, () => '<col class="zm-roll-col">').join("")}</colgroup>
+        <thead>
+          <tr><th></th><th colspan="${plan.totalRolls}" class="zm-plan-title">${escapeHtml(plan.layoutName)} - Lot ${escapeHtml(plan.lot)} - ${escapeHtml(plan.parameter)}</th></tr>
+          <tr><th></th><th colspan="${plan.totalRolls}" class="zm-plan-width">${formatInteger(specification.totalWidth)} mm</th></tr>
+          <tr><th></th>${segments.map((count) => `<th colspan="${count}">${formatInteger(specification.segmentWidth)} mm</th>`).join("")}</tr>
+          <tr><th></th>${specification.zoneRollCounts.map((count, zoneIndex) => `<th colspan="${count}" class="zm-zone-${zoneIndex + 1}">ZONE ${zoneIndex + 1}</th>`).join("")}</tr>
+          <tr><th>M</th>${Array.from({ length: plan.totalRolls }, (_, index) => `<th>${index + 1}</th>`).join("")}</tr>
+        </thead>
+        <tbody>${measurementRows}</tbody>
+      </table>
+    </div>
+  `;
+  byId("zm-plan-result").querySelectorAll(".zm-mark-button").forEach((button) => {
+    button.addEventListener("click", handleZmPlanLabelClick);
+  });
+}
+
+function handleZmPlanLabelClick(event) {
+  const button = event.target.closest(".zm-mark-button");
+  const plan = state.lastZmPlan;
+  if (!button || !plan) return;
+  const coordinate = `${button.dataset.measurement}/${button.dataset.roll}`;
+  if (plan.labels.has(coordinate)) {
+    plan.labels.delete(coordinate);
+  } else {
+    const label = text(byId("zm-mark-label").value);
+    if (!label) {
+      setStatus("Enter an M/R label before tapping the plan.", true);
+      byId("zm-mark-label").focus();
+      return;
+    }
+    plan.labels.set(coordinate, label);
+  }
+  renderZmPlan();
+  setStatus(`M${button.dataset.measurement} / R${button.dataset.roll} updated. ${plan.labels.size} M/R area(s) labeled.`, false, true);
+}
+
+function updateZmPlanLabel(remove) {
+  const plan = state.lastZmPlan;
+  if (!plan) throw new Error("Show the ZM plan before labeling an M/R area.");
+  const measurement = Number(byId("zm-label-measurement").value);
+  const roll = Number(byId("zm-label-roll").value);
+  if (!Number.isInteger(measurement) || measurement < 1 || measurement > 50) {
+    throw new Error("Measurement M must be a whole number from 1 to 50.");
+  }
+  if (!Number.isInteger(roll) || roll < 1 || roll > plan.totalRolls) {
+    throw new Error(`Roll R must be a whole number from 1 to ${plan.totalRolls}.`);
+  }
+  const coordinate = `${measurement}/${roll}`;
+  if (remove) {
+    plan.labels.delete(coordinate);
+  } else {
+    const label = text(byId("zm-mark-label").value);
+    if (!label) throw new Error("Enter an M/R label before applying it.");
+    plan.labels.set(coordinate, label);
+  }
+  renderZmPlan();
+  setStatus(`M${measurement} / R${roll} ${remove ? "label removed" : "labeled"}. ${plan.labels.size} M/R area(s) labeled.`, false, true);
 }
 
 function planBatchIndex(value) {
@@ -2166,7 +2206,7 @@ function createAssessment() {
   );
   state.lastAssessment = { parameter, lot, mode, assessment };
   renderAssessmentResult();
-  byId("export-zm-plan").disabled = parameter === "All parameters" || !zoneColumns(state.headers, parameter)?.every((column) => column >= 0);
+  byId("show-zm-plan").disabled = parameter === "All parameters" || !zoneColumns(state.headers, parameter)?.every((column) => column >= 0);
   setStatus(`Lot assessment: ${assessment.overall}.`, assessment.overall === "NOT OK", assessment.overall === "OK");
 }
 

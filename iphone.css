@@ -539,6 +539,98 @@ tr:last-child td {
   font-weight: 700;
 }
 
+.zm-plan-wrap {
+  max-height: 72vh;
+  overflow: auto;
+}
+
+.zm-plan-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.zm-plan-table col.zm-m-col {
+  width: 58px;
+}
+
+.zm-plan-table col.zm-roll-col {
+  width: 28px;
+}
+
+.zm-plan-table th,
+.zm-plan-table td {
+  width: 28px;
+  min-width: 28px;
+  height: 27px;
+  padding: 2px;
+  overflow: hidden;
+  text-align: center;
+  vertical-align: middle;
+  font-size: 10px;
+}
+
+.zm-plan-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.zm-plan-table tr > :first-child {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  width: 58px;
+  min-width: 58px;
+  background: var(--surface-soft);
+}
+
+.zm-plan-table .zm-plan-title {
+  background: var(--blue-dark);
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.zm-plan-table .zm-plan-width {
+  background: #ffffff;
+  font-weight: 700;
+}
+
+.zm-zone-1 { background: #f4ccb8; }
+.zm-zone-2 { background: #ffe5cc; }
+.zm-zone-3 { background: #ccecf7; }
+.zm-zone-4 { background: #ddebf7; }
+.zm-zone-5 { background: #e2efda; }
+.zm-zone-6 { background: #ebf1de; }
+
+.zm-value-row td {
+  font-weight: 700;
+}
+
+.zm-mark-button {
+  width: 100%;
+  min-height: 23px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zm-coordinate-row td.is-marked {
+  background: #fff36b;
+  color: #b3261e;
+}
+
+.compact-plan-actions {
+  margin-top: 10px;
+}
+
 .chart-card h3 {
   margin: 0 0 8px;
   font-size: 14px;
