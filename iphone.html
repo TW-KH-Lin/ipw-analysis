@@ -13,14 +13,14 @@
     <link rel="apple-touch-icon" href="icons/ipw-180.png">
     <link rel="stylesheet" href="iphone.css?v=11">
     <script defer src="vendor/xlsx.full.min.js"></script>
-    <script type="module" src="iphone-app.js?v=42"></script>
+    <script type="module" src="iphone-app.js?v=43"></script>
     <script type="module" src="foldable-ui.js?v=1"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW HTML v16</p>
+          <p class="eyebrow">IPW HTML v17</p>
           <h1>Analysis</h1>
         </div>
         <label class="file-button">
@@ -192,7 +192,7 @@
       <section id="period-panel" class="panel" aria-label="Period and lot comparison">
         <div class="form-grid">
           <label>Data scope<select id="period-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
-          <label>Comparison mode<select id="period-mode" disabled><option value="two-periods">2 time periods</option><option value="three-periods">3 time periods</option><option value="lot-vs-period">Lot vs 1 period</option></select></label>
+          <label>Comparison mode<select id="period-mode" disabled><option value="two-periods">2 time periods</option><option value="three-periods">3 time periods</option><option value="lot-vs-period">Lot vs 1 period</option><option value="lot-vs-lot">Lot vs Lot</option></select></label>
           <label>Parameter<select id="period-parameter" disabled></select></label>
           <label>Plot<select id="period-plot" disabled><option value="mean">Mean +/- SD</option><option value="normalized">Normalized Zone / All</option></select></label>
         </div>
@@ -207,12 +207,16 @@
           <legend>Dataset A</legend>
           <label>Lot<select id="period-lot" disabled></select></label>
         </fieldset>
-        <fieldset class="zone-fieldset">
+        <fieldset id="period-b-period" class="zone-fieldset">
           <legend>Dataset B</legend>
           <div class="form-grid">
             <label>Start date<input id="period-b-start" type="date" disabled></label>
             <label>End date<input id="period-b-end" type="date" disabled></label>
           </div>
+        </fieldset>
+        <fieldset id="period-b-lot" class="zone-fieldset" hidden>
+          <legend>Dataset B</legend>
+          <label>Lot<select id="period-lot-b" disabled></select></label>
         </fieldset>
         <fieldset id="period-c-period" class="zone-fieldset" hidden>
           <legend>Dataset C</legend>
@@ -234,6 +238,7 @@
           <label>Lot<select id="assessment-lot" disabled></select></label>
           <label>Reference method<select id="assessment-reference" disabled><option value="history">Historical Zone Values</option><option value="filtered">Filtered Lots</option><option value="manual">Manual Mu / Sigma</option><option value="reference-lot">Reference Lot</option></select></label>
           <label id="assessment-reference-lot-field" hidden>Reference Lot<select id="assessment-reference-lot" disabled></select></label>
+          <label>Historical matching<select id="assessment-granularity" disabled><option value="zone">Zone only</option><option value="batch-zone">Batch + Zone</option></select></label>
           <label>Monitor limit<input id="assessment-monitor" inputmode="decimal" value="2" disabled></label>
           <label>Out-of-range limit<input id="assessment-outlier" inputmode="decimal" value="3" disabled></label>
           <label>Manual mu<input id="assessment-mu" inputmode="decimal" placeholder="Manual only" disabled></label>

@@ -45,7 +45,7 @@ export function buildPeriodComparison(headers, rows, parameter, dateLookup = new
   if (lotColumn < 0 || batchColumn < 0) throw new Error("The source sheet must contain Lot and N columns.");
 
   const mode = options.mode || "two-periods";
-  if (!["two-periods", "three-periods", "lot-vs-period"].includes(mode)) {
+  if (!["two-periods", "three-periods", "lot-vs-period", "lot-vs-lot"].includes(mode)) {
     throw new Error("Select a valid comparison mode.");
   }
   const regionalColumns = zoneColumns(headers, parameter);
@@ -201,6 +201,8 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
   const mode = options.referenceMode || "history";
   if (!["history", "filtered", "manual", "reference-lot"].includes(mode)) throw new Error("Select a valid reference method.");
   const referenceLot = text(options.referenceLot);
+  const referenceGranularity = options.referenceGranularity === "batch-zone" ? "batch-zone" : "zone";
+  const batchZoneMode = referenceGranularity === "batch-zone";
   if (mode === "reference-lot") {
     if (!referenceLot) throw new Error("Select the Reference Lot.");
     if (identity(referenceLot) === identity(selectedLot)) throw new Error("Selected Lot and Reference Lot must be different.");
@@ -212,8 +214,33 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
   const parameters = requested === "All parameters" ? availableParameters : availableParameters.filter((item) => item === requested);
   if (!parameters.length) throw new Error("No eligible numeric parameters were found.");
   if (mode === "manual" && parameters.length !== 1) throw new Error("Select one parameter when using manual mu and sigma.");
+  if (batchZoneMode) {
+    const regionalColumns = parameters.length === 1 ? zoneColumns(headers, parameters[0]) : null;
+    if (parameters.length !== 1 || !regionalColumns?.every((column) => column >= 0)) {
+      throw new Error("Batch + Zone matching requires one complete Zone 1-6 parameter.");
+    }
+    if (mode === "manual") throw new Error("Manual mu and sigma support Zone-only matching.");
+  }
 
   const sourceHistory = mode === "filtered" ? referenceRows : allRows;
+  const referenceFor = (sourceColumn, batchValue = null) => {
+    if (mode === "manual") {
+      const mean = Number(options.manualMu);
+      const sigma = Number(options.manualSigma);
+      if (!(Number.isFinite(mean) && Number.isFinite(sigma) && sigma > 0)) throw new Error("Enter a positive manual mu and sigma.");
+      return { n: 2, mean, sigma, excluded: 0 };
+    }
+    const targetBatch = batchZoneMode ? assessmentBatchKey(batchValue) : "";
+    const values = sourceHistory.filter((row) => {
+      const lot = identity(row[lotColumn]);
+      if (mode === "reference-lot" ? lot !== identity(referenceLot) : lot === identity(selectedLot)) return false;
+      if (batchZoneMode && assessmentBatchKey(row[batchColumn]) !== targetBatch) return false;
+      return isNumeric(row[sourceColumn]);
+    }).map((row) => number(row[sourceColumn]));
+    return mode === "history" || mode === "filtered"
+      ? robustHistory(values)
+      : { ...meanAndSigma(values), excluded: 0 };
+  };
   const columns = [];
   const parameterGroups = [];
   parameters.forEach((parameter) => {
@@ -224,20 +251,7 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
     const start = columns.length;
     sourceColumns.forEach((sourceColumn, index) => {
       const header = regional ? `${parameter}_${index + 1}` : parameter;
-      let reference;
-      if (mode === "manual") {
-        const mean = Number(options.manualMu);
-        const sigma = Number(options.manualSigma);
-        if (!(Number.isFinite(mean) && Number.isFinite(sigma) && sigma > 0)) throw new Error("Enter a positive manual mu and sigma.");
-        reference = { n: 2, mean, sigma, excluded: 0 };
-      } else {
-        const values = sourceHistory.filter((row) => {
-          const lot = identity(row[lotColumn]);
-          if (mode === "reference-lot") return lot === identity(referenceLot);
-          return lot !== identity(selectedLot);
-        }).filter((row) => isNumeric(row[sourceColumn])).map((row) => number(row[sourceColumn]));
-        reference = mode === "history" || mode === "filtered" ? robustHistory(values) : { ...meanAndSigma(values), excluded: 0 };
-      }
+      const reference = referenceFor(sourceColumn);
       columns.push({ parameter, header, sourceColumn, zone: regional ? index + 1 : null, reference });
     });
     parameterGroups.push({ parameter, regional, columnIndexes: Array.from({ length: columns.length - start }, (_, index) => start + index) });
@@ -253,28 +267,35 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
     const values = [];
     const states = [];
     const scores = [];
+    const signedScores = [];
+    const references = [];
     columns.forEach((column) => {
+      const reference = batchZoneMode ? referenceFor(column.sourceColumn, row[batchColumn]) : column.reference;
+      references.push(reference);
       const value = isNumeric(row[column.sourceColumn]) ? number(row[column.sourceColumn]) : null;
       values.push(value);
       if (value === null) {
         states.push("NO VALUE");
         scores.push(null);
+        signedScores.push(null);
         return;
       }
-      if (column.reference.n < 2) {
+      if (reference.n < 2) {
         noHistoryCount += 1;
         states.push("NO HISTORY");
         scores.push(null);
+        signedScores.push(null);
         return;
       }
       let signedZ;
-      if (column.reference.sigma > 0) signedZ = (value - column.reference.mean) / column.reference.sigma;
-      else signedZ = Math.abs(value - column.reference.mean) < 1e-7 ? 0 : 999 * Math.sign(value - column.reference.mean);
+      if (reference.sigma > 0) signedZ = (value - reference.mean) / reference.sigma;
+      else signedZ = Math.abs(value - reference.mean) < 1e-7 ? 0 : 999 * Math.sign(value - reference.mean);
       const score = Math.abs(signedZ);
       const summary = summaryState.get(column.parameter);
       summary.z.push(signedZ);
       comparedCount += 1;
       scores.push(score);
+      signedScores.push(signedZ);
       if (score > outlierLimit) {
         states.push("OUT OF RANGE");
         summary.outlier += 1;
@@ -287,8 +308,16 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
         states.push("IN RANGE");
       }
     });
-    return { batch: row[batchColumn], values, states, scores };
+    return { batch: row[batchColumn], values, states, scores, signedScores, references };
   });
+
+  const appliedReferences = batchZoneMode ? grid.flatMap((row) => columns.map((column, columnIndex) => ({
+    batch: row.batch,
+    parameter: column.parameter,
+    header: column.header,
+    zone: column.zone,
+    ...row.references[columnIndex]
+  }))) : [];
 
   const summaries = parameterGroups.map((group) => {
     const values = summaryState.get(group.parameter);
@@ -319,6 +348,7 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
     selectedLot,
     referenceLot,
     referenceMode: mode,
+    referenceGranularity,
     monitorLimit,
     outlierLimit,
     columns,
@@ -329,11 +359,23 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
     monitorCount,
     outlierCount,
     noHistoryCount,
-    historyExcluded: columns.reduce((sum, column) => sum + (column.reference.excluded || 0), 0)
+    appliedReferences,
+    historyExcluded: (batchZoneMode ? appliedReferences : columns)
+      .reduce((sum, item) => sum + ((item.reference || item).excluded || 0), 0)
   };
 }
 
 function buildDatasetDefinitions(mode, options) {
+  if (mode === "lot-vs-lot") {
+    const lotA = text(options.lotA);
+    const lotB = text(options.lotB);
+    if (!lotA || !lotB) throw new Error("Select Dataset A Lot and Dataset B Lot.");
+    if (identity(lotA) === identity(lotB)) throw new Error("Dataset A Lot and Dataset B Lot must be different.");
+    return [
+      { kind: "lot", lot: lotA, label: `Lot ${lotA}` },
+      { kind: "lot", lot: lotB, label: `Lot ${lotB}` }
+    ];
+  }
   if (mode === "lot-vs-period") {
     if (!text(options.lotA)) throw new Error("Select Dataset A Lot.");
     return [
@@ -347,6 +389,14 @@ function buildDatasetDefinitions(mode, options) {
   ];
   if (mode === "three-periods") definitions.push(periodDefinition(options.cStart, options.cEnd, "Dataset C"));
   return definitions;
+}
+
+function assessmentBatchKey(value) {
+  let key = text(value).toUpperCase().replace(/\s+/g, "");
+  if (key.startsWith("BATCH")) key = key.slice(5);
+  if (key.startsWith("M") && key.length > 1) key = key.slice(1);
+  const numeric = Number(key);
+  return key && Number.isFinite(numeric) ? String(numeric) : key;
 }
 
 function periodDefinition(startValue, endValue, name) {

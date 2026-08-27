@@ -45,7 +45,7 @@ import {
   buildV90LotAssessment,
   getV90Parameters,
   getZmPlanSpecification
-} from "./v90-analysis.js?v=1";
+} from "./v90-analysis.js?v=2";
 
 const state = {
   workbook: null,
@@ -165,10 +165,14 @@ function bindEvents() {
   ["gaussian-data-scope", "trend-data-scope", "correlation-data-scope"].forEach((id) => {
     byId(id).addEventListener("change", invalidateAnalyses);
   });
-  [
-    "period-data-scope", "period-parameter", "period-plot",
-    "period-lot", "period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end"
-  ].forEach((id) => byId(id).addEventListener(id.includes("parameter") || id.includes("scope") || id.includes("plot") ? "change" : "input", invalidatePeriod));
+  ["period-data-scope", "period-parameter", "period-plot"].forEach((id) => byId(id).addEventListener("change", invalidatePeriod));
+  ["period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end"]
+    .forEach((id) => byId(id).addEventListener("input", invalidatePeriod));
+  byId("period-lot").addEventListener("change", () => {
+    syncPeriodLots();
+    invalidatePeriod();
+  });
+  byId("period-lot-b").addEventListener("change", invalidatePeriod);
   byId("period-mode").addEventListener("change", () => {
     syncPeriodMode();
     invalidatePeriod();
@@ -190,6 +194,7 @@ function bindEvents() {
     invalidateAssessment();
   });
   byId("assessment-reference-lot").addEventListener("change", invalidateAssessment);
+  byId("assessment-granularity").addEventListener("change", invalidateAssessment);
   ["assessment-monitor", "assessment-outlier", "assessment-mu", "assessment-sigma"].forEach((id) => {
     byId(id).addEventListener("input", invalidateAssessment);
   });
@@ -1098,7 +1103,7 @@ function populateWorkbookControls() {
   fillSelect(byId("trend-parameter"), state.trendParameters, byId("trend-parameter").value || state.trendParameters[0]);
   fillSelect(byId("assessment-parameter"), ["All parameters", ...state.v90Parameters], byId("assessment-parameter").value || "All parameters");
   fillSelect(byId("period-parameter"), ["All parameters", ...state.v90Parameters], byId("period-parameter").value || "All parameters");
-  fillSelect(byId("period-lot"), state.lots, byId("period-lot").value || state.lots[0]);
+  syncPeriodLots();
   fillSelect(byId("release-lot"), state.lots, byId("release-lot").value || state.lots[0]);
   byId("generated-summary-parameter").disabled = !state.lastBuild;
   if (byId("correlation-x").options.length > 1) byId("correlation-x").value = secondParameter;
@@ -1143,6 +1148,7 @@ function populateWorkbookControls() {
     "period-parameter",
     "period-plot",
     "period-lot",
+    "period-lot-b",
     "period-a-start",
     "period-a-end",
     "period-b-start",
@@ -1159,6 +1165,7 @@ function populateWorkbookControls() {
     "assessment-lot",
     "assessment-reference",
     "assessment-reference-lot",
+    "assessment-granularity",
     "assessment-monitor",
     "assessment-outlier",
     "assessment-mu",
@@ -1751,20 +1758,41 @@ function chartLegend(items) {
 
 function syncPeriodMode() {
   const mode = byId("period-mode").value;
-  byId("period-a-period").hidden = mode === "lot-vs-period";
-  byId("period-a-lot").hidden = mode !== "lot-vs-period";
+  const lotDatasetA = mode === "lot-vs-period" || mode === "lot-vs-lot";
+  const lotDatasetB = mode === "lot-vs-lot";
+  byId("period-a-period").hidden = lotDatasetA;
+  byId("period-a-lot").hidden = !lotDatasetA;
+  byId("period-b-period").hidden = lotDatasetB;
+  byId("period-b-lot").hidden = !lotDatasetB;
   byId("period-c-period").hidden = mode !== "three-periods";
+  byId("period-lot").disabled = !lotDatasetA || !state.lots.length;
+  byId("period-lot-b").disabled = !lotDatasetB || byId("period-lot-b").options.length === 0;
+  ["period-a-start", "period-a-end"].forEach((id) => { byId(id).disabled = lotDatasetA; });
+  ["period-b-start", "period-b-end"].forEach((id) => { byId(id).disabled = lotDatasetB; });
+  ["period-c-start", "period-c-end"].forEach((id) => { byId(id).disabled = mode !== "three-periods"; });
+}
+
+function syncPeriodLots() {
+  const previousA = byId("period-lot").value;
+  const lotA = state.lots.includes(previousA) ? previousA : state.lots[0];
+  fillSelect(byId("period-lot"), state.lots, lotA);
+  const lotBOptions = state.lots.filter((lot) => text(lot).toUpperCase() !== text(lotA).toUpperCase());
+  const previousB = byId("period-lot-b").value;
+  fillSelect(byId("period-lot-b"), lotBOptions, lotBOptions.includes(previousB) ? previousB : lotBOptions[0]);
+  syncPeriodMode();
 }
 
 async function createPeriodComparison() {
   const selectedParameter = byId("period-parameter").value;
   const parameters = selectedParameter === "All parameters" ? state.v90Parameters : [selectedParameter];
   if (!parameters.length) throw new Error("No V90 parameters are available.");
-  setStatus("Reading production dates and creating the comparison...");
-  const dateLookup = await loadTrendDateLookup();
+  const comparisonMode = byId("period-mode").value;
+  setStatus(comparisonMode === "lot-vs-lot" ? "Creating the Lot comparison..." : "Reading production dates and creating the comparison...");
+  const dateLookup = comparisonMode === "lot-vs-lot" ? new Map() : await loadTrendDateLookup();
   const options = {
-    mode: byId("period-mode").value,
+    mode: comparisonMode,
     lotA: byId("period-lot").value,
+    lotB: byId("period-lot-b").value,
     aStart: byId("period-a-start").value,
     aEnd: byId("period-a-end").value,
     bStart: byId("period-b-start").value,
@@ -2048,7 +2076,8 @@ function showZmPlan() {
       const assessmentColumn = current.assessment.columns.findIndex((column) => column.header === `${parameter}_${zone}`);
       return {
         value: isNumeric(value) ? number(value) : null,
-        status: assessmentColumn >= 0 ? assessmentRow?.states?.[assessmentColumn] || "NO HISTORY" : "NO HISTORY"
+        status: assessmentColumn >= 0 ? assessmentRow?.states?.[assessmentColumn] || "NO HISTORY" : "NO HISTORY",
+        signedScore: assessmentColumn >= 0 ? assessmentRow?.signedScores?.[assessmentColumn] ?? null : null
       };
     }));
   }
@@ -2065,6 +2094,8 @@ function showZmPlan() {
     batchValues,
     labels: new Map([...coordinateResult.marked].map((coordinate) => [coordinate, bulkLabel])),
     invalidCoordinates: coordinateResult.invalid,
+    monitorLimit: current.assessment.monitorLimit,
+    outlierLimit: current.assessment.outlierLimit,
     viewZone: 1
   };
   byId("zm-label-measurement").disabled = false;
@@ -2132,7 +2163,13 @@ function renderZmPlan() {
       }).join("")}
     </tr>
     <tr class="zm-value-row">
-      ${visibleZoneIndexes.map((zoneIndex) => `<td colspan="${specification.zoneRollCounts[zoneIndex]}" class="${statusClass(zones[zoneIndex].status)}">${formatCell(zones[zoneIndex].value)}</td>`).join("")}
+      ${visibleZoneIndexes.map((zoneIndex) => {
+        const item = zones[zoneIndex];
+        const style = Number.isFinite(item.signedScore)
+          ? directionalAssessmentStyle(item.signedScore, plan.monitorLimit, plan.outlierLimit)
+          : "";
+        return `<td colspan="${specification.zoneRollCounts[zoneIndex]}" class="${statusClass(item.status)}"${style ? ` style="${style}"` : ""}>${formatCell(item.value)}</td>`;
+      }).join("")}
     </tr>`;
   }).join("");
   const zoneHeaderRows = allZones ? `
@@ -2246,6 +2283,7 @@ function createAssessment() {
       parameter,
       selectedLot: lot,
       referenceMode: mode,
+      referenceGranularity: byId("assessment-granularity").value,
       referenceLot: byId("assessment-reference-lot").value,
       manualMu: optionalNumber("assessment-mu"),
       manualSigma: optionalNumber("assessment-sigma"),
@@ -2253,7 +2291,7 @@ function createAssessment() {
       outlierLimit: requiredNumber("assessment-outlier")
     }
   );
-  state.lastAssessment = { parameter, lot, mode, assessment };
+  state.lastAssessment = { parameter, lot, mode, granularity: assessment.referenceGranularity, assessment };
   renderAssessmentResult();
   byId("show-zm-plan").disabled = parameter === "All parameters" || !zoneColumns(state.headers, parameter)?.every((column) => column >= 0);
   setStatus(`Lot assessment: ${assessment.overall}.`, assessment.overall === "NOT OK", assessment.overall === "OK");
@@ -2263,15 +2301,23 @@ function renderAssessmentResult() {
   const result = state.lastAssessment;
   if (!result) return;
   const { assessment } = result;
+  const batchZoneMode = assessment.referenceGranularity === "batch-zone";
   const rows = [
     ["Batch N", ...assessment.columns.map((column) => column.header)],
-    ["Mu", ...assessment.columns.map((column) => column.reference.mean)],
-    ["Sigma", ...assessment.columns.map((column) => column.reference.sigma)],
+    ["Mu", ...assessment.columns.map((column) => batchZoneMode ? "Per Batch" : column.reference.mean)],
+    ["Sigma", ...assessment.columns.map((column) => batchZoneMode ? "Per Batch" : column.reference.sigma)],
     ...assessment.grid.map((row) => [row.batch, ...row.values])
   ];
+  const appliedReferenceTable = batchZoneMode ? `
+    <div class="section-heading"><h2>Applied Batch + Zone References</h2></div>
+    <div class="table-wrap compact-table">${renderTable([
+      ["Batch N", "Zone", "N", "Mu", "Sigma", "Excluded"],
+      ...assessment.appliedReferences.map((item) => [item.batch, `Zone ${item.zone}`, item.n, item.mean, item.sigma, item.excluded])
+    ])}</div>` : "";
   byId("assessment-result").innerHTML = `
     <div class="metric-grid">
       ${metricHtml("Overall", statusBadge(assessment.overall))}
+      ${metric("Matching", batchZoneMode ? "Batch + Zone" : "Zone only")}
       ${metric("Compared", formatInteger(assessment.comparedCount))}
       ${metric("Monitor", formatInteger(assessment.monitorCount))}
       ${metric("Out of range", formatInteger(assessment.outlierCount))}
@@ -2281,7 +2327,9 @@ function renderAssessmentResult() {
     <div class="section-heading"><h2>Parameter Summary</h2></div>
     <div class="table-wrap compact-table">${renderV90AssessmentSummary(assessment.summaries)}</div>
     <div class="section-heading"><h2>Batch x Parameter x Zone</h2></div>
-    <div class="table-wrap">${renderV90AssessmentTable(rows, assessment.grid)}</div>
+    <p class="result-note">Higher-than-Mu values shade toward red; lower-than-Mu values shade toward green.</p>
+    <div class="table-wrap">${renderV90AssessmentTable(rows, assessment)}</div>
+    ${appliedReferenceTable}
   `;
 }
 
@@ -2294,15 +2342,37 @@ function renderV90AssessmentSummary(summaries) {
   </tr>`).join("")}</tbody></table>`;
 }
 
-function renderV90AssessmentTable(rows, gridRows) {
+function renderV90AssessmentTable(rows, assessment) {
   const [headers, ...body] = rows;
   return `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${body.map((row, rowIndex) => {
-    const states = rowIndex >= 2 ? gridRows[rowIndex - 2]?.states : null;
+    const gridRow = rowIndex >= 2 ? assessment.grid[rowIndex - 2] : null;
+    const states = gridRow?.states;
     return `<tr>${headers.map((_, columnIndex) => {
       const status = columnIndex > 0 ? states?.[columnIndex - 1] : null;
-      return `<td${status ? ` class="${statusClass(status)}"` : ""}>${formatCell(row[columnIndex])}</td>`;
+      const signedScore = columnIndex > 0 ? gridRow?.signedScores?.[columnIndex - 1] : null;
+      const style = Number.isFinite(signedScore)
+        ? directionalAssessmentStyle(signedScore, assessment.monitorLimit, assessment.outlierLimit)
+        : "";
+      const direction = Number.isFinite(signedScore)
+        ? `${signedScore > 0 ? "Above" : signedScore < 0 ? "Below" : "At"} Mu: ${formatNumber(signedScore, 2)} SD`
+        : "";
+      return `<td${status ? ` class="${statusClass(status)}"` : ""}${style ? ` style="${style}"` : ""}${direction ? ` title="${escapeHtml(direction)}"` : ""}>${formatCell(row[columnIndex])}</td>`;
     }).join("")}</tr>`;
   }).join("")}</tbody></table>`;
+}
+
+function directionalAssessmentStyle(signedScore, monitorLimit, outlierLimit) {
+  const score = Math.abs(Number(signedScore));
+  if (!Number.isFinite(score)) return "";
+  const monitor = Number(monitorLimit) > 0 ? Number(monitorLimit) : 2;
+  const outlier = Number(outlierLimit) > monitor ? Number(outlierLimit) : monitor + 1;
+  const intensity = Math.min(1, score <= monitor
+    ? 0.5 * score / monitor
+    : 0.5 + 0.5 * (score - monitor) / (outlier - monitor));
+  const neutral = [255, 255, 204];
+  const target = signedScore > 0 ? [192, 0, 0] : signedScore < 0 ? [0, 128, 0] : neutral;
+  const color = neutral.map((value, index) => Math.round(value + (target[index] - value) * intensity));
+  return `background-color:rgb(${color.join(",")});color:${score > outlier ? "#ffffff" : "#172231"}`;
 }
 
 function createCorrelation() {
@@ -2496,10 +2566,12 @@ function downloadAnalysisWorkbook() {
   }
   if (state.lastAssessment) {
     const { parameter: assessmentParameter, lot, mode, assessment } = state.lastAssessment;
-    appendSheet(workbook, "NewLot_Assessment_App", [
+    const batchZoneMode = assessment.referenceGranularity === "batch-zone";
+    const assessmentRows = [
       ["Parameter", assessmentParameter],
       ["Lot", lot],
       ["Reference", mode],
+      ["Historical matching", batchZoneMode ? "Batch + Zone" : "Zone only"],
       ["Overall", assessment.overall],
       ["Compared", assessment.comparedCount],
       ["Monitor", assessment.monitorCount],
@@ -2511,10 +2583,17 @@ function downloadAnalysisWorkbook() {
       ...assessment.summaries.map((item) => [item.parameter, item.n, item.meanZ, item.zSigma, item.monitorPct, item.outlierPct, item.signal]),
       [],
       ["Batch N", ...assessment.columns.map((column) => column.header)],
-      ["Mu", ...assessment.columns.map((column) => column.reference.mean)],
-      ["Sigma", ...assessment.columns.map((column) => column.reference.sigma)],
+      ["Mu", ...assessment.columns.map((column) => batchZoneMode ? "Per Batch" : column.reference.mean)],
+      ["Sigma", ...assessment.columns.map((column) => batchZoneMode ? "Per Batch" : column.reference.sigma)],
       ...assessment.grid.map((row) => [row.batch, ...row.values])
-    ]);
+    ];
+    if (batchZoneMode) assessmentRows.push(
+      [],
+      ["Applied Batch + Zone References"],
+      ["Batch N", "Parameter", "Zone", "N", "Mu", "Sigma", "Excluded"],
+      ...assessment.appliedReferences.map((item) => [item.batch, item.parameter, item.zone, item.n, item.mean, item.sigma, item.excluded])
+    );
+    appendSheet(workbook, "NewLot_Assessment_App", assessmentRows);
   }
   if (state.lastRelease) {
     const release = state.lastRelease.result;
@@ -2594,6 +2673,11 @@ function syncAssessmentReferenceMode() {
   if (manual && byId("assessment-parameter").value === "All parameters") {
     byId("assessment-parameter").value = state.v90Parameters[0] || "";
   }
+  const parameter = byId("assessment-parameter").value;
+  const completeRegional = parameter !== "All parameters" && zoneColumns(state.headers, parameter)?.every((column) => column >= 0);
+  const batchZoneAvailable = !manual && completeRegional;
+  if (!batchZoneAvailable) byId("assessment-granularity").value = "zone";
+  byId("assessment-granularity").disabled = !batchZoneAvailable;
 }
 
 function isDataRow(headers, row) {
