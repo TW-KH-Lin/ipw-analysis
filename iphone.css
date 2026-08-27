@@ -544,6 +544,10 @@ tr:last-child td {
   overflow: auto;
 }
 
+.zm-plan-wrap.is-zone-view {
+  overflow-x: hidden;
+}
+
 .zm-plan-table {
   border-collapse: separate;
   border-spacing: 0;
@@ -558,6 +562,10 @@ tr:last-child td {
   width: 28px;
 }
 
+.zm-plan-table.is-zone-view col.zm-roll-col {
+  width: auto;
+}
+
 .zm-plan-table th,
 .zm-plan-table td {
   width: 28px;
@@ -568,6 +576,18 @@ tr:last-child td {
   text-align: center;
   vertical-align: middle;
   font-size: 10px;
+}
+
+.zm-plan-table.is-zone-view th,
+.zm-plan-table.is-zone-view td {
+  width: auto;
+  min-width: 0;
+  font-size: 9px;
+}
+
+.zm-plan-table.is-zone-view tr > th:first-child {
+  width: 50px;
+  min-width: 50px;
 }
 
 .zm-plan-table thead {
@@ -627,8 +647,124 @@ tr:last-child td {
   color: #b3261e;
 }
 
+.zm-view-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: 12px 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.zm-view-tab {
+  min-height: 38px;
+  padding: 6px 3px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.zm-view-tab.is-active {
+  border-bottom-color: var(--blue);
+  color: var(--blue-dark);
+}
+
 .compact-plan-actions {
   margin-top: 10px;
+}
+
+.analysis-drawer,
+.foldable-section,
+.foldable-result,
+.foldable-table {
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.analysis-drawer > summary,
+.foldable-section > summary,
+.foldable-result > summary,
+.foldable-table > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 9px 11px;
+  color: var(--blue-dark);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.analysis-drawer > summary::-webkit-details-marker,
+.foldable-section > summary::-webkit-details-marker,
+.foldable-result > summary::-webkit-details-marker,
+.foldable-table > summary::-webkit-details-marker {
+  display: none;
+}
+
+.analysis-drawer > summary::after,
+.foldable-section > summary::after,
+.foldable-result > summary::after,
+.foldable-table > summary::after {
+  color: var(--green);
+  content: "+";
+  font-size: 18px;
+}
+
+.analysis-drawer[open] > summary::after,
+.foldable-section[open] > summary::after,
+.foldable-result[open] > summary::after,
+.foldable-table[open] > summary::after {
+  content: "-";
+}
+
+.analysis-drawer-body,
+.foldable-section-body,
+.foldable-result > .result-block {
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.foldable-section .section-heading {
+  margin-top: 0;
+}
+
+.foldable-section .section-heading h2 {
+  display: none;
+}
+
+.foldable-result > .result-block,
+.foldable-result .result-block:first-child,
+.foldable-table > .table-wrap {
+  margin-top: 0;
+}
+
+.foldable-table {
+  margin: 10px 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.foldable-table > summary {
+  min-height: 38px;
+  padding: 7px 9px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+  font-size: 12px;
+}
+
+.foldable-table > .table-wrap {
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
 }
 
 .chart-card h3 {
@@ -750,6 +886,10 @@ tr:last-child td {
 
   .analysis-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .zm-view-tabs {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 }
 

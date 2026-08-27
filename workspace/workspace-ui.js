@@ -19,39 +19,10 @@ const workflows = new Map([
   ["output", ["export-panel"]]
 ]);
 
-const settingsPanels = new Map([
-  ["gaussian-panel", "gaussian-result"],
-  ["trend-panel", "trend-result"],
-  ["period-panel", "period-result"],
-  ["lot-panel", "assessment-result"],
-  ["release-panel", "release-result"],
-  ["correlation-panel", "correlation-result"],
-  ["export-panel", "export-result"]
-]);
-
 document.addEventListener("DOMContentLoaded", () => {
-  buildSettingsDrawers();
   bindWorkspaceNavigation();
   bindDatasetDrawer();
 });
-
-function buildSettingsDrawers() {
-  for (const [panelId, resultId] of settingsPanels) {
-    const panel = document.getElementById(panelId);
-    const result = document.getElementById(resultId);
-    if (!panel || !result || panel.querySelector(":scope > .analysis-drawer")) continue;
-    const drawer = document.createElement("details");
-    drawer.className = "analysis-drawer";
-    drawer.open = true;
-    const summary = document.createElement("summary");
-    summary.textContent = "Settings";
-    const body = document.createElement("div");
-    body.className = "analysis-drawer-body";
-    while (panel.firstChild && panel.firstChild !== result) body.append(panel.firstChild);
-    drawer.append(summary, body);
-    panel.insertBefore(drawer, result);
-  }
-}
 
 function bindWorkspaceNavigation() {
   const title = document.getElementById("workspace-screen-title");

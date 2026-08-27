@@ -2064,7 +2064,8 @@ function showZmPlan() {
     parameter,
     batchValues,
     labels: new Map([...coordinateResult.marked].map((coordinate) => [coordinate, bulkLabel])),
-    invalidCoordinates: coordinateResult.invalid
+    invalidCoordinates: coordinateResult.invalid,
+    viewZone: 1
   };
   byId("zm-label-measurement").disabled = false;
   byId("zm-label-roll").max = String(totalRolls);
@@ -2103,27 +2104,42 @@ function renderZmPlan() {
   const plan = state.lastZmPlan;
   if (!plan) return;
   const { specification } = plan;
+  const viewZone = Number.isInteger(plan.viewZone) && plan.viewZone >= 0 && plan.viewZone <= 6 ? plan.viewZone : 1;
+  const allZones = viewZone === 0;
+  const zoneStarts = specification.zoneRollCounts.map((_, zoneIndex) => (
+    specification.zoneRollCounts.slice(0, zoneIndex).reduce((sum, count) => sum + count, 0) + 1
+  ));
+  const visibleZoneIndexes = allZones ? ZONES.map((zone) => zone - 1) : [viewZone - 1];
+  const visibleRolls = visibleZoneIndexes.flatMap((zoneIndex) => Array.from(
+    { length: specification.zoneRollCounts[zoneIndex] },
+    (_, rollIndex) => zoneStarts[zoneIndex] + rollIndex
+  ));
   const segments = [];
   for (let zoneIndex = 0; zoneIndex < 6; zoneIndex += specification.zonesPerSegment) {
     const counts = specification.zoneRollCounts.slice(zoneIndex, zoneIndex + specification.zonesPerSegment);
     segments.push(counts.reduce((sum, count) => sum + count, 0));
   }
-  const tableWidth = 70 + plan.totalRolls * 28;
+  const tableWidth = 70 + visibleRolls.length * 28;
   const measurementRows = Array.from({ length: 50 }, (_, index) => {
     const measurement = index + 1;
     const zones = plan.batchValues.get(measurement) || Array.from({ length: 6 }, () => ({ value: null, status: "NO HISTORY" }));
     return `<tr class="zm-coordinate-row">
       <th rowspan="2">M${measurement}</th>
-      ${Array.from({ length: plan.totalRolls }, (_, rollIndex) => {
-        const coordinate = `${measurement}/${rollIndex + 1}`;
+      ${visibleRolls.map((roll) => {
+        const coordinate = `${measurement}/${roll}`;
         const label = plan.labels.get(coordinate) || "";
-        return `<td class="${label ? "is-marked" : ""}"><button type="button" class="zm-mark-button" data-measurement="${measurement}" data-roll="${rollIndex + 1}" aria-label="M${measurement} / R${rollIndex + 1}">${escapeHtml(label)}</button></td>`;
+        return `<td class="${label ? "is-marked" : ""}"><button type="button" class="zm-mark-button" data-measurement="${measurement}" data-roll="${roll}" aria-label="M${measurement} / R${roll}">${escapeHtml(label)}</button></td>`;
       }).join("")}
     </tr>
     <tr class="zm-value-row">
-      ${zones.map((item, zoneIndex) => `<td colspan="${specification.zoneRollCounts[zoneIndex]}" class="${statusClass(item.status)}">${formatCell(item.value)}</td>`).join("")}
+      ${visibleZoneIndexes.map((zoneIndex) => `<td colspan="${specification.zoneRollCounts[zoneIndex]}" class="${statusClass(zones[zoneIndex].status)}">${formatCell(zones[zoneIndex].value)}</td>`).join("")}
     </tr>`;
   }).join("");
+  const zoneHeaderRows = allZones ? `
+    <tr><th></th>${segments.map((count) => `<th colspan="${count}">${formatInteger(specification.segmentWidth)} mm</th>`).join("")}</tr>
+    <tr><th></th>${specification.zoneRollCounts.map((count, zoneIndex) => `<th colspan="${count}" class="zm-zone-${zoneIndex + 1}">ZONE ${zoneIndex + 1}</th>`).join("")}</tr>` : `
+    <tr><th></th><th colspan="${visibleRolls.length}" class="zm-plan-width">Rolls ${visibleRolls[0]}-${visibleRolls[visibleRolls.length - 1]}</th></tr>
+    <tr><th></th><th colspan="${visibleRolls.length}" class="zm-zone-${viewZone}">ZONE ${viewZone}</th></tr>`;
   byId("zm-plan-result").innerHTML = `
     <div class="section-heading"><h2>ZM Plan</h2></div>
     <div class="metric-grid">
@@ -2134,15 +2150,18 @@ function renderZmPlan() {
       ${metric("M/R labels", formatInteger(plan.labels.size))}
     </div>
     ${plan.invalidCoordinates.length ? `<p class="mapping-result is-error">Invalid coordinates: ${plan.invalidCoordinates.map(escapeHtml).join(", ")}</p>` : ""}
-    <div class="table-wrap zm-plan-wrap">
-      <table class="zm-plan-table" style="min-width:${tableWidth}px">
-        <colgroup><col class="zm-m-col">${Array.from({ length: plan.totalRolls }, () => '<col class="zm-roll-col">').join("")}</colgroup>
+    <div class="zm-view-tabs" role="tablist" aria-label="ZM plan Zone view">
+      ${ZONES.map((zone) => `<button type="button" class="zm-view-tab ${viewZone === zone ? "is-active" : ""}" data-zm-view-zone="${zone}" role="tab" aria-selected="${viewZone === zone}">Zone ${zone}</button>`).join("")}
+      <button type="button" class="zm-view-tab ${allZones ? "is-active" : ""}" data-zm-view-zone="0" role="tab" aria-selected="${allZones}">All Zones</button>
+    </div>
+    <div class="table-wrap zm-plan-wrap ${allZones ? "" : "is-zone-view"}">
+      <table class="zm-plan-table ${allZones ? "is-all-zones" : "is-zone-view"}" style="${allZones ? `min-width:${tableWidth}px` : "min-width:100%;width:100%"}">
+        <colgroup><col class="zm-m-col">${visibleRolls.map(() => '<col class="zm-roll-col">').join("")}</colgroup>
         <thead>
-          <tr><th></th><th colspan="${plan.totalRolls}" class="zm-plan-title">${escapeHtml(plan.layoutName)} - Lot ${escapeHtml(plan.lot)} - ${escapeHtml(plan.parameter)}</th></tr>
-          <tr><th></th><th colspan="${plan.totalRolls}" class="zm-plan-width">${formatInteger(specification.totalWidth)} mm</th></tr>
-          <tr><th></th>${segments.map((count) => `<th colspan="${count}">${formatInteger(specification.segmentWidth)} mm</th>`).join("")}</tr>
-          <tr><th></th>${specification.zoneRollCounts.map((count, zoneIndex) => `<th colspan="${count}" class="zm-zone-${zoneIndex + 1}">ZONE ${zoneIndex + 1}</th>`).join("")}</tr>
-          <tr><th>M</th>${Array.from({ length: plan.totalRolls }, (_, index) => `<th>${index + 1}</th>`).join("")}</tr>
+          <tr><th></th><th colspan="${visibleRolls.length}" class="zm-plan-title">${escapeHtml(plan.layoutName)} - Lot ${escapeHtml(plan.lot)} - ${escapeHtml(plan.parameter)}</th></tr>
+          ${allZones ? `<tr><th></th><th colspan="${visibleRolls.length}" class="zm-plan-width">${formatInteger(specification.totalWidth)} mm</th></tr>` : ""}
+          ${zoneHeaderRows}
+          <tr><th>M</th>${visibleRolls.map((roll) => `<th>${roll}</th>`).join("")}</tr>
         </thead>
         <tbody>${measurementRows}</tbody>
       </table>
@@ -2151,6 +2170,18 @@ function renderZmPlan() {
   byId("zm-plan-result").querySelectorAll(".zm-mark-button").forEach((button) => {
     button.addEventListener("click", handleZmPlanLabelClick);
   });
+  byId("zm-plan-result").querySelectorAll(".zm-view-tab").forEach((button) => {
+    button.addEventListener("click", handleZmViewClick);
+  });
+}
+
+function handleZmViewClick(event) {
+  const plan = state.lastZmPlan;
+  const zone = Number(event.currentTarget.dataset.zmViewZone);
+  if (!plan || !Number.isInteger(zone) || zone < 0 || zone > 6) return;
+  plan.viewZone = zone;
+  renderZmPlan();
+  setStatus(zone ? `ZM plan fitted to Zone ${zone}.` : "ZM plan showing all Zones with horizontal scrolling.", false, true);
 }
 
 function handleZmPlanLabelClick(event) {

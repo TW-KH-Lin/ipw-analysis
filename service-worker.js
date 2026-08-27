@@ -1,9 +1,10 @@
-const CACHE_NAME = "ipw-analysis-v15";
+const CACHE_NAME = "ipw-analysis-v16";
 const APP_SHELL = [
   "./index.html",
   "./iphone.html",
-  "./iphone.css?v=10",
-  "./iphone-app.js?v=41",
+  "./iphone.css?v=11",
+  "./iphone-app.js?v=42",
+  "./foldable-ui.js?v=1",
   "./analysis.js?v=14",
   "./v90-analysis.js?v=1",
   "./clean-data.js?v=1",
