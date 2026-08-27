@@ -127,6 +127,7 @@ function enhanceTables(root) {
   if (root.matches?.(".table-wrap")) tables.push(root);
   root.querySelectorAll?.(".table-wrap").forEach((table) => tables.push(table));
   tables.forEach((table) => {
+    if (table.dataset.foldManaged === "true") return;
     if (table.parentElement?.classList.contains("foldable-table")) return;
     const heading = table.previousElementSibling?.classList.contains("section-heading")
       ? table.previousElementSibling.querySelector("h2")?.textContent?.trim()

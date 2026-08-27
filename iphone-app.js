@@ -238,6 +238,7 @@ function bindEvents() {
   byId("save-period-plot").addEventListener("click", () => runAction(savePeriodPlot));
   byId("run-assessment").addEventListener("click", () => runAction(createAssessment));
   byId("show-zm-plan").addEventListener("click", () => runAction(showZmPlan));
+  byId("save-zm-plan-png").addEventListener("click", () => runAction(saveFullZmPlanPng));
   byId("apply-zm-label").addEventListener("click", () => runAction(() => updateZmPlanLabel(false)));
   byId("remove-zm-label").addEventListener("click", () => runAction(() => updateZmPlanLabel(true)));
   byId("zm-layout").addEventListener("change", invalidateZmPlan);
@@ -1289,6 +1290,7 @@ function invalidateZmPlan() {
   byId("zm-label-roll").disabled = true;
   byId("apply-zm-label").disabled = true;
   byId("remove-zm-label").disabled = true;
+  byId("save-zm-plan-png").disabled = true;
   clearResult("zm-plan-result");
 }
 
@@ -2103,6 +2105,7 @@ function showZmPlan() {
   byId("zm-label-roll").disabled = false;
   byId("apply-zm-label").disabled = false;
   byId("remove-zm-label").disabled = false;
+  byId("save-zm-plan-png").disabled = false;
   renderZmPlan();
   setStatus(
     `${layoutName}: ${batchValues.size} Batch row(s) shown, ${coordinateResult.marked.size} M/R area(s) labeled${coordinateResult.invalid.length ? `; invalid: ${coordinateResult.invalid.join(", ")}` : ""}.`,
@@ -2221,6 +2224,141 @@ function handleZmViewClick(event) {
   setStatus(zone ? `ZM plan fitted to Zone ${zone}.` : "ZM plan showing all Zones with horizontal scrolling.", false, true);
 }
 
+async function saveFullZmPlanPng() {
+  const plan = state.lastZmPlan;
+  if (!plan) throw new Error("Show the ZM plan before saving it as PNG.");
+  setStatus("Rendering the complete ZM plan PNG...");
+  const canvas = renderFullZmPlanCanvas(plan);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) throw new Error("The browser could not create the ZM plan PNG.");
+  const fileName = `${baseFileName()}_ZM_${safeFilePart(plan.layoutName)}_${safeFilePart(plan.lot)}_${safeFilePart(plan.parameter)}_${fileDateStamp(new Date())}.png`;
+  downloadBlob(fileName, blob);
+  setStatus(`Full ZM plan PNG saved (${formatInteger(canvas.width)} x ${formatInteger(canvas.height)} px) with ${formatInteger(plan.labels.size)} M/R label(s).`, false, true);
+}
+
+function renderFullZmPlanCanvas(plan) {
+  const rollWidth = 30;
+  const measurementWidth = 72;
+  const rowHeight = 25;
+  const headerRows = 5;
+  const width = measurementWidth + plan.totalRolls * rollWidth + 1;
+  const height = headerRows * rowHeight + 50 * rowHeight * 2 + 1;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+
+  const zoneColors = ["#f4ccb8", "#ffe5cc", "#ccecf7", "#ddebf7", "#e2efda", "#ebf1de"];
+  const { specification } = plan;
+  let y = 0;
+  drawZmCanvasCell(ctx, 0, y, width, rowHeight, `${plan.layoutName} | Lot ${plan.lot} | ${plan.parameter}`, "#123f61", "#ffffff", true, 13);
+  y += rowHeight;
+  drawZmCanvasCell(ctx, 0, y, measurementWidth, rowHeight, "", "#edf4f8");
+  drawZmCanvasCell(ctx, measurementWidth, y, plan.totalRolls * rollWidth, rowHeight, `${formatInteger(specification.totalWidth)} mm`, "#ffffff", "#172231", true);
+  y += rowHeight;
+
+  let zoneOffset = 0;
+  for (let zoneIndex = 0; zoneIndex < 6; zoneIndex += specification.zonesPerSegment) {
+    const rollCount = specification.zoneRollCounts
+      .slice(zoneIndex, zoneIndex + specification.zonesPerSegment)
+      .reduce((sum, count) => sum + count, 0);
+    drawZmCanvasCell(ctx, measurementWidth + zoneOffset * rollWidth, y, rollCount * rollWidth, rowHeight, `${formatInteger(specification.segmentWidth)} mm`, "#edf4f8", "#172231", true);
+    zoneOffset += rollCount;
+  }
+  drawZmCanvasCell(ctx, 0, y, measurementWidth, rowHeight, "", "#edf4f8");
+  y += rowHeight;
+
+  let rollOffset = 0;
+  specification.zoneRollCounts.forEach((rollCount, zoneIndex) => {
+    drawZmCanvasCell(ctx, measurementWidth + rollOffset * rollWidth, y, rollCount * rollWidth, rowHeight, `ZONE ${zoneIndex + 1}`, zoneColors[zoneIndex], "#172231", true);
+    rollOffset += rollCount;
+  });
+  drawZmCanvasCell(ctx, 0, y, measurementWidth, rowHeight, "", "#edf4f8");
+  y += rowHeight;
+
+  drawZmCanvasCell(ctx, 0, y, measurementWidth, rowHeight, "M", "#edf4f8", "#123f61", true);
+  for (let roll = 1; roll <= plan.totalRolls; roll += 1) {
+    drawZmCanvasCell(ctx, measurementWidth + (roll - 1) * rollWidth, y, rollWidth, rowHeight, roll, "#edf4f8", "#123f61", true, 9);
+  }
+  y += rowHeight;
+
+  for (let measurement = 1; measurement <= 50; measurement += 1) {
+    const zones = plan.batchValues.get(measurement) || Array.from({ length: 6 }, () => ({ value: null, status: "NO HISTORY", signedScore: null }));
+    drawZmCanvasCell(ctx, 0, y, measurementWidth, rowHeight * 2, `M${measurement}`, "#edf4f8", "#123f61", true);
+    for (let roll = 1; roll <= plan.totalRolls; roll += 1) {
+      const label = plan.labels.get(`${measurement}/${roll}`) || "";
+      drawZmCanvasCell(
+        ctx,
+        measurementWidth + (roll - 1) * rollWidth,
+        y,
+        rollWidth,
+        rowHeight,
+        label,
+        label ? "#fff36b" : "#ffffff",
+        label ? "#b3261e" : "#172231",
+        Boolean(label),
+        8
+      );
+    }
+    let valueOffset = 0;
+    zones.forEach((item, zoneIndex) => {
+      const rollCount = specification.zoneRollCounts[zoneIndex];
+      const colors = zmPlanValueColors(item, plan);
+      drawZmCanvasCell(
+        ctx,
+        measurementWidth + valueOffset * rollWidth,
+        y + rowHeight,
+        rollCount * rollWidth,
+        rowHeight,
+        Number.isFinite(item.value) ? formatNumber(item.value, 4) : "",
+        colors.background,
+        colors.text,
+        true
+      );
+      valueOffset += rollCount;
+    });
+    y += rowHeight * 2;
+  }
+  return canvas;
+}
+
+function drawZmCanvasCell(ctx, x, y, width, height, value, background = "#ffffff", color = "#172231", bold = false, fontSize = 10) {
+  ctx.fillStyle = background;
+  ctx.fillRect(x, y, width, height);
+  ctx.strokeStyle = "#bac8d2";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, width, height);
+  const rendered = String(value ?? "");
+  if (!rendered) return;
+  let size = fontSize;
+  do {
+    ctx.font = `${bold ? "700 " : ""}${size}px Aptos, Calibri, Arial, sans-serif`;
+    if (ctx.measureText(rendered).width <= width - 4 || size <= 6) break;
+    size -= 1;
+  } while (size >= 6);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x + 1, y + 1, Math.max(0, width - 2), Math.max(0, height - 2));
+  ctx.clip();
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(rendered, x + width / 2, y + height / 2);
+  ctx.restore();
+}
+
+function zmPlanValueColors(item, plan) {
+  if (Number.isFinite(item.signedScore)) {
+    return directionalAssessmentColors(item.signedScore, plan.monitorLimit, plan.outlierLimit);
+  }
+  if (item.status === "OK" || item.status === "IN RANGE") return { background: "#d9ead3", text: "#172231" };
+  if (item.status === "CHECK" || item.status === "MONITOR") return { background: "#fff2cc", text: "#172231" };
+  if (item.status === "OUT OF RANGE" || item.status === "NOT OK" || item.status === "INVESTIGATE") return { background: "#b3261e", text: "#ffffff" };
+  return { background: "#f2f2f2", text: "#7f7f7f" };
+}
+
 function handleZmPlanLabelClick(event) {
   const button = event.target.closest(".zm-mark-button");
   const plan = state.lastZmPlan;
@@ -2291,7 +2429,14 @@ function createAssessment() {
       outlierLimit: requiredNumber("assessment-outlier")
     }
   );
-  state.lastAssessment = { parameter, lot, mode, granularity: assessment.referenceGranularity, assessment };
+  state.lastAssessment = {
+    parameter,
+    lot,
+    mode,
+    granularity: assessment.referenceGranularity,
+    assessment,
+    referenceViewZone: 1
+  };
   renderAssessmentResult();
   byId("show-zm-plan").disabled = parameter === "All parameters" || !zoneColumns(state.headers, parameter)?.every((column) => column >= 0);
   setStatus(`Lot assessment: ${assessment.overall}.`, assessment.overall === "NOT OK", assessment.overall === "OK");
@@ -2308,12 +2453,9 @@ function renderAssessmentResult() {
     ["Sigma", ...assessment.columns.map((column) => batchZoneMode ? "Per Batch" : column.reference.sigma)],
     ...assessment.grid.map((row) => [row.batch, ...row.values])
   ];
-  const appliedReferenceTable = batchZoneMode ? `
-    <div class="section-heading"><h2>Applied Batch + Zone References</h2></div>
-    <div class="table-wrap compact-table">${renderTable([
-      ["Batch N", "Zone", "N", "Mu", "Sigma", "Excluded"],
-      ...assessment.appliedReferences.map((item) => [item.batch, `Zone ${item.zone}`, item.n, item.mean, item.sigma, item.excluded])
-    ])}</div>` : "";
+  const appliedReferenceTable = batchZoneMode
+    ? renderAppliedReferenceViewer(assessment, result.referenceViewZone)
+    : "";
   byId("assessment-result").innerHTML = `
     <div class="metric-grid">
       ${metricHtml("Overall", statusBadge(assessment.overall))}
@@ -2331,6 +2473,70 @@ function renderAssessmentResult() {
     <div class="table-wrap">${renderV90AssessmentTable(rows, assessment)}</div>
     ${appliedReferenceTable}
   `;
+  byId("assessment-result").querySelectorAll(".assessment-reference-tab").forEach((button) => {
+    button.addEventListener("click", handleAssessmentReferenceView);
+  });
+}
+
+function renderAppliedReferenceViewer(assessment, requestedZone) {
+  const viewZone = Number.isInteger(requestedZone) && requestedZone >= 0 && requestedZone <= 6 ? requestedZone : 1;
+  const allZones = viewZone === 0;
+  return `
+    <details class="foldable-section applied-reference-module" open>
+      <summary>Applied Batch + Zone References</summary>
+      <div class="foldable-section-body">
+        <div class="zm-view-tabs" role="tablist" aria-label="Applied reference Zone view">
+          ${ZONES.map((zone) => `<button type="button" class="zm-view-tab assessment-reference-tab ${viewZone === zone ? "is-active" : ""}" data-reference-view-zone="${zone}" role="tab" aria-selected="${viewZone === zone}">Zone ${zone}</button>`).join("")}
+          <button type="button" class="zm-view-tab assessment-reference-tab ${allZones ? "is-active" : ""}" data-reference-view-zone="0" role="tab" aria-selected="${allZones}">All Zones</button>
+        </div>
+        <div class="table-wrap applied-reference-wrap ${allZones ? "" : "is-zone-view"}" data-fold-managed="true">
+          ${renderAppliedReferenceTable(assessment.appliedReferences, viewZone)}
+        </div>
+      </div>
+    </details>`;
+}
+
+function renderAppliedReferenceTable(references, viewZone) {
+  if (viewZone > 0) {
+    const zoneReferences = references.filter((item) => item.zone === viewZone);
+    return `<table class="applied-reference-table is-zone-view">
+      <thead>
+        <tr><th colspan="5" class="zm-zone-${viewZone}">ZONE ${viewZone}</th></tr>
+        <tr><th>Batch N</th><th>N</th><th>Mu</th><th>Sigma</th><th>Excluded</th></tr>
+      </thead>
+      <tbody>${zoneReferences.map((item) => `<tr><td>${formatCell(item.batch)}</td><td>${formatCell(item.n)}</td><td>${formatCell(item.mean)}</td><td>${formatCell(item.sigma)}</td><td>${formatCell(item.excluded)}</td></tr>`).join("")}</tbody>
+    </table>`;
+  }
+
+  const batches = new Map();
+  references.forEach((item) => {
+    const key = text(item.batch);
+    if (!batches.has(key)) batches.set(key, { batch: item.batch, zones: new Map() });
+    batches.get(key).zones.set(item.zone, item);
+  });
+  return `<table class="applied-reference-table is-all-zones">
+    <thead>
+      <tr><th rowspan="2">Batch N</th>${ZONES.map((zone) => `<th colspan="4" class="zm-zone-${zone}">ZONE ${zone}</th>`).join("")}</tr>
+      <tr>${ZONES.map(() => "<th>N</th><th>Mu</th><th>Sigma</th><th>Excluded</th>").join("")}</tr>
+    </thead>
+    <tbody>${[...batches.values()].map((batch) => `<tr><td>${formatCell(batch.batch)}</td>${ZONES.map((zone) => {
+      const item = batch.zones.get(zone);
+      return item
+        ? `<td>${formatCell(item.n)}</td><td>${formatCell(item.mean)}</td><td>${formatCell(item.sigma)}</td><td>${formatCell(item.excluded)}</td>`
+        : "<td></td><td></td><td></td><td></td>";
+    }).join("")}</tr>`).join("")}</tbody>
+  </table>`;
+}
+
+function handleAssessmentReferenceView(event) {
+  const result = state.lastAssessment;
+  const zone = Number(event.currentTarget.dataset.referenceViewZone);
+  if (!result || !Number.isInteger(zone) || zone < 0 || zone > 6) return;
+  result.referenceViewZone = zone;
+  renderAssessmentResult();
+  setStatus(zone
+    ? `Applied references fitted to Zone ${zone}.`
+    : "Applied references showing all Zones with horizontal scrolling.", false, true);
 }
 
 function renderV90AssessmentSummary(summaries) {
@@ -2362,8 +2568,13 @@ function renderV90AssessmentTable(rows, assessment) {
 }
 
 function directionalAssessmentStyle(signedScore, monitorLimit, outlierLimit) {
+  const colors = directionalAssessmentColors(signedScore, monitorLimit, outlierLimit);
+  return `background-color:${colors.background};color:${colors.text}`;
+}
+
+function directionalAssessmentColors(signedScore, monitorLimit, outlierLimit) {
   const score = Math.abs(Number(signedScore));
-  if (!Number.isFinite(score)) return "";
+  if (!Number.isFinite(score)) return { background: "#f2f2f2", text: "#7f7f7f" };
   const monitor = Number(monitorLimit) > 0 ? Number(monitorLimit) : 2;
   const outlier = Number(outlierLimit) > monitor ? Number(outlierLimit) : monitor + 1;
   const intensity = Math.min(1, score <= monitor
@@ -2372,7 +2583,10 @@ function directionalAssessmentStyle(signedScore, monitorLimit, outlierLimit) {
   const neutral = [255, 255, 204];
   const target = signedScore > 0 ? [192, 0, 0] : signedScore < 0 ? [0, 128, 0] : neutral;
   const color = neutral.map((value, index) => Math.round(value + (target[index] - value) * intensity));
-  return `background-color:rgb(${color.join(",")});color:${score > outlier ? "#ffffff" : "#172231"}`;
+  return {
+    background: `rgb(${color.join(",")})`,
+    text: score > outlier ? "#ffffff" : "#172231"
+  };
 }
 
 function createCorrelation() {

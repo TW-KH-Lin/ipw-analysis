@@ -11,16 +11,16 @@
     <title>IPW Analysis iPhone</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/ipw-180.png">
-    <link rel="stylesheet" href="iphone.css?v=11">
+    <link rel="stylesheet" href="iphone.css?v=12">
     <script defer src="vendor/xlsx.full.min.js"></script>
-    <script type="module" src="iphone-app.js?v=43"></script>
-    <script type="module" src="foldable-ui.js?v=1"></script>
+    <script type="module" src="iphone-app.js?v=45"></script>
+    <script type="module" src="foldable-ui.js?v=2"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW HTML v17</p>
+          <p class="eyebrow">IPW HTML v18</p>
           <h1>Analysis</h1>
         </div>
         <label class="file-button">
@@ -244,25 +244,33 @@
           <label>Manual mu<input id="assessment-mu" inputmode="decimal" placeholder="Manual only" disabled></label>
           <label>Manual sigma<input id="assessment-sigma" inputmode="decimal" placeholder="Manual only" disabled></label>
         </div>
-        <fieldset class="zone-fieldset">
-          <legend>ZM Plan</legend>
-          <div class="form-grid">
-            <label>Layout<select id="zm-layout" disabled><option>ZM17_20mm</option><option>ZM17_25mm</option><option>ZM9_18mm</option><option selected>ZM9_20mm</option><option>ZM9_25mm</option><option>ZM10_20mm</option><option>ZM10_25mm</option></select></label>
-            <label>M/R label<input id="zm-mark-label" autocomplete="off" value="X" maxlength="8" disabled></label>
-            <label>Measurement M<input id="zm-label-measurement" type="number" min="1" max="50" step="1" inputmode="numeric" value="1" disabled></label>
-            <label>Roll R<input id="zm-label-roll" type="number" min="1" step="1" inputmode="numeric" value="1" disabled></label>
-            <label>Coordinates to mark<input id="zm-coordinates" autocomplete="off" placeholder="4/5-20, 31/5" disabled></label>
-          </div>
-          <div class="analysis-actions compact-plan-actions">
-            <button id="apply-zm-label" class="command" type="button" disabled>Apply M/R Label</button>
-            <button id="remove-zm-label" class="command" type="button" disabled>Remove M/R Label</button>
-          </div>
-        </fieldset>
         <div class="analysis-actions">
           <button id="run-assessment" class="command primary" type="button" disabled>Run Lot Assessment</button>
-          <button id="show-zm-plan" class="command" type="button" disabled>Show ZM Plan</button>
         </div>
         <div id="assessment-result" class="result-block"></div>
+        <details class="foldable-section zm-label-controls" open>
+          <summary>ZM Plan &amp; Labels</summary>
+          <div class="foldable-section-body">
+            <fieldset class="zone-fieldset">
+              <legend>Layout and M/R labels</legend>
+              <div class="form-grid">
+                <label>Layout<select id="zm-layout" disabled><option>ZM17_20mm</option><option>ZM17_25mm</option><option>ZM9_18mm</option><option selected>ZM9_20mm</option><option>ZM9_25mm</option><option>ZM10_20mm</option><option>ZM10_25mm</option></select></label>
+                <label>M/R label<input id="zm-mark-label" autocomplete="off" value="X" maxlength="8" disabled></label>
+                <label>Measurement M<input id="zm-label-measurement" type="number" min="1" max="50" step="1" inputmode="numeric" value="1" disabled></label>
+                <label>Roll R<input id="zm-label-roll" type="number" min="1" step="1" inputmode="numeric" value="1" disabled></label>
+                <label>Coordinates to mark<input id="zm-coordinates" autocomplete="off" placeholder="4/5-20, 31/5" disabled></label>
+              </div>
+              <div class="analysis-actions compact-plan-actions">
+                <button id="apply-zm-label" class="command" type="button" disabled>Apply M/R Label</button>
+                <button id="remove-zm-label" class="command" type="button" disabled>Remove M/R Label</button>
+              </div>
+            </fieldset>
+            <div class="analysis-actions">
+              <button id="show-zm-plan" class="command primary" type="button" disabled>Show ZM Plan</button>
+              <button id="save-zm-plan-png" class="command" type="button" disabled>Save Full ZM Plan PNG</button>
+            </div>
+          </div>
+        </details>
         <div id="zm-plan-result" class="result-block"></div>
       </section>
 
