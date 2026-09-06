@@ -1,3 +1,4 @@
+import { readPreference, writePreference, clearPreferences, setRememberSettings, rememberSettingsEnabled, datasetPreferenceKey } from "./local-preferences.js?v=1";
 import {
   buildCorrelation,
   buildLotAssessment,
@@ -45,7 +46,7 @@ import {
   buildV90LotAssessment,
   getV90Parameters,
   getZmPlanSpecification
-} from "./v90-analysis.js?v=3";
+} from "./v90-analysis.js?v=4";
 
 const state = {
   workbook: null,
@@ -91,6 +92,7 @@ const PREVIEW_COLUMNS = 12;
 
 document.addEventListener("DOMContentLoaded", () => {
   bindEvents();
+  bindRememberedSettings();
   configureLocalWorkbookButton();
   registerOfflineApp();
   renderZoneChoices("gaussian-zones", "gaussian-zone");
@@ -109,21 +111,104 @@ function configureLocalWorkbookButton() {
 
 function registerOfflineApp() {
   if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
-  let refreshing = false;
+  let hadController = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (refreshing) return;
-    refreshing = true;
+    document.documentElement.dataset.offlineReady = "true";
+    if (hadController) byId("app-update").hidden = false;
+    hadController = true;
+  });
+  byId("app-update").addEventListener("click", () => {
+    if (state.workbook && !window.confirm("Updating reloads the app. Save any workbook changes first. Update now?")) return;
     window.location.reload();
   });
   navigator.serviceWorker.register("./service-worker.js", { scope: "./", updateViaCache: "none" })
     .then(async (registration) => {
-      document.documentElement.dataset.offlineReady = "true";
+      if (registration.active) document.documentElement.dataset.offlineReady = "true";
       await registration.update();
       registration.waiting?.postMessage({ type: "SKIP_WAITING" });
     })
     .catch((error) => {
       console.warn("Offline cache registration failed.", error);
     });
+}
+
+const REMEMBERED_CONTROLS = [
+  "summary-parameter", "gaussian-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end",
+  "trend-parameter", "period-parameter", "period-mode", "period-plot", "period-lot", "period-lot-b",
+  "period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end",
+  "assessment-lot", "assessment-parameter", "assessment-reference", "assessment-reference-lot",
+  "assessment-granularity", "assessment-monitor", "assessment-outlier", "assessment-mu", "assessment-sigma",
+  "release-lot", "release-reference", "release-monitor", "release-not-ok", "zm-layout",
+  "correlation-x", "correlation-y", "correlation-scope", "correlation-outliers", "correlation-removal", "export-parameter"
+];
+
+function bindRememberedSettings() {
+  byId("remember-settings").checked = rememberSettingsEnabled();
+  byId("remember-settings").addEventListener("change", () => {
+    setRememberSettings(byId("remember-settings").checked);
+    byId("remember-settings").checked = rememberSettingsEnabled();
+    if (rememberSettingsEnabled()) saveAnalysisSettings();
+  });
+  byId("clear-saved-settings").addEventListener("click", () => {
+    clearPreferences();
+    setStatus("Saved device settings cleared. Current workbook and analysis are unchanged.", false, true);
+  });
+  const save = (event) => {
+    if (REMEMBERED_CONTROLS.includes(event.target.id) || event.target.closest("#assessment-equal-options, #gaussian-zones, #export-zones")) {
+      saveAnalysisSettings();
+    }
+  };
+  document.addEventListener("change", save);
+  document.addEventListener("input", save);
+  ["assessment-equal-all", "assessment-equal-clear"].forEach((id) => byId(id).addEventListener("click", saveAnalysisSettings));
+}
+
+function saveAnalysisSettings() {
+  if (!state.workbook || !state.headers.length) return;
+  const controls = {};
+  REMEMBERED_CONTROLS.forEach((id) => {
+    const input = byId(id);
+    if (input) controls[id] = input.value;
+  });
+  const zones = {};
+  ["gaussian-zones", "export-zones"].forEach((id) => {
+    zones[id] = [...byId(id).querySelectorAll("input:checked")].map((input) => input.value);
+  });
+  writePreference(datasetPreferenceKey(state.workbookName, state.source, state.headers), {
+    controls, zones, referenceLots: [...state.equalReferenceLots]
+  });
+}
+
+function restoreAnalysisSettings() {
+  const saved = readPreference(datasetPreferenceKey(state.workbookName, state.source, state.headers));
+  if (!saved || typeof saved !== "object" || !saved.controls || typeof saved.controls !== "object") return;
+  const applyControls = () => REMEMBERED_CONTROLS.forEach((id) => {
+    const input = byId(id);
+    const value = saved.controls[id];
+    if (!input || typeof value !== "string") return;
+    if (input.tagName === "SELECT" && ![...input.options].some((option) => option.value === value)) return;
+    input.value = value;
+  });
+  applyControls();
+  syncAssessmentReferenceLots();
+  syncPeriodLots();
+  applyControls();
+  const available = new Set(availableEqualReferenceLots().map(assessmentLotKey));
+  state.equalReferenceLots = new Set((Array.isArray(saved.referenceLots) ? saved.referenceLots : [])
+    .filter((lot) => typeof lot === "string" && available.has(lot)));
+  renderEqualReferenceChoices();
+  syncAssessmentReferenceMode();
+  syncPeriodMode();
+  syncGaussianMethod();
+  syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
+  syncZoneChoices("export-zones", byId("export-parameter").value);
+  syncCorrelationZones();
+  syncCorrelationRemovalInput();
+  if (typeof saved.controls["correlation-removal"] === "string") byId("correlation-removal").value = saved.controls["correlation-removal"];
+  ["gaussian-zones", "export-zones"].forEach((id) => {
+    if (!Array.isArray(saved.zones?.[id])) return;
+    byId(id).querySelectorAll("input").forEach((input) => { input.checked = saved.zones[id].includes(input.value); });
+  });
 }
 
 function bindEvents() {
@@ -195,6 +280,10 @@ function bindEvents() {
     invalidateAssessment();
   });
   byId("assessment-reference-lot").addEventListener("change", invalidateAssessment);
+  byId("assessment-result").addEventListener("click", (event) => {
+    const button = event.target.closest(".assessment-value-button");
+    if (button) showEqualLotDetails(Number(button.dataset.row), Number(button.dataset.column));
+  });
   byId("assessment-equal-search").addEventListener("input", renderEqualReferenceChoices);
   byId("assessment-equal-options").addEventListener("change", (event) => {
     const input = event.target.closest("input[type=checkbox]");
@@ -380,6 +469,7 @@ async function selectSource(sheetName) {
   state.lots = lotColumn >= 0 ? getLotValues(dataRows(), lotColumn) : [];
   state.types = getTypeValues();
   populateWorkbookControls();
+  restoreAnalysisSettings();
   state.lastGaussian = null;
   state.lastTrend = null;
   state.lastPeriod = null;
@@ -1303,6 +1393,7 @@ function invalidateRelease() {
 }
 
 function invalidateAssessment() {
+  byId("equal-lot-dialog").close();
   state.lastAssessment = null;
   byId("show-zm-plan").disabled = true;
   clearResult("assessment-result");
@@ -2596,9 +2687,43 @@ function renderV90AssessmentTable(rows, assessment) {
       const direction = Number.isFinite(signedScore)
         ? `${signedScore > 0 ? "Above" : signedScore < 0 ? "Below" : "At"} Mu: ${formatNumber(signedScore, 2)} SD`
         : "";
-      return `<td${status ? ` class="${statusClass(status)}"` : ""}${style ? ` style="${style}"` : ""}${direction ? ` title="${escapeHtml(direction)}"` : ""}>${formatCell(row[columnIndex])}</td>`;
+      const inspectable = assessment.referenceMode === "equal-lots" && gridRow && columnIndex > 0;
+      const content = inspectable
+        ? `<button type="button" class="assessment-value-button" data-row="${rowIndex - 2}" data-column="${columnIndex - 1}" aria-label="Details for Batch ${escapeHtml(gridRow.batch)}, ${escapeHtml(headers[columnIndex])}">${formatCell(row[columnIndex]) || "-"}</button>`
+        : formatCell(row[columnIndex]);
+      return `<td${status ? ` class="${statusClass(status)}"` : ""}${style ? ` style="${style}"` : ""}${direction ? ` title="${escapeHtml(direction)}"` : ""}>${content}</td>`;
     }).join("")}</tr>`;
   }).join("")}</tbody></table>`;
+}
+
+function showEqualLotDetails(rowIndex, columnIndex) {
+  const assessment = state.lastAssessment?.assessment;
+  if (assessment?.referenceMode !== "equal-lots") return;
+  const row = assessment.grid[rowIndex];
+  const column = assessment.columns[columnIndex];
+  const reference = row?.references[columnIndex];
+  if (!row || !column || !reference) return;
+  byId("equal-lot-title").textContent = `${column.header} - Batch ${text(row.batch)}`;
+  byId("equal-lot-details").innerHTML = `
+    <p class="result-note">Target Lot ${escapeHtml(assessment.selectedLot)} | ${assessment.referenceGranularity === "batch-zone" ? "Matching Batch + Zone" : "All batches within Zone"}</p>
+    <div class="metric-grid">
+      ${metric("Target value", formatCell(row.values[columnIndex]))}
+      ${metric("Reference Mu", formatCell(reference.mean))}
+      ${metric("Reference Sigma", formatCell(reference.sigma))}
+      ${metric("Contributing lots", `${reference.lotCount} / ${assessment.referenceLots.length}`)}
+    </div>
+    <p class="result-note">${reference.lotCount < 2 ? "No history: fewer than two contributing lots." : escapeHtml(row.states[columnIndex])}</p>
+    <table class="equal-lot-contributors">
+      <thead><tr><th>Lot</th><th>Values</th><th>Mean</th><th title="Population standard deviation">SD</th><th>Weight</th></tr></thead>
+      <tbody>${reference.contributors.map((lot) => `<tr${lot.n ? "" : ' class="status-missing"'}>
+        <td>${escapeHtml(lot.lot)}</td><td>${formatInteger(lot.n)}</td><td>${formatCell(lot.mean)}</td><td>${formatCell(lot.sigma)}</td><td>${escapeHtml(formatPercent(lot.weight))}</td>
+      </tr>`).join("")}</tbody>
+    </table>
+    <p class="result-note">Lot SD uses population variance. Lots without numeric values have zero weight.</p>
+    <dl class="equal-lot-variance"><dt>Within-lot variance</dt><dd>${formatCell(reference.withinVariance)}</dd>
+      <dt>Between-lot variance</dt><dd>${formatCell(reference.betweenVariance)}</dd></dl>
+  `;
+  byId("equal-lot-dialog").showModal();
 }
 
 function directionalAssessmentStyle(signedScore, monitorLimit, outlierLimit) {

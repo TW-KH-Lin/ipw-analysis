@@ -1,14 +1,15 @@
-const CACHE_NAME = "ipw-workspace-v7";
+const CACHE_NAME = "ipw-workspace-v8";
 const APP_SHELL = [
   "./index.html",
   "./workspace.css?v=1",
-  "./workspace-ui.js?v=2",
+  "./workspace-ui.js?v=3",
   "./manifest.webmanifest",
-  "../iphone.css?v=13",
-  "../iphone-app.js?v=46",
-  "../foldable-ui.js?v=2",
+  "../iphone.css?v=14",
+  "../iphone-app.js?v=47",
+  "../foldable-ui.js?v=3",
+  "../local-preferences.js?v=1",
   "../analysis.js?v=14",
-  "../v90-analysis.js?v=3",
+  "../v90-analysis.js?v=4",
   "../clean-data.js?v=1",
   "../data-management.js?v=4",
   "../vendor/xlsx.full.min.js",
@@ -41,12 +42,12 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin || isWorkbookRequest(url)) return;
 
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match("./index.html")));
+    event.respondWith(fetch(request).catch(async () => (await caches.open(CACHE_NAME)).match("./index.html")));
     return;
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+    caches.open(CACHE_NAME).then((cache) => cache.match(request)).then((cached) => cached || fetch(request).then((response) => {
       if (response.ok) {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));

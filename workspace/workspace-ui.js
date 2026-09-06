@@ -83,7 +83,7 @@ function bindDatasetDrawer() {
     const sourceName = source.selectedOptions[0]?.textContent?.trim();
     if (sourceName) summary.textContent = sourceName;
     if (!collapsedAfterLoad && status.classList.contains("is-success") && /loaded:|generated/i.test(status.textContent)) {
-      drawer.open = false;
+      if (drawer.dataset.foldRestored !== "true") drawer.open = false;
       collapsedAfterLoad = true;
     }
   };

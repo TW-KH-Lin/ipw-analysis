@@ -1,3 +1,5 @@
+import { readPreference, writePreference } from "./local-preferences.js?v=1";
+
 const resultTitles = new Map([
   ["build-result", "Build result"],
   ["merge-preview", "Merge preview"],
@@ -37,15 +39,43 @@ document.addEventListener("DOMContentLoaded", () => {
   buildStandaloneDrawers();
   wrapResultBlocks();
   enhanceTables(document);
+  rememberFolds(document);
   new MutationObserver((records) => {
     for (const record of records) {
       record.addedNodes.forEach((node) => {
-        if (node.nodeType === Node.ELEMENT_NODE) enhanceTables(node);
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          enhanceTables(node);
+          rememberFolds(node);
+        }
       });
       updateResultVisibility(record.target.closest?.(".result-block") || record.target);
     }
   }).observe(document.body, { childList: true, subtree: true });
 });
+
+function foldKey(details) {
+  const panel = details.closest(".panel")?.id || "page";
+  const result = details.closest(".result-block")?.id || "";
+  const identity = details.id || [...details.children].find((child) => child.id)?.id ||
+    `${details.className}:${details.querySelector(":scope > summary")?.textContent.trim()}`;
+  return `fold:${location.pathname}:${panel}:${result}:${identity}`;
+}
+
+function rememberFolds(root) {
+  const details = [...(root.matches?.("details") ? [root] : []), ...root.querySelectorAll("details")];
+  details.forEach((drawer) => {
+    if (drawer.dataset.rememberFold) return;
+    drawer.dataset.rememberFold = "true";
+    const saved = readPreference(foldKey(drawer));
+    if (typeof saved === "boolean") {
+      drawer.open = saved;
+      drawer.dataset.foldRestored = "true";
+    }
+    drawer.addEventListener("toggle", () => {
+      if (drawer.isConnected && !drawer.hidden) writePreference(foldKey(drawer), drawer.open);
+    });
+  });
+}
 
 function buildSettingsDrawers() {
   for (const [panelId, resultId] of settingsPanels) {
@@ -174,5 +204,5 @@ function updateResultVisibility(result) {
   const visible = Boolean(result.children.length || result.textContent.trim());
   const wasHidden = drawer.hidden;
   drawer.hidden = !visible;
-  if (visible && wasHidden) drawer.open = true;
+  if (visible && wasHidden) drawer.open = readPreference(foldKey(drawer), true) !== false;
 }

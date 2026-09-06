@@ -240,6 +240,43 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.assessment-value-button {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: 4px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+
+#equal-lot-dialog {
+  width: min(620px, calc(100% - 24px));
+  max-height: calc(100dvh - 32px);
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+#equal-lot-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.equal-lot-dialog-header { display: flex; gap: 12px; align-items: start; justify-content: space-between; margin-bottom: 16px; }
+.equal-lot-dialog-header h2 { font-size: 18px; margin: 0; overflow-wrap: anywhere; }
+.equal-lot-dialog-header .command { min-width: 60px; }
+.equal-lot-contributors { width: 100%; min-width: 0; table-layout: fixed; margin: 16px 0 8px; }
+.equal-lot-contributors th, .equal-lot-contributors td { padding: 8px 4px; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+.equal-lot-variance { display: grid; grid-template-columns: 1fr auto; gap: 8px; font-size: 13px; }
+.equal-lot-variance dd { margin: 0; }
+.remember-settings-choice { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.remember-settings-choice input { width: 20px; min-height: 20px; flex: 0 0 20px; }
+
 input,
 select,
 textarea {

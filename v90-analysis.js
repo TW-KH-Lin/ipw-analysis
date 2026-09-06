@@ -260,7 +260,7 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
     if (cache.has(sourceColumn)) return cache.get(sourceColumn);
     const rows = historyGroups.get(targetBatch) || [];
     const values = equalLotMode ? [] : rows.filter((row) => isAssessmentNumeric(row[sourceColumn])).map((row) => number(row[sourceColumn]));
-    const result = equalLotMode ? equalLotReference(rows, lotColumn, sourceColumn)
+    const result = equalLotMode ? equalLotReference(rows, lotColumn, sourceColumn, referenceLots)
       : mode === "history" || mode === "filtered" ? robustHistory(values)
         : { ...meanAndSigma(values), excluded: 0 };
     cache.set(sourceColumn, result);
@@ -395,7 +395,7 @@ function isAssessmentNumeric(value) {
   return (typeof value === "number" || typeof value === "string") && Boolean(text(value)) && isNumeric(value);
 }
 
-function equalLotReference(rows, lotColumn, sourceColumn) {
+function equalLotReference(rows, lotColumn, sourceColumn, referenceLots) {
   const lots = new Map();
   for (const row of rows) {
     const raw = row[sourceColumn];
@@ -429,6 +429,18 @@ function equalLotReference(rows, lotColumn, sourceColumn) {
     valueCount,
     mean: lots.size ? center : null,
     sigma: lots.size ? Math.sqrt(Math.max(0, (withinVariance + betweenM2) / lots.size)) : null,
+    withinVariance: lots.size ? withinVariance / lots.size : null,
+    betweenVariance: lots.size ? betweenM2 / lots.size : null,
+    contributors: referenceLots.map((lot) => {
+      const stats = lots.get(identity(lot));
+      return {
+        lot,
+        n: stats?.n || 0,
+        mean: stats?.mean ?? null,
+        sigma: stats ? Math.sqrt(Math.max(0, stats.m2 / stats.n)) : null,
+        weight: stats ? 1 / lots.size : 0
+      };
+    }),
     excluded: 0
   };
 }
