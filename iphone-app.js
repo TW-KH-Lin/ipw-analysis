@@ -45,7 +45,7 @@ import {
   buildV90LotAssessment,
   getV90Parameters,
   getZmPlanSpecification
-} from "./v90-analysis.js?v=2";
+} from "./v90-analysis.js?v=3";
 
 const state = {
   workbook: null,
@@ -75,6 +75,7 @@ const state = {
   lastPeriod: null,
   lastCorrelation: null,
   lastAssessment: null,
+  equalReferenceLots: new Set(),
   lastRelease: null,
   lastZmPlan: null
 };
@@ -194,6 +195,25 @@ function bindEvents() {
     invalidateAssessment();
   });
   byId("assessment-reference-lot").addEventListener("change", invalidateAssessment);
+  byId("assessment-equal-search").addEventListener("input", renderEqualReferenceChoices);
+  byId("assessment-equal-options").addEventListener("change", (event) => {
+    const input = event.target.closest("input[type=checkbox]");
+    if (!input) return;
+    if (input.checked) state.equalReferenceLots.add(input.value);
+    else state.equalReferenceLots.delete(input.value);
+    updateEqualReferenceCount();
+    invalidateAssessment();
+  });
+  byId("assessment-equal-all").addEventListener("click", () => {
+    state.equalReferenceLots = new Set(availableEqualReferenceLots().map(assessmentLotKey));
+    renderEqualReferenceChoices();
+    invalidateAssessment();
+  });
+  byId("assessment-equal-clear").addEventListener("click", () => {
+    state.equalReferenceLots.clear();
+    renderEqualReferenceChoices();
+    invalidateAssessment();
+  });
   byId("assessment-granularity").addEventListener("change", invalidateAssessment);
   ["assessment-monitor", "assessment-outlier", "assessment-mu", "assessment-sigma"].forEach((id) => {
     byId(id).addEventListener("input", invalidateAssessment);
@@ -280,6 +300,7 @@ async function parseWorkbook(data, fileName) {
   state.lotClassifications = new Map();
   state.filterSelections = { lots: new Set(), classification: new Set() };
   state.filterInitialized = { lots: false, classification: false };
+  state.equalReferenceLots.clear();
   state.lastBuild = null;
   state.gaussianSnapshots = [];
   state.trendDateLookup = null;
@@ -340,6 +361,10 @@ async function selectSource(sheetName) {
   if (!state.workbook) return;
   setStatus(`Reading ${sheetName}...`);
   const source = prepareSource(sheetName);
+  if (state.source !== sheetName) {
+    state.equalReferenceLots.clear();
+    byId("assessment-equal-search").value = "";
+  }
   state.source = sheetName;
   state.headers = source.headers;
   state.rows = source.rows;
@@ -2423,6 +2448,7 @@ function createAssessment() {
       referenceMode: mode,
       referenceGranularity: byId("assessment-granularity").value,
       referenceLot: byId("assessment-reference-lot").value,
+      referenceLots: availableEqualReferenceLots().filter((lot) => state.equalReferenceLots.has(assessmentLotKey(lot))),
       manualMu: optionalNumber("assessment-mu"),
       manualSigma: optionalNumber("assessment-sigma"),
       monitorLimit: requiredNumber("assessment-monitor"),
@@ -2446,6 +2472,7 @@ function renderAssessmentResult() {
   const result = state.lastAssessment;
   if (!result) return;
   const { assessment } = result;
+  const equalLotMode = assessment.referenceMode === "equal-lots";
   const batchZoneMode = assessment.referenceGranularity === "batch-zone";
   const rows = [
     ["Batch N", ...assessment.columns.map((column) => column.header)],
@@ -2463,15 +2490,22 @@ function renderAssessmentResult() {
       ${metric("Compared", formatInteger(assessment.comparedCount))}
       ${metric("Monitor", formatInteger(assessment.monitorCount))}
       ${metric("Out of range", formatInteger(assessment.outlierCount))}
-      ${metric("No history", formatInteger(assessment.noHistoryCount))}
-      ${metric("History excluded", formatInteger(assessment.historyExcluded))}
+      ${metric(equalLotMode ? "Below 2 ref. lots" : "No history", formatInteger(assessment.noHistoryCount))}
+      ${metric(equalLotMode ? "Selected ref. lots" : "History excluded", formatInteger(equalLotMode ? assessment.referenceLots.length : assessment.historyExcluded))}
     </div>
+    ${equalLotMode ? `<p class="result-note">Equal weight; complete selected lots; no MAD trimming. Sigma includes within-lot and between-lot variation.</p>
+      <p class="result-note">Reference lots: ${assessment.referenceLots.map(escapeHtml).join(", ")}</p>` : ""}
     <div class="section-heading"><h2>Parameter Summary</h2></div>
     <div class="table-wrap compact-table">${renderV90AssessmentSummary(assessment.summaries)}</div>
     <div class="section-heading"><h2>Batch x Parameter x Zone</h2></div>
     <p class="result-note">Higher-than-Mu values shade toward red; lower-than-Mu values shade toward green.</p>
     <div class="table-wrap">${renderV90AssessmentTable(rows, assessment)}</div>
     ${appliedReferenceTable}
+    ${equalLotMode && !batchZoneMode ? `<details class="foldable-section" open><summary>Applied Equal Lot References</summary>
+      <div class="table-wrap" data-fold-managed="true">${renderTable([
+        ["Parameter / Zone", "Lots", "Values", "Mu", "Sigma"],
+        ...assessment.columns.map((column) => [column.header, column.reference.lotCount, column.reference.valueCount, column.reference.mean, column.reference.sigma])
+      ])}</div></details>` : ""}
   `;
   byId("assessment-result").querySelectorAll(".assessment-reference-tab").forEach((button) => {
     button.addEventListener("click", handleAssessmentReferenceView);
@@ -2490,21 +2524,21 @@ function renderAppliedReferenceViewer(assessment, requestedZone) {
           <button type="button" class="zm-view-tab assessment-reference-tab ${allZones ? "is-active" : ""}" data-reference-view-zone="0" role="tab" aria-selected="${allZones}">All Zones</button>
         </div>
         <div class="table-wrap applied-reference-wrap ${allZones ? "" : "is-zone-view"}" data-fold-managed="true">
-          ${renderAppliedReferenceTable(assessment.appliedReferences, viewZone)}
+          ${renderAppliedReferenceTable(assessment.appliedReferences, viewZone, assessment.referenceMode === "equal-lots")}
         </div>
       </div>
     </details>`;
 }
 
-function renderAppliedReferenceTable(references, viewZone) {
+function renderAppliedReferenceTable(references, viewZone, equalLotMode = false) {
   if (viewZone > 0) {
     const zoneReferences = references.filter((item) => item.zone === viewZone);
     return `<table class="applied-reference-table is-zone-view">
       <thead>
         <tr><th colspan="5" class="zm-zone-${viewZone}">ZONE ${viewZone}</th></tr>
-        <tr><th>Batch N</th><th>N</th><th>Mu</th><th>Sigma</th><th>Excluded</th></tr>
+        <tr><th>Batch N</th><th>${equalLotMode ? "Lots" : "N"}</th><th>Mu</th><th>Sigma</th><th>${equalLotMode ? "Values" : "Excluded"}</th></tr>
       </thead>
-      <tbody>${zoneReferences.map((item) => `<tr><td>${formatCell(item.batch)}</td><td>${formatCell(item.n)}</td><td>${formatCell(item.mean)}</td><td>${formatCell(item.sigma)}</td><td>${formatCell(item.excluded)}</td></tr>`).join("")}</tbody>
+      <tbody>${zoneReferences.map((item) => `<tr><td>${formatCell(item.batch)}</td><td>${formatCell(item.n)}</td><td>${formatCell(item.mean)}</td><td>${formatCell(item.sigma)}</td><td>${formatCell(equalLotMode ? item.valueCount : item.excluded)}</td></tr>`).join("")}</tbody>
     </table>`;
   }
 
@@ -2517,12 +2551,12 @@ function renderAppliedReferenceTable(references, viewZone) {
   return `<table class="applied-reference-table is-all-zones">
     <thead>
       <tr><th rowspan="2">Batch N</th>${ZONES.map((zone) => `<th colspan="4" class="zm-zone-${zone}">ZONE ${zone}</th>`).join("")}</tr>
-      <tr>${ZONES.map(() => "<th>N</th><th>Mu</th><th>Sigma</th><th>Excluded</th>").join("")}</tr>
+      <tr>${ZONES.map(() => `<th>${equalLotMode ? "Lots" : "N"}</th><th>Mu</th><th>Sigma</th><th>${equalLotMode ? "Values" : "Excluded"}</th>`).join("")}</tr>
     </thead>
     <tbody>${[...batches.values()].map((batch) => `<tr><td>${formatCell(batch.batch)}</td>${ZONES.map((zone) => {
       const item = batch.zones.get(zone);
       return item
-        ? `<td>${formatCell(item.n)}</td><td>${formatCell(item.mean)}</td><td>${formatCell(item.sigma)}</td><td>${formatCell(item.excluded)}</td>`
+        ? `<td>${formatCell(item.n)}</td><td>${formatCell(item.mean)}</td><td>${formatCell(item.sigma)}</td><td>${formatCell(equalLotMode ? item.valueCount : item.excluded)}</td>`
         : "<td></td><td></td><td></td><td></td>";
     }).join("")}</tr>`).join("")}</tbody>
   </table>`;
@@ -2781,10 +2815,12 @@ function downloadAnalysisWorkbook() {
   if (state.lastAssessment) {
     const { parameter: assessmentParameter, lot, mode, assessment } = state.lastAssessment;
     const batchZoneMode = assessment.referenceGranularity === "batch-zone";
+    const equalLotMode = mode === "equal-lots";
     const assessmentRows = [
       ["Parameter", assessmentParameter],
       ["Lot", lot],
       ["Reference", mode],
+      ...(equalLotMode ? [["Reference Lots", ...assessment.referenceLots], ["Sigma", "Equal-Lot population SD (within + between)"]] : []),
       ["Historical matching", batchZoneMode ? "Batch + Zone" : "Zone only"],
       ["Overall", assessment.overall],
       ["Compared", assessment.comparedCount],
@@ -2804,8 +2840,12 @@ function downloadAnalysisWorkbook() {
     if (batchZoneMode) assessmentRows.push(
       [],
       ["Applied Batch + Zone References"],
-      ["Batch N", "Parameter", "Zone", "N", "Mu", "Sigma", "Excluded"],
-      ...assessment.appliedReferences.map((item) => [item.batch, item.parameter, item.zone, item.n, item.mean, item.sigma, item.excluded])
+      ["Batch N", "Parameter", "Zone", equalLotMode ? "Lots" : "N", "Mu", "Sigma", equalLotMode ? "Values" : "Excluded"],
+      ...assessment.appliedReferences.map((item) => [item.batch, item.parameter, item.zone, item.n, item.mean, item.sigma, equalLotMode ? item.valueCount : item.excluded])
+    );
+    if (equalLotMode && !batchZoneMode) assessmentRows.push(
+      [], ["Applied Equal Lot References"], ["Parameter / Zone", "Lots", "Values", "Mu", "Sigma"],
+      ...assessment.columns.map((column) => [column.header, column.reference.lotCount, column.reference.valueCount, column.reference.mean, column.reference.sigma])
     );
     appendSheet(workbook, "NewLot_Assessment_App", assessmentRows);
   }
@@ -2875,10 +2915,39 @@ function syncAssessmentReferenceLots() {
   const previous = byId("assessment-reference-lot").value;
   fillSelect(byId("assessment-reference-lot"), lots, lots.includes(previous) ? previous : lots[0]);
   byId("assessment-reference-lot").disabled = !lots.length || byId("assessment-reference").value !== "reference-lot";
+  const available = new Set(availableEqualReferenceLots().map(assessmentLotKey));
+  state.equalReferenceLots = new Set([...state.equalReferenceLots].filter((lot) => available.has(lot)));
+  renderEqualReferenceChoices();
+}
+
+function assessmentLotKey(value) {
+  const rendered = text(value);
+  return rendered && Number.isFinite(Number(rendered)) ? String(Number(rendered)) : rendered.toUpperCase();
+}
+
+function availableEqualReferenceLots() {
+  const target = assessmentLotKey(byId("assessment-lot").value);
+  return [...new Map(state.lots.filter((lot) => assessmentLotKey(lot) !== target)
+    .map((lot) => [assessmentLotKey(lot), lot])).values()];
+}
+
+function updateEqualReferenceCount() {
+  byId("assessment-equal-count").textContent = `${state.equalReferenceLots.size} selected (minimum 2)`;
+}
+
+function renderEqualReferenceChoices() {
+  const search = text(byId("assessment-equal-search").value).toUpperCase();
+  const lots = availableEqualReferenceLots().filter((lot) => text(lot).toUpperCase().includes(search));
+  byId("assessment-equal-options").innerHTML = lots.map((lot) => {
+    const key = assessmentLotKey(lot);
+    return `<label><input type="checkbox" value="${escapeHtml(key)}" ${state.equalReferenceLots.has(key) ? "checked" : ""}><span>${escapeHtml(lot)}</span></label>`;
+  }).join("");
+  updateEqualReferenceCount();
 }
 
 function syncAssessmentReferenceMode() {
   const mode = byId("assessment-reference").value;
+  byId("assessment-equal-lots-field").hidden = mode !== "equal-lots";
   byId("assessment-reference-lot-field").hidden = mode !== "reference-lot";
   byId("assessment-reference-lot").disabled = mode !== "reference-lot" || !byId("assessment-reference-lot").options.length;
   const manual = mode === "manual";

@@ -227,6 +227,19 @@ h2 {
   max-height: 230px;
 }
 
+#assessment-equal-lots-field .filter-options-heading {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+#assessment-equal-options label {
+  min-height: 44px;
+}
+
+#assessment-result .result-note {
+  overflow-wrap: anywhere;
+}
+
 input,
 select,
 textarea {

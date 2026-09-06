@@ -199,7 +199,19 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
     throw new Error("Use positive limits and make the out-of-range limit larger than the monitor limit.");
   }
   const mode = options.referenceMode || "history";
-  if (!["history", "filtered", "manual", "reference-lot"].includes(mode)) throw new Error("Select a valid reference method.");
+  if (!["history", "filtered", "manual", "reference-lot", "equal-lots"].includes(mode)) throw new Error("Select a valid reference method.");
+  const equalLotMode = mode === "equal-lots";
+  const referenceLots = [...new Map((options.referenceLots || [])
+    .filter((lot) => text(lot) && identity(lot) !== identity(selectedLot))
+    .map((lot) => [identity(lot), text(lot)])).values()];
+  const chosenLots = new Set(referenceLots.map(identity));
+  if (equalLotMode) {
+    const availableLots = new Set(allRows.map((row) => identity(row[lotColumn])));
+    if (referenceLots.some((lot) => !availableLots.has(identity(lot)))) {
+      throw new Error("A selected reference Lot is no longer in the source. Refresh the reference Lot selection.");
+    }
+    if (chosenLots.size < 2) throw new Error("Choose at least two reference Lots, excluding the target. Use Reference Lot for one Lot.");
+  }
   const referenceLot = text(options.referenceLot);
   const referenceGranularity = options.referenceGranularity === "batch-zone" ? "batch-zone" : "zone";
   const batchZoneMode = referenceGranularity === "batch-zone";
@@ -223,6 +235,18 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
   }
 
   const sourceHistory = mode === "filtered" ? referenceRows : allRows;
+  // Index once per assessment, preserving source order and avoiding stale caches.
+  const historyGroups = new Map();
+  if (mode !== "manual") sourceHistory.forEach((row) => {
+    const lot = identity(row[lotColumn]);
+    if (lot === identity(selectedLot)) return;
+    if (mode === "reference-lot" && lot !== identity(referenceLot)) return;
+    if (equalLotMode && !chosenLots.has(lot)) return;
+    const key = batchZoneMode ? assessmentBatchKey(row[batchColumn]) : "";
+    if (!historyGroups.has(key)) historyGroups.set(key, []);
+    historyGroups.get(key).push(row);
+  });
+  const referenceCache = new Map();
   const referenceFor = (sourceColumn, batchValue = null) => {
     if (mode === "manual") {
       const mean = Number(options.manualMu);
@@ -231,15 +255,16 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
       return { n: 2, mean, sigma, excluded: 0 };
     }
     const targetBatch = batchZoneMode ? assessmentBatchKey(batchValue) : "";
-    const values = sourceHistory.filter((row) => {
-      const lot = identity(row[lotColumn]);
-      if (mode === "reference-lot" ? lot !== identity(referenceLot) : lot === identity(selectedLot)) return false;
-      if (batchZoneMode && assessmentBatchKey(row[batchColumn]) !== targetBatch) return false;
-      return isNumeric(row[sourceColumn]);
-    }).map((row) => number(row[sourceColumn]));
-    return mode === "history" || mode === "filtered"
-      ? robustHistory(values)
-      : { ...meanAndSigma(values), excluded: 0 };
+    if (!referenceCache.has(targetBatch)) referenceCache.set(targetBatch, new Map());
+    const cache = referenceCache.get(targetBatch);
+    if (cache.has(sourceColumn)) return cache.get(sourceColumn);
+    const rows = historyGroups.get(targetBatch) || [];
+    const values = equalLotMode ? [] : rows.filter((row) => isAssessmentNumeric(row[sourceColumn])).map((row) => number(row[sourceColumn]));
+    const result = equalLotMode ? equalLotReference(rows, lotColumn, sourceColumn)
+      : mode === "history" || mode === "filtered" ? robustHistory(values)
+        : { ...meanAndSigma(values), excluded: 0 };
+    cache.set(sourceColumn, result);
+    return result;
   };
   const columns = [];
   const parameterGroups = [];
@@ -272,7 +297,7 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
     columns.forEach((column) => {
       const reference = batchZoneMode ? referenceFor(column.sourceColumn, row[batchColumn]) : column.reference;
       references.push(reference);
-      const value = isNumeric(row[column.sourceColumn]) ? number(row[column.sourceColumn]) : null;
+      const value = isAssessmentNumeric(row[column.sourceColumn]) ? number(row[column.sourceColumn]) : null;
       values.push(value);
       if (value === null) {
         states.push("NO VALUE");
@@ -347,6 +372,7 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
   return {
     selectedLot,
     referenceLot,
+    referenceLots: equalLotMode ? referenceLots : [],
     referenceMode: mode,
     referenceGranularity,
     monitorLimit,
@@ -362,6 +388,48 @@ export function buildV90LotAssessment(headers, allRows, referenceRows, options =
     appliedReferences,
     historyExcluded: (batchZoneMode ? appliedReferences : columns)
       .reduce((sum, item) => sum + ((item.reference || item).excluded || 0), 0)
+  };
+}
+
+function isAssessmentNumeric(value) {
+  return (typeof value === "number" || typeof value === "string") && Boolean(text(value)) && isNumeric(value);
+}
+
+function equalLotReference(rows, lotColumn, sourceColumn) {
+  const lots = new Map();
+  for (const row of rows) {
+    const raw = row[sourceColumn];
+    if (!isAssessmentNumeric(raw)) continue;
+    const key = identity(row[lotColumn]);
+    if (!lots.has(key)) lots.set(key, { n: 0, mean: 0, m2: 0 });
+    const stats = lots.get(key);
+    const value = number(raw);
+    const delta = value - stats.mean;
+    stats.n += 1;
+    stats.mean += delta / stats.n;
+    stats.m2 += delta * (value - stats.mean);
+  }
+  let center = 0;
+  let betweenM2 = 0;
+  let contributing = 0;
+  let withinVariance = 0;
+  let valueCount = 0;
+  for (const stats of lots.values()) {
+    contributing += 1;
+    const delta = stats.mean - center;
+    center += delta / contributing;
+    betweenM2 += delta * (stats.mean - center);
+    withinVariance += stats.m2 / stats.n;
+    valueCount += stats.n;
+  }
+  // Balanced population variance = mean within-lot variance + variance of lot means.
+  return {
+    n: lots.size,
+    lotCount: lots.size,
+    valueCount,
+    mean: lots.size ? center : null,
+    sigma: lots.size ? Math.sqrt(Math.max(0, (withinVariance + betweenM2) / lots.size)) : null,
+    excluded: 0
   };
 }
 

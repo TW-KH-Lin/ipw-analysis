@@ -11,10 +11,10 @@
     <title>IPW Analysis Workspace</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="../icons/ipw-180.png">
-    <link rel="stylesheet" href="../iphone.css?v=12">
+    <link rel="stylesheet" href="../iphone.css?v=13">
     <link rel="stylesheet" href="workspace.css?v=1">
     <script defer src="../vendor/xlsx.full.min.js"></script>
-    <script type="module" src="../iphone-app.js?v=45"></script>
+    <script type="module" src="../iphone-app.js?v=46"></script>
     <script type="module" src="workspace-ui.js?v=2"></script>
     <script type="module" src="../foldable-ui.js?v=2"></script>
   </head>
@@ -22,7 +22,7 @@
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW Workspace v6</p>
+          <p class="eyebrow">IPW Workspace v7</p>
           <h1>Quality Analysis</h1>
         </div>
         <div class="header-actions">
@@ -262,7 +262,7 @@
         <div class="form-grid">
           <label>Parameter<select id="assessment-parameter" disabled></select></label>
           <label>Lot<select id="assessment-lot" disabled></select></label>
-          <label>Reference method<select id="assessment-reference" disabled><option value="history">Historical Zone Values</option><option value="filtered">Filtered Lots</option><option value="manual">Manual Mu / Sigma</option><option value="reference-lot">Reference Lot</option></select></label>
+          <label>Reference method<select id="assessment-reference" disabled><option value="history">Historical Zone Values</option><option value="filtered">Filtered Lots</option><option value="manual">Manual Mu / Sigma</option><option value="reference-lot">Reference Lot</option><option value="equal-lots">Selected Lots - Equal weight</option></select></label>
           <label id="assessment-reference-lot-field" hidden>Reference Lot<select id="assessment-reference-lot" disabled></select></label>
           <label>Historical matching<select id="assessment-granularity" disabled><option value="zone">Zone only</option><option value="batch-zone">Batch + Zone</option></select></label>
           <label>Monitor limit<input id="assessment-monitor" inputmode="decimal" value="2" disabled></label>
@@ -270,6 +270,17 @@
           <label>Manual mu<input id="assessment-mu" inputmode="decimal" placeholder="Manual only" disabled></label>
           <label>Manual sigma<input id="assessment-sigma" inputmode="decimal" placeholder="Manual only" disabled></label>
         </div>
+        <details id="assessment-equal-lots-field" class="foldable-section" open hidden>
+          <summary>Reference Lots - Equal weight</summary>
+          <div class="foldable-section-body">
+            <label>Find Lot<input id="assessment-equal-search" type="search" autocomplete="off"></label>
+            <div class="filter-options-heading">
+              <output id="assessment-equal-count" aria-live="polite">0 selected</output>
+              <div class="compact-actions"><button id="assessment-equal-all" type="button">Select all</button><button id="assessment-equal-clear" type="button">Clear</button></div>
+            </div>
+            <div id="assessment-equal-options" class="choice-grid"></div>
+          </div>
+        </details>
         <div class="analysis-actions">
           <button id="run-assessment" class="command primary" type="button" disabled>Run Lot Assessment</button>
         </div>
