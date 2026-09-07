@@ -555,9 +555,11 @@ tr:last-child td {
 
 .period-chart-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
+
+.period-chart-card { min-width: 0; }
 
 .period-chart-card details {
   margin-top: 10px;

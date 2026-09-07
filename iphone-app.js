@@ -45,8 +45,9 @@ import {
   buildPeriodComparison,
   buildV90LotAssessment,
   getV90Parameters,
+  integerChartAxis,
   getZmPlanSpecification
-} from "./v90-analysis.js?v=4";
+} from "./v90-analysis.js?v=5";
 
 const state = {
   workbook: null,
@@ -2007,13 +2008,27 @@ function drawPeriodChart(canvas, result, plotType) {
   })).filter(Number.isFinite);
   if (!values.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas);
+  const yExtent = normalized ? paddedExtent([...values, 1]) : integerChartAxis(values);
   const pad = { left: 50, right: 12, top: 14, bottom: 42 };
+  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  if (!normalized) pad.left = Math.max(pad.left, ...yExtent.ticks.map((value) => ctx.measureText(formatInteger(value)).width + 12));
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
-  const yExtent = paddedExtent(normalized ? [...values, 1] : values);
   const yScale = (value) => pad.top + plotHeight - (value - yExtent.min) / (yExtent.max - yExtent.min) * plotHeight;
   ctx.clearRect(0, 0, width, height);
-  drawTrendGrid(ctx, pad, width, height, colors);
+  if (normalized) drawTrendGrid(ctx, pad, width, height, colors);
+  else {
+    ctx.strokeStyle = colors.line;
+    ctx.lineWidth = 1;
+    yExtent.ticks.forEach((value) => {
+      const y = yScale(value);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(width - pad.right, y);
+      ctx.stroke();
+    });
+    drawFrame(ctx, pad, width, height, colors);
+  }
   const slot = plotWidth / zoneIndexes.length;
   if (normalized) {
     result.datasets.forEach((dataset, datasetIndex) => {
@@ -2045,7 +2060,7 @@ function drawPeriodChart(canvas, result, plotType) {
       const item = dataset.stats[zoneIndex];
       if (!Number.isFinite(item.mean)) return;
       const x = pad.left + slot * index + (slot - groupWidth) / 2 + datasetIndex * barWidth;
-      const zeroY = yScale(Math.max(0, yExtent.min));
+      const zeroY = yScale(Math.min(yExtent.max, Math.max(0, yExtent.min)));
       const meanY = yScale(item.mean);
       ctx.fillStyle = TREND_COLORS[datasetIndex];
       ctx.globalAlpha = 0.78;
@@ -2072,9 +2087,14 @@ function drawPeriodChart(canvas, result, plotType) {
   ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
   ctx.textAlign = "center";
   zoneIndexes.forEach((zoneIndex, index) => ctx.fillText(zoneIndex < 6 ? `Z${zoneIndex + 1}` : "All", pad.left + slot * (index + 0.5), height - 15));
-  ctx.textAlign = "left";
-  ctx.fillText(formatNumber(yExtent.max, 3), 4, pad.top + 8);
-  ctx.fillText(formatNumber(yExtent.min, 3), 4, height - pad.bottom);
+  if (normalized) {
+    ctx.textAlign = "left";
+    ctx.fillText(formatNumber(yExtent.max, 3), 4, pad.top + 8);
+    ctx.fillText(formatNumber(yExtent.min, 3), 4, height - pad.bottom);
+  } else {
+    ctx.textAlign = "right";
+    yExtent.ticks.forEach((value) => ctx.fillText(formatInteger(value), pad.left - 7, yScale(value) + 4));
+  }
 }
 
 function savePeriodPlot() {

@@ -187,6 +187,21 @@ export function buildLotReleaseSummary(headers, allRows, referenceRows, selected
   return { selectedLot, monitorLimit, notOkLimit, overall, counts, results };
 }
 
+export function integerChartAxis(values) {
+  const finite = values.filter(Number.isFinite);
+  if (!finite.length) return { min: 0, max: 1, ticks: [0, 1] };
+  const low = Math.min(...finite);
+  const high = Math.max(...finite);
+  const padding = (high - low || 1) * 0.06;
+  const rawStep = Math.max(1, (high - low + 2 * padding) / 4);
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const step = [1, 2, 5, 10].find((factor) => factor * magnitude >= rawStep) * magnitude;
+  const min = Math.floor((low >= 0 ? Math.max(0, low - padding) : low - padding) / step) * step;
+  const max = Math.max(min + step, Math.ceil((high + padding) / step) * step);
+  const ticks = Array.from({ length: Math.round((max - min) / step) + 1 }, (_, index) => min + index * step);
+  return { min, max, ticks };
+}
+
 export function buildV90LotAssessment(headers, allRows, referenceRows, options = {}) {
   const lotColumn = headerIndex(headers, "Lot");
   const batchColumn = headerIndex(headers, "N");
