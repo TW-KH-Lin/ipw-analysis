@@ -11,10 +11,10 @@
     <title>IPW Analysis Workspace</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="../icons/ipw-180.png">
-    <link rel="stylesheet" href="../iphone.css?v=16">
+    <link rel="stylesheet" href="../iphone.css?v=17">
     <link rel="stylesheet" href="workspace.css?v=1">
     <script defer src="../vendor/xlsx.full.min.js"></script>
-    <script type="module" src="../iphone-app.js?v=50"></script>
+    <script type="module" src="../iphone-app.js?v=51"></script>
     <script type="module" src="workspace-ui.js?v=4"></script>
     <script type="module" src="../foldable-ui.js?v=3"></script>
   </head>
@@ -22,7 +22,7 @@
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW Workspace v11</p>
+          <p class="eyebrow">IPW Workspace v12</p>
           <h1>Quality Analysis</h1>
         </div>
         <div class="header-actions">
@@ -71,6 +71,15 @@
           </div>
         </div>
         <div id="filter-options" class="choice-grid"></div>
+      </section>
+
+      <section class="filter-options-panel" aria-label="Lot period">
+        <label class="choice-row"><input id="limit-lot-period" type="checkbox" disabled>Limit to period</label>
+        <div id="lot-period-fields" class="form-grid" hidden>
+          <label>Start date<input id="lot-period-start" type="date" disabled></label>
+          <label>End date<input id="lot-period-end" type="date" disabled></label>
+        </div>
+        <p id="lot-period-status" class="classification-status" role="status">All selected lots; no date limit.</p>
       </section>
 
       <div class="local-workbook-action">

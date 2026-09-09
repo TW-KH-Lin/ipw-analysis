@@ -1006,3 +1006,5 @@ tr:last-child td {
 .classification-list input { width: 100%; min-width: 0; box-sizing: border-box; }
 .classification-list small { display: block; overflow-wrap: anywhere; }
 .classification-status { color: #596770; font-size: 14px; margin: 8px 0 12px; }
+.choice-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.choice-row input { width: 20px; min-height: 20px; flex: 0 0 20px; }

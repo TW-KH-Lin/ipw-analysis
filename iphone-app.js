@@ -8,6 +8,7 @@ import {
   buildTrendDateLookup,
   collectParameterRecords,
   findZonedHeaderRow,
+  filterLotsByPeriod,
   gaussianFitWithOptions,
   getLotValues,
   getRegionalParameters,
@@ -19,7 +20,7 @@ import {
   recommendGaussianSettings,
   text,
   zoneColumns
-} from "./analysis.js?v=14";
+} from "./analysis.js?v=15";
 import {
   buildCleanDataFromAuswertung,
   buildFullSummary,
@@ -77,6 +78,8 @@ const state = {
   lastGaussian: null,
   gaussianSnapshots: [],
   trendDateLookup: null,
+  periodFilterLoading: false,
+  periodFilterError: "",
   lastTrend: null,
   lastPeriod: null,
   lastCorrelation: null,
@@ -234,6 +237,9 @@ function bindEvents() {
   byId("classification-keyword").addEventListener("input", () => {
     invalidateAnalyses();
     renderCurrentData();
+  });
+  ["limit-lot-period", "lot-period-start", "lot-period-end"].forEach(id => {
+    byId(id).addEventListener("change", () => runAction(updateLotPeriodFilter));
   });
   byId("filter-options").addEventListener("change", handleFilterOptionChange);
   byId("select-all-filters").addEventListener("click", () => setAllFilterOptions(true));
@@ -412,6 +418,12 @@ async function parseWorkbook(data, fileName) {
   state.lastBuild = null;
   state.gaussianSnapshots = [];
   state.trendDateLookup = null;
+  state.periodFilterLoading = false;
+  state.periodFilterError = "";
+  byId("limit-lot-period").checked = false;
+  byId("lot-period-start").value = "";
+  byId("lot-period-end").value = "";
+  syncLotPeriodControls();
   state.lastTrend = null;
   state.lastPeriod = null;
   state.lastRelease = null;
@@ -1280,6 +1292,7 @@ function populateWorkbookControls() {
   enableControls([
     "filter-mode",
     "classification-keyword",
+    "limit-lot-period",
     "type-filter",
     "clean-output",
     "reference-temperature",
@@ -1613,10 +1626,14 @@ function renderGeneratedSummaryTable() {
 }
 
 function renderDataMetrics() {
-  const rows = filteredRows();
+  const period = lotPeriodSelection();
+  const rows = period.rows;
   const lotColumn = headerIndex(state.headers, "Lot");
   const lotCount = lotColumn >= 0 ? new Set(rows.map((row) => text(row[lotColumn])).filter(Boolean)).size : 0;
   byId("classification-keyword-count").textContent = `${formatInteger(lotCount)} matching lots, ${formatInteger(rows.length)} rows`;
+  byId("lot-period-status").textContent = period.error || (byId("limit-lot-period").checked
+    ? `${formatInteger(lotCount)} matching lots, ${formatInteger(rows.length)} rows. ${formatInteger(period.undatedLotCount)} selected lots without dates.`
+    : "All selected lots; no date limit.");
   byId("data-metrics").innerHTML = [
     metric("Workbook", state.workbookName || "-"),
     metric("Rows", formatInteger(rows.length)),
@@ -3090,7 +3107,7 @@ function dataRows() {
   return state.rows.filter((row) => isDataRow(state.headers, row));
 }
 
-function filteredRows() {
+function selectedRows() {
   const filterMode = byId("filter-mode").value || "all";
   const typeValue = byId("type-filter").value || ALL;
   const lotColumn = headerIndex(state.headers, "Lot");
@@ -3109,6 +3126,56 @@ function filteredRows() {
     }
     return true;
   });
+}
+
+function syncLotPeriodControls() {
+  const enabled = byId("limit-lot-period").checked;
+  byId("lot-period-fields").hidden = !enabled;
+  byId("lot-period-start").disabled = !enabled;
+  byId("lot-period-end").disabled = !enabled;
+}
+
+async function updateLotPeriodFilter() {
+  syncLotPeriodControls();
+  invalidateAnalyses();
+  if (state.periodFilterLoading) {
+    renderCurrentData();
+    return;
+  }
+  state.periodFilterError = "";
+  if (byId("limit-lot-period").checked && !(state.trendDateLookup instanceof Map)) {
+    state.periodFilterLoading = true;
+    renderCurrentData();
+    try {
+      await loadTrendDateLookup();
+    } catch (error) {
+      state.periodFilterError = error.message || "Production dates could not be loaded.";
+    } finally {
+      state.periodFilterLoading = false;
+    }
+  }
+  renderCurrentData();
+  const result = lotPeriodSelection();
+  setStatus(result.error || "Lot period filter updated.", Boolean(result.error), !result.error);
+}
+
+function lotPeriodSelection() {
+  const rows = selectedRows();
+  if (!byId("limit-lot-period").checked) return { rows, undatedLotCount: 0 };
+  try {
+    if (state.periodFilterLoading) throw new Error("Reading production dates...");
+    if (state.periodFilterError) throw new Error(state.periodFilterError);
+    return filterLotsByPeriod(state.headers, rows, state.trendDateLookup || new Map(), {
+      startDate: byId("lot-period-start").value,
+      endDate: byId("lot-period-end").value
+    });
+  } catch (error) {
+    return { rows: [], undatedLotCount: 0, error: error.message };
+  }
+}
+
+function filteredRows() {
+  return lotPeriodSelection().rows;
 }
 
 function rowsForAnalysis(scopeId) {

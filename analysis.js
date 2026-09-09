@@ -324,6 +324,38 @@ export function buildTrendDateLookup(table) {
   return lookup;
 }
 
+export function filterLotsByPeriod(headers, rows, dateLookup = new Map(), options = {}) {
+  if (!options.startDate && !options.endDate) throw new Error("Choose a start or end date to limit the period.");
+  const start = trendDateBound(options.startDate, false);
+  const end = trendDateBound(options.endDate, true);
+  if (Number.isFinite(start) && Number.isFinite(end) && end < start) throw new Error("End date must be on or after start date.");
+  const lotColumn = headerIndex(headers, "Lot");
+  if (lotColumn < 0) throw new Error("The source sheet needs a Lot column for period filtering.");
+  const batchColumn = headerIndex(headers, "N");
+  const typeColumn = headerIndex(headers, "Type");
+  const dateColumns = ["Probenzeit", "Production Date", "Date", "Datum"].map(name => headerIndex(headers, name)).filter(index => index >= 0);
+  const allLots = new Set();
+  const datedLots = new Set();
+  const matchingLots = new Set();
+  for (const row of rows) {
+    const lot = text(row[lotColumn]);
+    if (!lot) continue;
+    allLots.add(lot);
+    let date = dateLookup.get(trendKey(lot, row[batchColumn], row[typeColumn]));
+    if (!Number.isFinite(date)) {
+      date = dateColumns.map(column => trendDateValue(row[column])).find(Number.isFinite);
+    }
+    if (!Number.isFinite(date)) continue;
+    datedLots.add(lot);
+    if ((!Number.isFinite(start) || date >= start) && (!Number.isFinite(end) || date <= end)) matchingLots.add(lot);
+  }
+  return {
+    rows: rows.filter(row => matchingLots.has(text(row[lotColumn]))),
+    lotCount: matchingLots.size,
+    undatedLotCount: [...allLots].filter(lot => !datedLots.has(lot)).length
+  };
+}
+
 export function buildParameterTrend(headers, rows, parameter, dateLookup = new Map(), options = {}) {
   const lotColumn = headerIndex(headers, "Lot");
   const batchColumn = headerIndex(headers, "N");
