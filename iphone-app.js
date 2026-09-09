@@ -49,6 +49,8 @@ import {
   getZmPlanSpecification
 } from "./v90-analysis.js?v=5";
 
+import { updateWorkbookClassifications } from "./lot-classification.js?v=1";
+
 const state = {
   workbook: null,
   originalData: null,
@@ -66,6 +68,8 @@ const state = {
   lots: [],
   types: [],
   lotClassifications: new Map(),
+  classificationEdits: new Map(),
+  classificationsUnsaved: false,
   filterSelections: { lots: new Set(), classification: new Set() },
   filterInitialized: { lots: false, classification: false },
   generatedClean: false,
@@ -233,6 +237,12 @@ function bindEvents() {
   byId("clean-output").addEventListener("change", syncCorrectionInputs);
   byId("build-clean-data").addEventListener("click", () => runAction(buildCleanData));
   byId("classification-lot").addEventListener("change", syncClassificationInput);
+  byId("classification-search").addEventListener("input", renderClassificationTable);
+  byId("save-classifications").addEventListener("click", () => runAction(saveClassifications));
+  byId("classification-table").addEventListener("change", (event) => {
+    const input = event.target.closest("input[data-lot]");
+    if (input) runAction(() => applyLotClassification(input.dataset.lot, input.value));
+  });
   byId("apply-classification").addEventListener("click", () => runAction(applyLotClassification));
   byId("classification-value").addEventListener("keydown", (event) => {
     if (event.key === "Enter") runAction(applyLotClassification);
@@ -388,6 +398,9 @@ async function parseWorkbook(data, fileName) {
   byId("new-lot-file").value = "";
   state.dataLabels = [];
   state.lotClassifications = new Map();
+  state.classificationEdits = new Map();
+  state.classificationsUnsaved = false;
+  byId("classification-search").value = "";
   state.filterSelections = { lots: new Set(), classification: new Set() };
   state.filterInitialized = { lots: false, classification: false };
   state.equalReferenceLots.clear();
@@ -805,15 +818,17 @@ function applyClassificationOverrides(headers, rows) {
   if (lotIndex < 0 || classificationIndex < 0) return;
   rows.forEach((row) => {
     const lot = text(row[lotIndex]);
-    if (state.lotClassifications.has(lot)) row[classificationIndex] = state.lotClassifications.get(lot);
+    if (state.classificationEdits.has(lot)) row[classificationIndex] = state.classificationEdits.get(lot);
   });
 }
 
-function applyLotClassification() {
-  const lot = byId("classification-lot").value;
+function applyLotClassification(selectedLot, selectedValue) {
+  const lot = selectedLot ?? byId("classification-lot").value;
   if (!lot) throw new Error("Select a lot to classify.");
-  const classification = byId("classification-value").value.trim();
+  const classification = (selectedValue ?? byId("classification-value").value).trim();
   state.lotClassifications.set(lot, classification);
+  state.classificationEdits.set(lot, classification);
+  state.classificationsUnsaved = true;
   applyClassificationOverrides(state.headers, state.rows);
   for (const table of state.generatedSources.values()) {
     applyClassificationOverrides(table[0], table.slice(1));
@@ -824,7 +839,40 @@ function applyLotClassification() {
   renderFilterOptions();
   renderCurrentData();
   renderClassificationTable();
+  syncClassificationInput();
   setStatus(`Classification ${classification || "cleared"} for lot ${lot}.`, false, true);
+}
+
+async function saveClassifications() {
+  if (!state.originalData) throw new Error("Open a workbook first.");
+  const fileName = writableWorkbookName();
+  const saveHandle = await requestWorkbookSaveHandle(fileName);
+  setStatus("Saving lot classifications...");
+  await yieldToBrowser();
+  const XLSX = getXlsx();
+  const workbook = XLSX.read(state.originalData.slice(0), {
+    type: "array", cellDates: true, cellFormula: true, cellStyles: true, bookVBA: true, dense: false
+  });
+  for (const [source, name] of [[GENERATED_CLEAN, "Clean_Data"], [GENERATED_CORRECTED, "Clean_Data_Cor"]]) {
+    const table = state.generatedSources.get(source);
+    if (!table) continue;
+    replaceWorkbookSheet(workbook, name, table);
+    if (name === "Clean_Data") {
+      const summary = buildFullSummary(table[0], table.slice(1));
+      replaceWorkbookSheet(workbook, "Summary", [summary.headers, ...summary.rows]);
+    }
+  }
+  const savedEdits = new Map(state.classificationEdits);
+  updateWorkbookClassifications(workbook, savedEdits, XLSX);
+  const bytes = XLSX.write(workbook, {
+    type: "array", bookType: workbookBookType(fileName), bookVBA: /\.xlsm$/i.test(fileName),
+    cellDates: true, cellStyles: true, compression: true
+  });
+  const mode = await saveWorkbookBytes(bytes, fileName, saveHandle);
+  state.originalData = bytes.slice(0);
+  state.classificationsUnsaved = [...state.classificationEdits].some(([lot, value]) => savedEdits.get(lot) !== value);
+  renderClassificationTable();
+  setStatus(mode === "direct" ? "Classifications saved in your workbook." : "Save the updated workbook in Files and reopen that copy next time.", false, true);
 }
 
 function syncClassificationInput() {
@@ -1492,18 +1540,31 @@ function renderFilterOptions() {
 }
 
 function renderClassificationTable() {
+  byId("save-classifications").disabled = !state.originalData || !state.lots.length;
+  byId("classification-save-status").textContent = state.classificationsUnsaved ? "Unsaved workbook changes" : "No pending classification changes";
   if (!state.lots.length) {
+    byId("classification-count").textContent = "0 lots";
     byId("classification-table").innerHTML = '<p class="empty-state">No lots.</p>';
     return;
   }
   const lotIndex = headerIndex(state.headers, "Lot");
   const classificationIndex = headerIndex(state.headers, "Classification");
-  const rows = state.lots.map((lot) => {
-    const sourceValue = state.rows.find((row) => text(row[lotIndex]) === lot)?.[classificationIndex];
-    const classification = state.lotClassifications.has(lot) ? state.lotClassifications.get(lot) : text(sourceValue);
-    return [lot, classification || "Unclassified"];
+  const valuesByLot = new Map();
+  for (const row of state.rows) {
+    const lot = text(row[lotIndex]);
+    if (!valuesByLot.has(lot)) valuesByLot.set(lot, new Set());
+    valuesByLot.get(lot).add(text(row[classificationIndex]));
+  }
+  const query = byId("classification-search").value.trim().toLowerCase();
+  const rows = state.lots.flatMap((lot) => {
+    const values = [...(valuesByLot.get(lot) || [])];
+    const mixed = values.length > 1;
+    const classification = mixed ? "" : (values[0] || "");
+    if (query && !`${lot} ${values.join(" ")}`.toLowerCase().includes(query)) return [];
+    return [`<tr><th scope="row">${escapeHtml(lot)}</th><td><input data-lot="${escapeHtml(lot)}" aria-label="Classification for lot ${escapeHtml(lot)}" value="${escapeHtml(classification)}" placeholder="${mixed ? "Mixed classifications" : "Unclassified"}">${mixed ? `<small>${escapeHtml(values.map(v => v || "Unclassified").join("; "))}</small>` : ""}</td></tr>`];
   });
-  byId("classification-table").innerHTML = renderTable([["Lot", "Classification"], ...rows]);
+  byId("classification-count").textContent = `${rows.length} of ${state.lots.length} lots`;
+  byId("classification-table").innerHTML = `<table class="classification-list"><thead><tr><th>Lot</th><th>Classification</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
 }
 
 function renderBuildResult() {

@@ -11,18 +11,18 @@
     <title>IPW Analysis Workspace</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="../icons/ipw-180.png">
-    <link rel="stylesheet" href="../iphone.css?v=15">
+    <link rel="stylesheet" href="../iphone.css?v=16">
     <link rel="stylesheet" href="workspace.css?v=1">
     <script defer src="../vendor/xlsx.full.min.js"></script>
-    <script type="module" src="../iphone-app.js?v=48"></script>
-    <script type="module" src="workspace-ui.js?v=3"></script>
+    <script type="module" src="../iphone-app.js?v=49"></script>
+    <script type="module" src="workspace-ui.js?v=4"></script>
     <script type="module" src="../foldable-ui.js?v=3"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW Workspace v9</p>
+          <p class="eyebrow">IPW Workspace v10</p>
           <h1>Quality Analysis</h1>
         </div>
         <div class="header-actions">
@@ -95,6 +95,7 @@
       <nav class="tabbar workspace-tab-proxy" aria-label="Analysis screens" hidden>
         <button class="tab is-active" type="button" data-panel="data-panel">Data</button>
         <button class="tab" type="button" data-panel="clean-panel">Clean</button>
+        <button class="tab" type="button" data-panel="classification-panel">Classifications</button>
         <button class="tab" type="button" data-panel="merge-panel">Merge</button>
         <button class="tab" type="button" data-panel="labels-panel">Labels</button>
         <button class="tab" type="button" data-panel="gaussian-panel">Gaussian</button>
@@ -135,13 +136,21 @@
         </div>
         <div id="generated-summary-table" class="table-wrap"></div>
 
-        <div class="section-heading"><h2>Classify Lots</h2></div>
+      </section>
+
+      <section id="classification-panel" class="panel" aria-label="Lots and classification">
+        <div class="section-heading"><h2>Lots &amp; Classification</h2></div>
+        <label>Search lots or classifications<input id="classification-search" type="search" autocomplete="off"></label>
+        <p id="classification-count" class="classification-status"></p>
+        <div id="classification-table" class="table-wrap compact-table"></div>
+        <p id="classification-save-status" class="classification-status" role="status">No pending classification changes</p>
+        <button id="save-classifications" class="command primary section-command" type="button" disabled>Save Classifications to Workbook</button>
+        <div class="section-heading"><h2>Selected Lot</h2></div>
         <div class="form-grid classification-editor">
           <label>Lot<select id="classification-lot" disabled></select></label>
           <label>Classification<input id="classification-value" autocomplete="off" placeholder="Enter classification" disabled></label>
         </div>
         <button id="apply-classification" class="command section-command" type="button" disabled>Apply to Lot</button>
-        <div id="classification-table" class="table-wrap compact-table"></div>
       </section>
 
       <section id="merge-panel" class="panel" aria-label="Merge new lot workbook">

@@ -1000,3 +1000,9 @@ tr:last-child td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.classification-list { width: 100%; table-layout: fixed; }
+.classification-list th:first-child { width: 30%; white-space: normal; overflow-wrap: anywhere; }
+.classification-list td { white-space: normal; }
+.classification-list input { width: 100%; min-width: 0; box-sizing: border-box; }
+.classification-list small { display: block; overflow-wrap: anywhere; }
+.classification-status { color: #596770; font-size: 14px; margin: 8px 0 12px; }
