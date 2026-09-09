@@ -13,14 +13,14 @@
     <link rel="apple-touch-icon" href="icons/ipw-180.png">
     <link rel="stylesheet" href="iphone.css?v=16">
     <script defer src="vendor/xlsx.full.min.js"></script>
-    <script type="module" src="iphone-app.js?v=49"></script>
+    <script type="module" src="iphone-app.js?v=50"></script>
     <script type="module" src="foldable-ui.js?v=3"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW HTML v22</p>
+          <p class="eyebrow">IPW HTML v23</p>
           <h1>Analysis</h1>
         </div>
         <label class="file-button">
@@ -40,12 +40,18 @@
             <option value="all">All data</option>
             <option value="lots">Selected lots</option>
             <option value="classification">Classification</option>
+            <option value="classification-keyword">Classification keyword</option>
           </select>
         </label>
         <label>
           Type
           <select id="type-filter" disabled></select>
         </label>
+      </section>
+
+      <section id="classification-keyword-panel" class="filter-options-panel" hidden>
+        <label>Classification contains<input id="classification-keyword" type="search" autocomplete="off" placeholder="Keyword" disabled></label>
+        <p id="classification-keyword-count" class="classification-status" role="status"></p>
       </section>
 
       <section id="filter-options-panel" class="filter-options-panel" hidden>

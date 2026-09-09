@@ -14,7 +14,7 @@
     <link rel="stylesheet" href="../iphone.css?v=16">
     <link rel="stylesheet" href="workspace.css?v=1">
     <script defer src="../vendor/xlsx.full.min.js"></script>
-    <script type="module" src="../iphone-app.js?v=49"></script>
+    <script type="module" src="../iphone-app.js?v=50"></script>
     <script type="module" src="workspace-ui.js?v=4"></script>
     <script type="module" src="../foldable-ui.js?v=3"></script>
   </head>
@@ -22,7 +22,7 @@
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW Workspace v10</p>
+          <p class="eyebrow">IPW Workspace v11</p>
           <h1>Quality Analysis</h1>
         </div>
         <div class="header-actions">
@@ -48,12 +48,18 @@
             <option value="all">All data</option>
             <option value="lots">Selected lots</option>
             <option value="classification">Classification</option>
+            <option value="classification-keyword">Classification keyword</option>
           </select>
         </label>
         <label>
           Type
           <select id="type-filter" disabled></select>
         </label>
+      </section>
+
+      <section id="classification-keyword-panel" class="filter-options-panel" hidden>
+        <label>Classification contains<input id="classification-keyword" type="search" autocomplete="off" placeholder="Keyword" disabled></label>
+        <p id="classification-keyword-count" class="classification-status" role="status"></p>
       </section>
 
       <section id="filter-options-panel" class="filter-options-panel" hidden>

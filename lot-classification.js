@@ -1,3 +1,7 @@
+export function classificationIncludesKeyword(value, keyword) {
+  return String(value ?? "").toLowerCase().includes(String(keyword ?? "").trim().toLowerCase());
+}
+
 // Update only classification cells, retaining measurement cells and sheet layout.
 export function updateWorkbookClassifications(workbook, changes, XLSX) {
   if (!changes.size) return 0;

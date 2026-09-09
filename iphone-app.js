@@ -49,7 +49,7 @@ import {
   getZmPlanSpecification
 } from "./v90-analysis.js?v=5";
 
-import { updateWorkbookClassifications } from "./lot-classification.js?v=1";
+import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
 
 const state = {
   workbook: null,
@@ -231,6 +231,10 @@ function bindEvents() {
     invalidateAnalyses();
     renderCurrentData();
   });
+  byId("classification-keyword").addEventListener("input", () => {
+    invalidateAnalyses();
+    renderCurrentData();
+  });
   byId("filter-options").addEventListener("change", handleFilterOptionChange);
   byId("select-all-filters").addEventListener("click", () => setAllFilterOptions(true));
   byId("clear-all-filters").addEventListener("click", () => setAllFilterOptions(false));
@@ -401,6 +405,7 @@ async function parseWorkbook(data, fileName) {
   state.classificationEdits = new Map();
   state.classificationsUnsaved = false;
   byId("classification-search").value = "";
+  byId("classification-keyword").value = "";
   state.filterSelections = { lots: new Set(), classification: new Set() };
   state.filterInitialized = { lots: false, classification: false };
   state.equalReferenceLots.clear();
@@ -1274,6 +1279,7 @@ function populateWorkbookControls() {
   if (byId("correlation-x").options.length > 1) byId("correlation-x").value = secondParameter;
   enableControls([
     "filter-mode",
+    "classification-keyword",
     "type-filter",
     "clean-output",
     "reference-temperature",
@@ -1515,6 +1521,7 @@ function filterValues(mode) {
 
 function renderFilterOptions() {
   const mode = byId("filter-mode").value;
+  byId("classification-keyword-panel").hidden = mode !== "classification-keyword";
   const panel = byId("filter-options-panel");
   const container = byId("filter-options");
   if (mode !== "lots" && mode !== "classification") {
@@ -1609,6 +1616,7 @@ function renderDataMetrics() {
   const rows = filteredRows();
   const lotColumn = headerIndex(state.headers, "Lot");
   const lotCount = lotColumn >= 0 ? new Set(rows.map((row) => text(row[lotColumn])).filter(Boolean)).size : 0;
+  byId("classification-keyword-count").textContent = `${formatInteger(lotCount)} matching lots, ${formatInteger(rows.length)} rows`;
   byId("data-metrics").innerHTML = [
     metric("Workbook", state.workbookName || "-"),
     metric("Rows", formatInteger(rows.length)),
@@ -3088,9 +3096,11 @@ function filteredRows() {
   const lotColumn = headerIndex(state.headers, "Lot");
   const typeColumn = headerIndex(state.headers, "Type");
   const classificationColumn = headerIndex(state.headers, "Classification");
+  const keyword = byId("classification-keyword").value;
   return dataRows().filter((row) => {
     if (typeValue !== ALL && typeColumn >= 0 && text(row[typeColumn]) !== typeValue) return false;
     if (filterMode === "lots" && lotColumn >= 0 && !state.filterSelections.lots.has(text(row[lotColumn]))) return false;
+    if (filterMode === "classification-keyword" && !classificationIncludesKeyword(row[classificationColumn], keyword)) return false;
     if (filterMode === "classification") {
       const value = classificationColumn >= 0 && text(row[classificationColumn])
         ? text(row[classificationColumn])
