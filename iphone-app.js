@@ -42,13 +42,14 @@ import {
   upsertDataLabel
 } from "./data-management.js?v=4";
 import {
+  assessmentBatchIndexes,
   buildLotReleaseSummary,
   buildPeriodComparison,
   buildV90LotAssessment,
   getV90Parameters,
   integerChartAxis,
   getZmPlanSpecification
-} from "./v90-analysis.js?v=5";
+} from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
 
@@ -84,6 +85,7 @@ const state = {
   lastPeriod: null,
   lastCorrelation: null,
   lastAssessment: null,
+  assessmentBatchQuery: "",
   equalReferenceLots: new Set(),
   lastRelease: null,
   lastZmPlan: null
@@ -289,6 +291,7 @@ function bindEvents() {
   byId("release-monitor").addEventListener("input", invalidateRelease);
   byId("release-not-ok").addEventListener("input", invalidateRelease);
   byId("assessment-lot").addEventListener("change", () => {
+    state.assessmentBatchQuery = "";
     syncAssessmentReferenceLots();
     invalidateAssessment();
   });
@@ -304,6 +307,11 @@ function bindEvents() {
   byId("assessment-result").addEventListener("click", (event) => {
     const button = event.target.closest(".assessment-value-button");
     if (button) showEqualLotDetails(Number(button.dataset.row), Number(button.dataset.column));
+  });
+  byId("assessment-result").addEventListener("input", (event) => {
+    if (event.target.id !== "assessment-batch-filter") return;
+    state.assessmentBatchQuery = event.target.value;
+    renderAssessmentBatchTables();
   });
   byId("assessment-equal-search").addEventListener("input", renderEqualReferenceChoices);
   byId("assessment-equal-options").addEventListener("change", (event) => {
@@ -415,6 +423,7 @@ async function parseWorkbook(data, fileName) {
   state.filterSelections = { lots: new Set(), classification: new Set() };
   state.filterInitialized = { lots: false, classification: false };
   state.equalReferenceLots.clear();
+  state.assessmentBatchQuery = "";
   state.lastBuild = null;
   state.gaussianSnapshots = [];
   state.trendDateLookup = null;
@@ -482,6 +491,7 @@ async function selectSource(sheetName) {
   setStatus(`Reading ${sheetName}...`);
   const source = prepareSource(sheetName);
   if (state.source !== sheetName) {
+    state.assessmentBatchQuery = "";
     state.equalReferenceLots.clear();
     byId("assessment-equal-search").value = "";
   }
@@ -2671,12 +2681,6 @@ function renderAssessmentResult() {
   const { assessment } = result;
   const equalLotMode = assessment.referenceMode === "equal-lots";
   const batchZoneMode = assessment.referenceGranularity === "batch-zone";
-  const rows = [
-    ["Batch N", ...assessment.columns.map((column) => column.header)],
-    ["Mu", ...assessment.columns.map((column) => batchZoneMode ? "Per Batch" : column.reference.mean)],
-    ["Sigma", ...assessment.columns.map((column) => batchZoneMode ? "Per Batch" : column.reference.sigma)],
-    ...assessment.grid.map((row) => [row.batch, ...row.values])
-  ];
   const appliedReferenceTable = batchZoneMode
     ? renderAppliedReferenceViewer(assessment, result.referenceViewZone)
     : "";
@@ -2692,11 +2696,13 @@ function renderAssessmentResult() {
     </div>
     ${equalLotMode ? `<p class="result-note">Equal weight; complete selected lots; no MAD trimming. Sigma includes within-lot and between-lot variation.</p>
       <p class="result-note">Reference lots: ${assessment.referenceLots.map(escapeHtml).join(", ")}</p>` : ""}
-    <div class="section-heading"><h2>Parameter Summary</h2></div>
+    <div class="section-heading"><h2>Whole-lot Parameter Summary</h2></div>
     <div class="table-wrap compact-table">${renderV90AssessmentSummary(assessment.summaries)}</div>
     <div class="section-heading"><h2>Batch x Parameter x Zone</h2></div>
+    <label>Batch N<input id="assessment-batch-filter" type="search" autocomplete="off" placeholder="All batches" value="${escapeHtml(state.assessmentBatchQuery)}" aria-describedby="assessment-batch-status"></label>
+    <p id="assessment-batch-status" class="result-note" role="status"></p>
     <p class="result-note">Higher-than-Mu values shade toward red; lower-than-Mu values shade toward green.</p>
-    <div class="table-wrap">${renderV90AssessmentTable(rows, assessment)}</div>
+    <div id="assessment-batch-table" class="table-wrap"></div>
     ${appliedReferenceTable}
     ${equalLotMode && !batchZoneMode ? `<details class="foldable-section" open><summary>Applied Equal Lot References</summary>
       <div class="table-wrap" data-fold-managed="true">${renderTable([
@@ -2707,6 +2713,40 @@ function renderAssessmentResult() {
   byId("assessment-result").querySelectorAll(".assessment-reference-tab").forEach((button) => {
     button.addEventListener("click", handleAssessmentReferenceView);
   });
+  renderAssessmentBatchTables();
+}
+
+function renderAssessmentBatchTables() {
+  const current = state.lastAssessment;
+  if (!current || !byId("assessment-batch-table")) return;
+  const { assessment } = current;
+  let indexes = [];
+  let error = "";
+  try {
+    indexes = assessmentBatchIndexes(assessment.grid, state.assessmentBatchQuery);
+  } catch (failure) {
+    error = failure.message;
+  }
+  byId("assessment-batch-filter").setAttribute("aria-invalid", String(Boolean(error)));
+  byId("assessment-batch-status").textContent = error || `${indexes.length} of ${assessment.grid.length} batch rows shown`;
+  const batchZoneMode = assessment.referenceGranularity === "batch-zone";
+  const rows = [
+    ["Batch N", ...assessment.columns.map(column => column.header)],
+    ["Mu", ...assessment.columns.map(column => batchZoneMode ? "Per Batch" : column.reference.mean)],
+    ["Sigma", ...assessment.columns.map(column => batchZoneMode ? "Per Batch" : column.reference.sigma)],
+    ...indexes.map(index => [assessment.grid[index].batch, ...assessment.grid[index].values])
+  ];
+  byId("assessment-batch-table").innerHTML = indexes.length
+    ? renderV90AssessmentTable(rows, assessment, indexes)
+    : '<p class="empty-state">No matching batches.</p>';
+  const referenceTable = byId("assessment-result").querySelector(".applied-reference-wrap");
+  if (referenceTable) {
+    const batches = new Set(indexes.map(index => text(assessment.grid[index].batch)));
+    const references = assessment.appliedReferences.filter(item => batches.has(text(item.batch)));
+    referenceTable.innerHTML = references.length
+      ? renderAppliedReferenceTable(references, current.referenceViewZone, assessment.referenceMode === "equal-lots")
+      : '<p class="empty-state">No matching batches.</p>';
+  }
 }
 
 function renderAppliedReferenceViewer(assessment, requestedZone) {
@@ -2779,10 +2819,11 @@ function renderV90AssessmentSummary(summaries) {
   </tr>`).join("")}</tbody></table>`;
 }
 
-function renderV90AssessmentTable(rows, assessment) {
+function renderV90AssessmentTable(rows, assessment, gridIndexes) {
   const [headers, ...body] = rows;
   return `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${body.map((row, rowIndex) => {
-    const gridRow = rowIndex >= 2 ? assessment.grid[rowIndex - 2] : null;
+    const gridIndex = rowIndex >= 2 ? gridIndexes[rowIndex - 2] : null;
+    const gridRow = gridIndex !== null ? assessment.grid[gridIndex] : null;
     const states = gridRow?.states;
     return `<tr>${headers.map((_, columnIndex) => {
       const status = columnIndex > 0 ? states?.[columnIndex - 1] : null;
@@ -2795,7 +2836,7 @@ function renderV90AssessmentTable(rows, assessment) {
         : "";
       const inspectable = assessment.referenceMode === "equal-lots" && gridRow && columnIndex > 0;
       const content = inspectable
-        ? `<button type="button" class="assessment-value-button" data-row="${rowIndex - 2}" data-column="${columnIndex - 1}" aria-label="Details for Batch ${escapeHtml(gridRow.batch)}, ${escapeHtml(headers[columnIndex])}">${formatCell(row[columnIndex]) || "-"}</button>`
+        ? `<button type="button" class="assessment-value-button" data-row="${gridIndex}" data-column="${columnIndex - 1}" aria-label="Details for Batch ${escapeHtml(gridRow.batch)}, ${escapeHtml(headers[columnIndex])}">${formatCell(row[columnIndex]) || "-"}</button>`
         : formatCell(row[columnIndex]);
       return `<td${status ? ` class="${statusClass(status)}"` : ""}${style ? ` style="${style}"` : ""}${direction ? ` title="${escapeHtml(direction)}"` : ""}>${content}</td>`;
     }).join("")}</tr>`;

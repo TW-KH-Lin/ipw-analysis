@@ -21,6 +21,27 @@ const ZM_LAYOUTS = {
   ZM10_25mm: { totalWidth: 1200, segmentWidth: 360, zonesPerSegment: 2, zoneRollCounts: [8, 7, 8, 7, 8, 7] }
 };
 
+export function assessmentBatchIndexes(grid, query = "") {
+  const value = text(query).trim();
+  if (!value) return grid.map((_, index) => index);
+  const ranges = value.replace(/\s*-\s*/g, "-").split(/[,;\s]+/).filter(Boolean).map(token => {
+    const match = /^(\d+)(?:-(\d+))?$/.exec(token);
+    if (!match) throw new Error("Enter Batch N numbers or ranges, such as 3, 7, 10-12.");
+    const start = Number(match[1]);
+    const end = match[2] === undefined ? start : Number(match[2]);
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end < start) {
+      throw new Error("Use whole batch numbers with each range in ascending order.");
+    }
+    return [start, end];
+  });
+  if (!ranges.length) throw new Error("Enter at least one Batch N number.");
+  return grid.flatMap((row, index) => {
+    const key = assessmentBatchKey(row.batch);
+    const batch = key ? Number(key) : NaN;
+    return Number.isSafeInteger(batch) && ranges.some(([start, end]) => batch >= start && batch <= end) ? [index] : [];
+  });
+}
+
 export function getZmPlanSpecification(layoutName) {
   const specification = ZM_LAYOUTS[layoutName];
   if (!specification) throw new Error("Select a supported ZM layout.");
