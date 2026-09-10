@@ -26,7 +26,7 @@ import {
   buildFullSummary,
   classificationMaps,
   correctCleanData
-} from "./clean-data.js?v=1";
+} from "./clean-data.js?v=2";
 import {
   buildDataLabel,
   buildDataLabelsTable,
@@ -143,6 +143,7 @@ function registerOfflineApp() {
 }
 
 const REMEMBERED_CONTROLS = [
+  "reference-temperature", "reference-humidity",
   "summary-parameter", "gaussian-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end",
   "trend-parameter", "period-parameter", "period-mode", "period-plot", "period-lot", "period-lot-b",
   "period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end",
@@ -758,6 +759,7 @@ function fileExtension(fileName) {
 
 async function buildCleanData() {
   if (!state.originalData) throw new Error("Open a workbook first.");
+  if (byId("clean-output").value === "corrected") return buildCorrectedData();
   setStatus("Reading Auswertung and building clean data...");
   await yieldToBrowser();
   const XLSX = getXlsx();
@@ -780,19 +782,8 @@ async function buildCleanData() {
   });
   state.generatedSources.set(GENERATED_CLEAN, [clean.headers, ...clean.rows]);
 
-  const correctedRequested = byId("clean-output").value === "corrected";
-  let output = clean;
-  let sourceName = GENERATED_CLEAN;
-  if (correctedRequested) {
-    output = correctCleanData(
-      clean.headers,
-      clean.rows,
-      requiredNumber("reference-temperature"),
-      requiredNumber("reference-humidity")
-    );
-    sourceName = GENERATED_CORRECTED;
-    state.generatedSources.set(sourceName, [output.headers, ...output.rows]);
-  }
+  const output = clean;
+  const sourceName = GENERATED_CLEAN;
 
   const summary = buildFullSummary(output.headers, output.rows);
   const lotIndex = headerIndex(output.headers, "Lot");
@@ -805,7 +796,7 @@ async function buildCleanData() {
     removedProbeRows: clean.removedProbeRows,
     removedVeRows: clean.removedVeRows,
     removedVeLots: clean.removedVeLots,
-    corrected: correctedRequested
+    corrected: false
   };
   refreshSourceSelect(sourceName);
   await selectSource(sourceName);
@@ -816,6 +807,42 @@ async function buildCleanData() {
     false,
     true
   );
+}
+
+async function buildCorrectedData() {
+  const sourceName = ["Clean_Data", GENERATED_CLEAN].includes(state.source) ? state.source
+    : state.generatedSources.has(GENERATED_CLEAN) ? GENERATED_CLEAN : "Clean_Data";
+  if (!state.generatedSources.has(sourceName) && !state.workbook?.Sheets?.[sourceName]) {
+    throw new Error("An uncorrected Clean_Data source is required. Build Clean_Data first; corrected data cannot be corrected again.");
+  }
+  setStatus("Correcting Wicking and Wicking_Q from Clean_Data...");
+  await yieldToBrowser();
+  const source = sourceName === state.source
+    ? { headers: [...state.headers], rows: state.rows.map(row => [...row]) }
+    : prepareSource(sourceName);
+  ensureClassificationColumn(source.headers, source.rows);
+  applyClassificationOverrides(source.headers, source.rows);
+  const previousName = state.generatedSources.has(GENERATED_CORRECTED) ? GENERATED_CORRECTED
+    : state.workbook?.Sheets?.Clean_Data_Cor ? "Clean_Data_Cor" : null;
+  const previous = previousName ? prepareSource(previousName) : null;
+  const output = correctCleanData(source.headers, source.rows,
+    requiredNumber("reference-temperature"), requiredNumber("reference-humidity"), previous);
+  applyClassificationOverrides(output.headers, output.rows);
+  const summary = buildFullSummary(output.headers, output.rows);
+  state.generatedSources.set(GENERATED_CORRECTED, [output.headers, ...output.rows]);
+  state.lastBuild = {
+    sourceName: GENERATED_CORRECTED, rows: output.rows.length,
+    lots: getLotValues(output.rows, headerIndex(output.headers, "Lot")).length,
+    parameters: getRegionalParameters(output.headers).length, summaryRows: summary.rows.length,
+    corrected: true, correction: output.correction
+  };
+  refreshSourceSelect(GENERATED_CORRECTED);
+  await selectSource(GENERATED_CORRECTED);
+  byId("reference-temperature").value = output.correction.referenceTemperature;
+  byId("reference-humidity").value = output.correction.referenceHumidity;
+  saveAnalysisSettings();
+  openPanel("clean-panel");
+  setStatus(`Clean_Data_Cor and Summary created from ${sourceName}. ${formatInteger(output.correction.correctedRows)} rows corrected; ${formatInteger(output.correction.unchangedRows)} rows unchanged.`, false, true);
 }
 
 function refreshSourceSelect(preferredValue = state.source) {
@@ -920,6 +947,7 @@ function syncCorrectionInputs() {
   const enabled = byId("clean-output").value === "corrected" && !byId("clean-output").disabled;
   byId("reference-temperature").disabled = !enabled;
   byId("reference-humidity").disabled = !enabled;
+  byId("build-clean-data").textContent = byId("clean-output").value === "corrected" ? "Create Corrected Data and Summary" : "Build Data and Summary";
 }
 
 function renderLabelParameterChoices() {
@@ -1609,8 +1637,15 @@ function renderBuildResult() {
       ${metric("Lots", formatInteger(result.lots))}
       ${metric("Parameters", formatInteger(result.parameters))}
       ${metric("Summary lots", formatInteger(result.summaryRows))}
-      ${metric("Probe rows removed", formatInteger(result.removedProbeRows))}
-      ${metric("VE lots removed", formatInteger(result.removedVeLots))}
+      ${result.correction ? `
+        ${metric("Rows corrected", formatInteger(result.correction.correctedRows))}
+        ${metric("Rows unchanged", formatInteger(result.correction.unchangedRows))}
+        ${metric("Reference temperature (C)", formatNumber(result.correction.referenceTemperature))}
+        ${metric("Reference humidity (%)", formatNumber(result.correction.referenceHumidity))}
+        ${metric("Missing Temp. / Humidity", formatInteger(result.correction.missingEnvironmentRows))}
+        ${metric("Invalid correction factor", formatInteger(result.correction.invalidFactorRows))}
+      ` : `${metric("Probe rows removed", formatInteger(result.removedProbeRows))}
+      ${metric("VE lots removed", formatInteger(result.removedVeLots))}`}
     </div>
   `;
 }

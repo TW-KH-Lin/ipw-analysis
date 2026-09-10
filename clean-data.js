@@ -107,10 +107,10 @@ export function buildCleanDataFromAuswertung(table, options = {}) {
   };
 }
 
-export function correctCleanData(headers, rows, referenceTemperature, referenceHumidity) {
-  const tempRef = Number(referenceTemperature);
-  const humidityRef = Number(referenceHumidity);
-  if (!Number.isFinite(tempRef) || !Number.isFinite(humidityRef)) {
+export function correctCleanData(headers, rows, referenceTemperature, referenceHumidity, previousCorrected = null) {
+  const tempRef = correctionNumber(referenceTemperature);
+  const humidityRef = correctionNumber(referenceHumidity);
+  if (tempRef === null || humidityRef === null) {
     throw new Error("Reference temperature and humidity must be numeric.");
   }
   const tempIndex = findHeader(headers, "Temp.");
@@ -118,26 +118,73 @@ export function correctCleanData(headers, rows, referenceTemperature, referenceH
   if (tempIndex < 0 || humidityIndex < 0) {
     throw new Error("Clean data must contain Temp. and Humidity.");
   }
+  const groups = ["Wicking", "Wicking_Q"].map(base => ({
+    base, indexes: ZONES.map(zone => findHeader(headers, `${base}_${zone}`))
+  })).filter(group => group.indexes.some(index => index >= 0));
+  if (!groups.length) throw new Error("No Wicking or Wicking_Q Zone columns were found.");
+  if (!rows.length) throw new Error("No data rows were found in Clean_Data.");
+  const correction = { referenceTemperature: tempRef, referenceHumidity: humidityRef, correctedRows: 0, correctedValues: 0, missingEnvironmentRows: 0, invalidFactorRows: 0, unchangedRows: 0 };
 
   const corrected = rows.map((sourceRow) => {
     const row = [...sourceRow];
-    const actualTemp = numeric(row[tempIndex]);
-    const actualHumidity = numeric(row[humidityIndex]);
-    if (actualTemp === null || actualHumidity === null) return row;
-    const factor = 1 + 0.03 * (tempRef - actualTemp) + 0.005 * (humidityRef - actualHumidity);
-    if (!Number.isFinite(factor) || factor === 0) return row;
-    for (const base of ["Wicking", "Wicking_Q"]) {
-      const zoneIndexes = ZONES.map((zone) => findHeader(headers, `${base}_${zone}`));
-      for (const index of zoneIndexes) {
+    const actualTemp = correctionNumber(row[tempIndex]);
+    const actualHumidity = correctionNumber(row[humidityIndex]);
+    const missingEnvironment = actualTemp === null || actualHumidity === null;
+    const factor = missingEnvironment ? null : 1 + 0.03 * (tempRef - actualTemp) + 0.005 * (humidityRef - actualHumidity);
+    const validFactor = factor !== null && Number.isFinite(factor) && factor !== 0;
+    if (missingEnvironment) correction.missingEnvironmentRows++;
+    else if (!validFactor) correction.invalidFactorRows++;
+    let valuesCorrected = 0;
+    for (const { base, indexes } of groups) {
+      for (const index of indexes) {
         if (index < 0) continue;
-        const value = numeric(row[index]);
-        if (value !== null) row[index] = value / factor;
+        const value = correctionNumber(row[index]);
+        if (validFactor && value !== null) {
+          const correctedValue = value / factor;
+          if (!Number.isFinite(correctedValue)) throw new Error("A corrected Wicking value exceeds the numeric range. No corrected data was created.");
+          row[index] = correctedValue;
+          valuesCorrected++;
+        }
       }
-      recalculateRowStatistics(headers, row, base, zoneIndexes);
+      // VBA refreshes statistics even when environmental inputs are missing.
+      recalculateRowStatistics(headers, row, base, indexes);
     }
+    correction.correctedValues += valuesCorrected;
+    if (valuesCorrected) correction.correctedRows++;
+    else correction.unchangedRows++;
     return row;
   });
-  return { headers: [...headers], rows: corrected };
+  if (previousCorrected) restoreCorrectionClassifications(headers, corrected, previousCorrected);
+  return { headers: [...headers], rows: corrected, correction };
+}
+
+function restoreCorrectionClassifications(headers, rows, previous) {
+  const destination = findHeader(headers, "Classification");
+  const previousColumn = findHeader(previous.headers, "Classification");
+  if (destination < 0 || previousColumn < 0) return;
+  const keyFor = (columns, row) => {
+    const values = ["Lot", "N", "Type"].map(name => cleanText(row[findHeader(columns, name)]));
+    return values[0] && values[1] ? JSON.stringify(values) : null;
+  };
+  const saved = new Map();
+  for (const row of previous.rows) {
+    const key = keyFor(previous.headers, row);
+    const value = cleanText(row[previousColumn]);
+    if (!key || !value) continue;
+    if (!saved.has(key)) saved.set(key, value);
+    else if (saved.get(key) !== value) saved.set(key, null);
+  }
+  for (const row of rows) {
+    const value = saved.get(keyFor(headers, row));
+    if (!cleanText(row[destination]) && value) row[destination] = value;
+  }
+}
+
+function correctionNumber(value) {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && !value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function buildFullSummary(headers, rows) {
@@ -226,7 +273,7 @@ function statisticValue(row, header) {
 }
 
 function recalculateRowStatistics(headers, row, base, zoneIndexes) {
-  const values = zoneIndexes.filter((index) => index >= 0).map((index) => numeric(row[index])).filter((value) => value !== null);
+  const values = zoneIndexes.filter((index) => index >= 0).map((index) => correctionNumber(row[index])).filter((value) => value !== null);
   const meanIndex = findHeader(headers, `${base}_MW`);
   const sdIndex = findHeader(headers, `${base}_SD`);
   if (meanIndex >= 0) row[meanIndex] = average(values);
