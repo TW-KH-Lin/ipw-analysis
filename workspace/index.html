@@ -11,18 +11,18 @@
     <title>IPW Analysis Workspace</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="../icons/ipw-180.png">
-    <link rel="stylesheet" href="../iphone.css?v=18">
+    <link rel="stylesheet" href="../iphone.css?v=19">
     <link rel="stylesheet" href="workspace.css?v=1">
     <script defer src="../vendor/xlsx.full.min.js"></script>
-    <script type="module" src="../iphone-app.js?v=54"></script>
+    <script type="module" src="../iphone-app.js?v=55"></script>
     <script type="module" src="workspace-ui.js?v=4"></script>
-    <script type="module" src="../foldable-ui.js?v=3"></script>
+    <script type="module" src="../foldable-ui.js?v=4"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW Workspace v15</p>
+          <p class="eyebrow">IPW Workspace v16</p>
           <h1>Quality Analysis</h1>
         </div>
         <div class="header-actions">
@@ -210,10 +210,12 @@
         <div class="form-grid">
           <label>Data scope<select id="gaussian-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
           <label>Parameter<select id="gaussian-parameter" disabled></select></label>
-          <label>Fit method<select id="gaussian-method" disabled><option value="standard">Standard Gaussian</option><option value="nacl-truncated">NaCl truncated, limit 1.0</option></select></label>
+          <label>Fit method<select id="gaussian-method" disabled><option value="standard">Standard Gaussian</option><option value="robust-huber">Robust Gaussian (Huber)</option><option value="nacl-truncated">NaCl truncated (legacy), limit 1.0</option></select></label>
           <label>Bin width<input id="gaussian-bin-width" inputmode="decimal" placeholder="Auto" disabled></label>
           <label>Start<input id="gaussian-start" inputmode="decimal" placeholder="Auto" disabled></label>
           <label>End<input id="gaussian-end" inputmode="decimal" placeholder="Auto" disabled></label>
+          <label>Extreme boundary (sigma)<input id="gaussian-extreme-sigma" type="number" min="0.001" step="any" value="3" disabled></label>
+          <label>Extreme side<select id="gaussian-extreme-side" disabled><option>Both</option><option>High</option><option>Low</option></select></label>
         </div>
         <fieldset class="zone-fieldset">
           <legend>Zones</legend>
@@ -223,8 +225,10 @@
           <button id="recommend-gaussian" class="command" type="button" disabled>Recommend Settings</button>
           <button id="run-gaussian" class="command primary" type="button" disabled>Run Gaussian Fit</button>
           <button id="save-gaussian-snapshot" class="command" type="button" disabled>Save Chart Snapshot</button>
+          <button id="export-gaussian-extremes" class="command" type="button" disabled>Export Extreme Cases</button>
         </div>
         <div id="gaussian-result" class="result-block"></div>
+        <div id="gaussian-extremes" class="result-block"></div>
         <div id="gaussian-snapshots" class="result-block"></div>
       </section>
 

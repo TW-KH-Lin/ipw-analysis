@@ -202,10 +202,51 @@ export function gaussianFit(values, userBinWidth, userStart, userEnd) {
   return gaussianFitWithOptions(values, userBinWidth, userStart, userEnd, {});
 }
 
+export function fitHuberGaussian(values) {
+  if (values.length < 5) throw new Error("Robust Gaussian requires at least five numeric observations.");
+  if (values.some(value => !Number.isFinite(value))) throw new Error("Robust Gaussian requires finite numeric values.");
+  const c = 1.345, tolerance = 1e-8;
+  let mu = median(values), sigma = median(values.map(value => Math.abs(value - mu))) / 0.674489750196082;
+  if (!(sigma > 0)) sigma = meanAndSigma(values).sigma;
+  // Integral of the standard normal over [-c,c], evaluated by its convergent series.
+  let term = 1, sum = 1;
+  for (let k = 1; k <= 40; k++) { term *= -c * c / (2 * k); sum += term / (2 * k + 1); }
+  const probability = Math.sqrt(2 / Math.PI) * c * sum;
+  const phi = Math.exp(-0.5 * c * c) / Math.sqrt(2 * Math.PI);
+  const gamma = probability - 2 * c * phi + c * c * (1 - probability);
+  for (let iterations = 1; iterations <= 100; iterations++) {
+    if (!(sigma > 0) || !Number.isFinite(sigma)) break;
+    const lower = mu - c * sigma, upper = mu + c * sigma;
+    const newMu = values.reduce((total, value) => total + Math.max(lower, Math.min(upper, value)), 0) / values.length;
+    const numerator = values.reduce((total, value) => total + (Math.abs((value - mu) / sigma) <= c ? (value - newMu) ** 2 : (sigma * c) ** 2), 0);
+    const newSigma = Math.sqrt(numerator / ((values.length - 1) * gamma));
+    if (!(newSigma > 0) || !Number.isFinite(newSigma) || !Number.isFinite(newMu)) break;
+    if (Math.abs(newSigma - sigma) <= newSigma * tolerance && Math.abs(newMu - mu) <= newSigma * tolerance) {
+      return { mean: newMu, sigma: newSigma, iterations, huberC: c };
+    }
+    mu = newMu; sigma = newSigma;
+  }
+  throw new Error("Robust fit failed: invalid scale or no convergence within 100 iterations. No fit or extreme export was created.");
+}
+
+export function gaussianExtremeSnapshot(records, fit, multiplier = 3) {
+  if (!Number.isFinite(multiplier) || multiplier <= 0) throw new Error("Extreme sigma multiplier must be greater than zero.");
+  if (!Number.isFinite(fit.mean) || !Number.isFinite(fit.sigma) || fit.sigma < 0) throw new Error("Run a successful Gaussian fit first.");
+  const lower = fit.mean - multiplier * fit.sigma, upper = fit.mean + multiplier * fit.sigma;
+  if (!Number.isFinite(lower) || !Number.isFinite(upper)) throw new Error("Extreme boundaries exceed the supported numeric range.");
+  const extremes = records.filter(record => record.value < lower || record.value > upper).map(record => ({
+    ...record, side: record.value < lower ? "Low" : "High", zScore: fit.sigma > 0 ? (record.value - fit.mean) / fit.sigma : null,
+    mean: fit.mean, sigma: fit.sigma, multiplier
+  }));
+  return { lower, upper, multiplier, records: extremes, lowCount: extremes.filter(record => record.side === "Low").length, highCount: extremes.filter(record => record.side === "High").length };
+}
+
 export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd, options = {}) {
   const method = options.method || "standard";
+  const robust = method === "robust-huber";
+  values = values.filter(value => typeof value === "number" && Number.isFinite(value));
   const lowerLimit = method === "nacl-truncated" ? Number(options.lowerLimit ?? 1) : null;
-  if (method !== "standard" && method !== "nacl-truncated") throw new Error("Select a valid Gaussian fit method.");
+  if (method !== "standard" && method !== "nacl-truncated" && !robust) throw new Error("Select a valid Gaussian fit method.");
   if (method === "nacl-truncated" && !(lowerLimit > 0)) throw new Error("The lower detection limit must be positive.");
   if (values.length < 2) throw new Error("At least two numeric visible values are required.");
   const recordedValues = method === "nacl-truncated" ? values.filter((value) => value >= lowerLimit) : values;
@@ -225,12 +266,14 @@ export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd,
       : Math.floor(baseStats.min / binWidth) * binWidth;
   if (method === "nacl-truncated") start = Math.max(start, lowerLimit);
   let end = Number.isFinite(endInput) ? endInput : Math.ceil(baseStats.max / binWidth) * binWidth;
+  if (robust && Number.isFinite(startInput) && Number.isFinite(endInput) && end <= start) throw new Error("Histogram end must be larger than start.");
   if (end <= start) end = start + binWidth;
   const included = recordedValues.filter((value) => value >= start && value <= end);
-  if (included.length < 2) throw new Error("The selected fit range leaves fewer than two values.");
-  const standardStats = meanAndSigma(included);
+  if (!robust && included.length < 2) throw new Error("The selected fit range leaves fewer than two values.");
+  const population = robust ? recordedValues : included;
+  const standardStats = meanAndSigma(population);
   const truncatedStats = method === "nacl-truncated" ? fitLowerTruncatedNormal(included, start) : null;
-  const stats = truncatedStats
+  const stats = robust ? { ...standardStats, ...fitHuberGaussian(population) } : truncatedStats
     ? { ...standardStats, mean: truncatedStats.mean, sigma: truncatedStats.sigma }
     : standardStats;
   const binCount = Math.ceil((end - start) / binWidth);
@@ -258,7 +301,7 @@ export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd,
         );
       } else {
         const z = (bin.center - stats.mean) / stats.sigma;
-        bin.gaussian = included.length * (bin.upper - bin.lower) * Math.exp(-0.5 * z * z) /
+        bin.gaussian = population.length * (bin.upper - bin.lower) * Math.exp(-0.5 * z * z) /
           (stats.sigma * Math.sqrt(2 * Math.PI));
       }
     }
@@ -269,18 +312,20 @@ export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd,
   return {
     ...stats,
     visibleN: values.length,
-    excluded: values.length - included.length,
-    excludedByRange,
+    excluded: values.length - population.length,
+    excludedByRange: robust ? 0 : excludedByRange,
+    outsideHistogram: excludedByRange,
+    histogramN: included.length,
     belowLimit,
     binWidth,
     start,
     end,
     bins,
     sse,
-    low25: percentile(included, 0.025),
-    high25: percentile(included, 0.975),
-    low15: percentile(included, 0.15),
-    high15: percentile(included, 0.85),
+    low25: percentile(population, 0.025),
+    high25: percentile(population, 0.975),
+    low15: percentile(population, 0.15),
+    high15: percentile(population, 0.85),
     method,
     lowerLimit,
     correctionApplied: Boolean(truncatedStats?.correctionApplied)

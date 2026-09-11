@@ -527,6 +527,9 @@ tr:last-child td {
   overflow-wrap: anywhere;
 }
 
+.gaussian-chart-section { margin-top: 16px; }
+.gaussian-chart-section > summary { margin-bottom: 12px; font-weight: 700; cursor: pointer; }
+
 .structured-correlation-table tr > :last-child {
   min-width: 260px;
   max-width: 360px;

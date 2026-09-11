@@ -5,6 +5,7 @@ const resultTitles = new Map([
   ["merge-preview", "Merge preview"],
   ["label-selection-preview", "Selected values"],
   ["gaussian-result", "Gaussian result"],
+  ["gaussian-extremes", "Extreme cases"],
   ["gaussian-snapshots", "Saved snapshots"],
   ["trend-result", "Trend result"],
   ["period-result", "Comparison result"],

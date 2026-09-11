@@ -6,10 +6,10 @@ import {
   buildOriginExportWide,
   buildParameterTrend,
   buildTrendDateLookup,
-  collectParameterRecords,
   findZonedHeaderRow,
   filterLotsByPeriod,
   gaussianFitWithOptions,
+  gaussianExtremeSnapshot,
   getLotValues,
   getRegionalParameters,
   getTrendParameters,
@@ -20,7 +20,7 @@ import {
   recommendGaussianSettings,
   text,
   zoneColumns
-} from "./analysis.js?v=15";
+} from "./analysis.js?v=16";
 import {
   buildCleanDataFromAuswertung,
   buildFullSummary,
@@ -65,6 +65,7 @@ const state = {
   source: "",
   headers: [],
   rows: [],
+  sourceLocations: new Map(),
   parameters: [],
   structuredParameters: [],
   trendParameters: [],
@@ -80,6 +81,7 @@ const state = {
   lastBuild: null,
   lastGaussian: null,
   gaussianSnapshots: [],
+  gaussianExtremeExports: [],
   trendDateLookup: null,
   periodFilterLoading: false,
   periodFilterError: "",
@@ -148,7 +150,7 @@ function registerOfflineApp() {
 const REMEMBERED_CONTROLS = [
   "correlation-analysis", "correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions",
   "reference-temperature", "reference-humidity",
-  "summary-parameter", "gaussian-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end",
+  "summary-parameter", "gaussian-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end", "gaussian-extreme-sigma", "gaussian-extreme-side",
   "trend-parameter", "period-parameter", "period-mode", "period-plot", "period-lot", "period-lot-b",
   "period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end",
   "assessment-lot", "assessment-parameter", "assessment-reference", "assessment-reference-lot",
@@ -351,7 +353,7 @@ function bindEvents() {
     syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
   });
   byId("gaussian-method").addEventListener("change", invalidateGaussian);
-  ["gaussian-bin-width", "gaussian-start", "gaussian-end"].forEach((id) => {
+  ["gaussian-bin-width", "gaussian-start", "gaussian-end", "gaussian-extreme-sigma"].forEach((id) => {
     byId(id).addEventListener("input", invalidateGaussian);
   });
   ["trend-parameter", "trend-start", "trend-end", "trend-window"].forEach((id) => {
@@ -388,6 +390,8 @@ function bindEvents() {
   byId("recommend-gaussian").addEventListener("click", () => runAction(recommendGaussian));
   byId("run-gaussian").addEventListener("click", () => runAction(createGaussian));
   byId("save-gaussian-snapshot").addEventListener("click", () => runAction(saveGaussianSnapshot));
+  byId("export-gaussian-extremes").addEventListener("click", () => runAction(exportGaussianExtremes));
+  byId("gaussian-extreme-side").addEventListener("change", renderGaussianExtremes);
   byId("run-trend").addEventListener("click", () => runAction(createTrend));
   byId("run-period").addEventListener("click", () => runAction(createPeriodComparison));
   byId("save-period-plot").addEventListener("click", () => runAction(savePeriodPlot));
@@ -426,6 +430,8 @@ async function loadLocalWorkbook() {
 
 async function parseWorkbook(data, fileName) {
   const XLSX = getXlsx();
+  invalidateGaussian();
+  state.sourceLocations.clear();
   state.workbookName = fileName;
   state.originalData = data.slice(0);
   state.generatedSources = new Map();
@@ -443,6 +449,7 @@ async function parseWorkbook(data, fileName) {
   state.assessmentBatchQuery = "";
   state.lastBuild = null;
   state.gaussianSnapshots = [];
+  state.gaussianExtremeExports = [];
   state.trendDateLookup = null;
   state.periodFilterLoading = false;
   state.periodFilterError = "";
@@ -460,6 +467,7 @@ async function parseWorkbook(data, fileName) {
     type: "array",
     cellDates: true,
     cellFormula: true,
+    cellStyles: true,
     cellHTML: false,
     cellText: true,
     dense: false,
@@ -515,6 +523,7 @@ async function selectSource(sheetName) {
   state.source = sheetName;
   state.headers = source.headers;
   state.rows = source.rows;
+  state.sourceLocations = new Map(state.rows.map((row, index) => [row, { row: source.rowNumbers[index], column: source.columnOffset }]));
   state.generatedClean = source.generatedClean;
   ensureClassificationColumn(state.headers, state.rows);
   seedLotClassifications(state.headers, state.rows);
@@ -545,7 +554,9 @@ async function selectSource(sheetName) {
 }
 
 function prepareSource(sheetName) {
-  const table = state.generatedSources.get(sheetName) || readSheet(sheetName);
+  const layout = {};
+  const generated = state.generatedSources.get(sheetName);
+  const table = generated || readWorkbookSheet(state.workbook, sheetName, layout);
   if (!table.length) throw new Error(`${sheetName} has no readable rows.`);
   const headerRow = findZonedHeaderRow(table) || (() => {
     const index = table.slice(0, 30).findIndex(row => headerIndex(row, "Lot") >= 0 && headerIndex(row, "N") >= 0);
@@ -554,18 +565,28 @@ function prepareSource(sheetName) {
   if (!headerRow) throw new Error(`${state.workbookName}: ${sheetName} has no named headers such as Thick_1 through Thick_6.`);
   const headers = headerRow.headers;
   const rows = normalizeRows(table.slice(headerRow.index + 1), headers.length);
-  return { headers, rows, generatedClean: state.generatedSources.has(sheetName) };
+  const rowNumbers = generated ? table.map((_, index) => index + 1) : layout.rowNumbers;
+  return { headers, rows, rowNumbers: rowNumbers.slice(headerRow.index + 1), columnOffset: layout.columnOffset || 0, generatedClean: state.generatedSources.has(sheetName) };
 }
 
 function readSheet(sheetName) {
   return readWorkbookSheet(state.workbook, sheetName);
 }
 
-function readWorkbookSheet(workbook, sheetName) {
+function readWorkbookSheet(workbook, sheetName, layout = null) {
   const XLSX = getXlsx();
   const sheet = workbook?.Sheets?.[sheetName];
   if (!sheet) return [];
-  const table = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "", blankrows: false });
+  let table;
+  if (layout) {
+    const range = XLSX.utils.decode_range(sheet["!ref"] || "A1");
+    const columns = Array.from({ length: range.e.c - range.s.c + 1 }, (_, index) => String(index));
+    // SheetJS retains physical row numbers on object rows without allocating blank rows.
+    const sourceRows = XLSX.utils.sheet_to_json(sheet, { header: columns, raw: true, defval: "", blankrows: false });
+    table = sourceRows.map(row => columns.map(column => row[column]));
+    layout.columnOffset = range.s.c;
+    layout.rowNumbers = table.flatMap((row, index) => isEmptyRow(normalizeRow(row)) ? [] : [sourceRows[index].__rowNum__ + 1]);
+  } else table = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "", blankrows: false });
   // The wrapper prevents Array.map from passing the row index as normalizeRow's width.
   const trimmed = table.map((row) => normalizeRow(row)).filter((row) => !isEmptyRow(row));
   const width = trimmed.reduce((max, row) => Math.max(max, row.length), 0);
@@ -1380,6 +1401,8 @@ function populateWorkbookControls() {
     "gaussian-bin-width",
     "gaussian-start",
     "gaussian-end",
+    "gaussian-extreme-sigma",
+    "gaussian-extreme-side",
     "recommend-gaussian",
     "run-gaussian",
     "trend-data-scope",
@@ -1442,6 +1465,7 @@ function populateWorkbookControls() {
   byId("download-release").disabled = !state.lastRelease;
   byId("show-zm-plan").disabled = !state.lastAssessment || state.lastAssessment.parameter === "All parameters";
   byId("save-gaussian-snapshot").disabled = !state.lastGaussian;
+  byId("export-gaussian-extremes").disabled = !state.lastGaussian;
   syncGaussianMethod();
   syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
   syncZoneChoices("export-zones", byId("export-parameter").value);
@@ -1478,6 +1502,7 @@ function renderCurrentData() {
   renderBuildResult();
   renderGeneratedSummaryTable();
   clearResult("gaussian-result");
+  clearResult("gaussian-extremes");
   clearResult("trend-result");
   clearResult("period-result");
   clearResult("correlation-result");
@@ -1506,7 +1531,9 @@ function invalidateCorrelation() {
 function invalidateGaussian() {
   state.lastGaussian = null;
   byId("save-gaussian-snapshot").disabled = true;
+  byId("export-gaussian-extremes").disabled = true;
   clearResult("gaussian-result");
+  clearResult("gaussian-extremes");
 }
 
 function invalidateTrend() {
@@ -1808,7 +1835,7 @@ function recommendGaussian() {
   if (method === "nacl-truncated" && parameter.toLowerCase() !== "nacl") {
     throw new Error("NaCl truncated fitting is available only for the NaCl parameter.");
   }
-  const records = collectParameterRecords(state.headers, rowsForAnalysis("gaussian-data-scope"), parameter, includedZones);
+  const records = collectGaussianRecords(parameter, includedZones);
   const settings = recommendGaussianSettings(records.map((record) => record.value), { method, lowerLimit: 1 });
   byId("gaussian-bin-width").value = inputNumber(settings.binWidth);
   byId("gaussian-start").value = inputNumber(settings.start);
@@ -1821,7 +1848,27 @@ function recommendGaussian() {
   );
 }
 
+function collectGaussianRecords(parameter, includedZones) {
+  const columns = zoneColumns(state.headers, parameter), records = [], XLSX = getXlsx();
+  const lotColumn = headerIndex(state.headers, "Lot"), batchColumn = headerIndex(state.headers, "N");
+  const sheet = state.workbook.Sheets[state.source];
+  for (const row of rowsForAnalysis("gaussian-data-scope")) {
+    const location = state.sourceLocations.get(row);
+    if (!location || sheet?.["!rows"]?.[location.row - 1]?.hidden) continue;
+    for (const zone of includedZones) {
+      const column = columns?.[zone - 1];
+      if (column === undefined || column < 0) continue;
+      const value = row[column], sourceCell = XLSX.utils.encode_cell({ r: location.row - 1, c: location.column + column });
+      if (sheet?.[sourceCell]?.t === "e" || !["number", "string"].includes(typeof value) || text(value) === "" || !Number.isFinite(Number(value))) continue;
+      records.push({ value: Number(value), lot: lotColumn >= 0 ? text(row[lotColumn]) : "", batch: batchColumn >= 0 ? text(row[batchColumn]) : "", zone,
+        source: state.source, sourceRow: location.row, sourceCell, parameter });
+    }
+  }
+  return records;
+}
+
 function createGaussian() {
+  invalidateGaussian();
   const parameter = byId("gaussian-parameter").value;
   const includedZones = selectedZones("gaussian-zones");
   if (!includedZones.length) throw new Error("Select at least one Zone.");
@@ -1830,7 +1877,7 @@ function createGaussian() {
     throw new Error("NaCl truncated fitting is available only for the NaCl parameter.");
   }
   const scope = byId("gaussian-data-scope").value;
-  const records = collectParameterRecords(state.headers, rowsForAnalysis("gaussian-data-scope"), parameter, includedZones);
+  const records = collectGaussianRecords(parameter, includedZones);
   const fit = gaussianFitWithOptions(
     records.map((record) => record.value),
     optionalNumber("gaussian-bin-width"),
@@ -1838,15 +1885,20 @@ function createGaussian() {
     optionalNumber("gaussian-end"),
     { method, lowerLimit: 1 }
   );
-  const fittedRecords = records.filter((record) => record.value >= fit.start && record.value <= fit.end &&
+  const fittedRecords = records.filter((record) => fit.method === "robust-huber" || record.value >= fit.start && record.value <= fit.end &&
     (fit.method !== "nacl-truncated" || record.value >= fit.lowerLimit));
   const lots = new Set(fittedRecords.map((record) => record.lot).filter(Boolean));
   const batches = new Set(fittedRecords.map((record) => `${record.lot}|${record.batch}`).filter((key) => key !== "|"));
-  state.lastGaussian = { parameter, zones: includedZones, scope, fit: { ...fit, lotCount: lots.size, batchCount: batches.size } };
+  const extremes = gaussianExtremeSnapshot(fittedRecords, fit, requiredNumber("gaussian-extreme-sigma"));
+  state.lastGaussian = { parameter, zones: includedZones, scope, source: state.source, savedAt: new Date().toISOString(), extremes, fit: { ...fit, lotCount: lots.size, batchCount: batches.size } };
   renderGaussianResult();
+  renderGaussianExtremes();
   byId("save-gaussian-snapshot").disabled = false;
+  byId("export-gaussian-extremes").disabled = false;
   setStatus(
-    `Gaussian fit: ${formatInteger(fit.n)} points used, ${formatInteger(fit.excluded)} excluded, ${formatInteger(lots.size)} lots.`,
+    fit.method === "robust-huber"
+      ? `Robust Gaussian: ${formatInteger(fit.n)} points fitted, ${formatInteger(fit.outsideHistogram)} outside the histogram, ${formatInteger(lots.size)} lots.`
+      : `Gaussian fit: ${formatInteger(fit.n)} points used, ${formatInteger(fit.excluded)} excluded, ${formatInteger(lots.size)} lots.`,
     false,
     true
   );
@@ -1862,12 +1914,16 @@ function renderGaussianResult() {
       ${metric("Points excluded", formatInteger(fit.excluded))}
       ${metric("Lots used", formatInteger(fit.lotCount))}
       ${metric("Batches used", formatInteger(fit.batchCount))}
-      ${metric("Mean", formatNumber(fit.mean, 4))}
-      ${metric("Sigma", formatNumber(fit.sigma, 4))}
+      ${metric("Mean", fit.mean.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
+      ${metric("Sigma", fit.sigma.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
       ${metric("SSE", formatNumber(fit.sse, 2))}
-      ${metric("Fit range", `${formatNumber(fit.start, 3)} to ${formatNumber(fit.end, 3)}`)}
+      ${metric(fit.method === "robust-huber" ? "Histogram range" : "Fit range", `${formatNumber(fit.start, 3)} to ${formatNumber(fit.end, 3)}`)}
+      ${fit.method === "robust-huber" ? metric("Outside histogram (still fitted)", formatInteger(fit.outsideHistogram)) + metric("Huber iterations", fit.iterations) : ""}
     </div>
-    <div class="chart-card"><canvas id="gaussian-chart" aria-label="Observed histogram with Gaussian curve"></canvas></div>
+    <details class="gaussian-chart-section" open><summary>Observed Histogram</summary>
+      <div class="chart-card"><canvas id="gaussian-chart" aria-label="Observed histogram"></canvas></div></details>
+    <details class="gaussian-chart-section" open><summary>Fitted Gaussian</summary>
+      <div class="chart-card"><canvas id="gaussian-curve-chart" aria-label="Fitted Gaussian curve"></canvas></div></details>
     <div class="table-wrap mini-table cutoff-table">${renderTable([
       ["Cutoff", "Low", "High"],
       ["2.5%", fit.low25, fit.high25],
@@ -1878,13 +1934,65 @@ function renderGaussianResult() {
       ...fit.bins.slice(0, 40).map((bin) => [bin.center, bin.observed, bin.gaussian])
     ])}</div>
   `;
-  requestAnimationFrame(() => drawGaussian(byId("gaussian-chart"), fit));
+  requestAnimationFrame(drawGaussianCharts);
+  byId("gaussian-result").querySelectorAll(".gaussian-chart-section").forEach(section => section.addEventListener("toggle", () => { if (section.open) requestAnimationFrame(drawGaussianCharts); }));
+}
+
+function drawGaussianCharts() {
+  if (!state.lastGaussian) return;
+  drawGaussian(byId("gaussian-chart"), state.lastGaussian.fit, "histogram");
+  drawGaussian(byId("gaussian-curve-chart"), state.lastGaussian.fit, "curve");
+}
+
+function selectedGaussianExtremes() {
+  const side = byId("gaussian-extreme-side").value;
+  return state.lastGaussian?.extremes.records.filter(record => side === "Both" || record.side === side) || [];
+}
+
+function gaussianExtremesTable(records) {
+  return [["Source sheet", "Source row", "Source cell", "Lot", "N / Batch", "Zone", "Parameter", "Value", "Z-score (fit)", "Classification", "Mu", "Sigma", "Sigma multiplier"],
+    ...records.map(record => [record.source, record.sourceRow, record.sourceCell, record.lot, record.batch, record.zone, record.parameter, record.value, record.zScore, `${record.side} extreme`, record.mean, record.sigma, record.multiplier])];
+}
+
+function renderGaussianExtremes() {
+  const current = state.lastGaussian;
+  if (!current) return;
+  const { extremes } = current, records = selectedGaussianExtremes();
+  byId("gaussian-extremes").innerHTML = `<div class="metric-grid">${metric("Low extremes", extremes.lowCount)}${metric("High extremes", extremes.highCount)}
+    ${metric("Lower boundary", formatNumber(extremes.lower, 2))}${metric("Upper boundary", formatNumber(extremes.upper, 2))}</div>
+    <h3>Extreme Cases</h3>${records.length ? `<div class="table-wrap">${renderTable(gaussianExtremesTable(records))}</div>` : '<p class="empty-state">No extreme cases for the selected side.</p>'}`;
+}
+
+function exportGaussianExtremes() {
+  const current = state.lastGaussian;
+  if (!current) throw new Error("Refresh the Gaussian fit before exporting extremes.");
+  const records = selectedGaussianExtremes(), side = byId("gaussian-extreme-side").value;
+  const table = [["Gaussian extreme cases"], ["Fit method", current.fit.method], ["Source", current.source], ["Data scope", current.scope], ["Fit snapshot", current.savedAt],
+    ["Parameter", current.parameter], ["Zones", current.zones.join(", ")], ["Side", side], ["Fit N", current.fit.n], ["Mu", current.fit.mean], ["Sigma", current.fit.sigma],
+    ["Sigma multiplier", current.extremes.multiplier], ["Lower boundary", current.extremes.lower], ["Upper boundary", current.extremes.upper], ["Exported measurements", records.length], [],
+    ...gaussianExtremesTable(records), ...(records.length ? [] : [["No extreme cases for the selected side."]])];
+  const index = state.gaussianExtremeExports.length + 1;
+  const name = `Gaussian_Extremes${index > 1 ? `_${index}` : ""}`;
+  const workbook = getXlsx().utils.book_new();
+  appendSheet(workbook, name, table);
+  getXlsx().writeFile(workbook, `${baseFileName()}_${name}.xlsx`);
+  state.gaussianExtremeExports.push({ name, table });
+  setStatus(`Exported ${records.length} extreme measurements (${side}).`, false, true);
 }
 
 function saveGaussianSnapshot() {
   const current = state.lastGaussian;
-  const canvas = byId("gaussian-chart");
-  if (!current || !canvas) throw new Error("Run a Gaussian fit before saving a snapshot.");
+  const histogram = byId("gaussian-chart"), curve = byId("gaussian-curve-chart");
+  if (!current || !histogram || !curve) throw new Error("Run a Gaussian fit before saving a snapshot.");
+  drawGaussianCharts();
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(histogram.width, curve.width);
+  canvas.height = histogram.height + curve.height + 64;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#172231"; ctx.font = "18px sans-serif";
+  ctx.fillText(`${current.parameter} | ${current.fit.method} | Mu ${current.fit.mean.toFixed(2)} | Sigma ${current.fit.sigma.toFixed(2)}`, 12, 24, canvas.width - 24);
+  ctx.drawImage(histogram, 0, 40); ctx.drawImage(curve, 0, histogram.height + 64);
   const stamp = new Date();
   const fileName = `${baseFileName()}_${safeFilePart(current.parameter)}_Gaussian_${fileDateStamp(stamp)}.png`;
   const link = document.createElement("a");
@@ -3090,12 +3198,16 @@ function downloadAnalysisWorkbook() {
     const { parameter: gaussianParameter, zones: gaussianZones, fit } = state.lastGaussian;
     appendSheet(workbook, "GaussianFit_App", [
       ["Parameter", gaussianParameter],
+      ["Fit method", fit.method],
+      ["Huber iterations", fit.iterations || 0],
       ["Data scope", state.lastGaussian.scope],
       ["Zones", gaussianZones.map((zone) => `Zone ${zone}`).join(", ")],
       ["Fit N", fit.n],
       ["Visible N", fit.visibleN],
       ["Points excluded", fit.excluded],
       ["Excluded by range", fit.excludedByRange],
+      ["Outside histogram", fit.outsideHistogram],
+      ["Histogram N", fit.histogramN],
       ["Recorded below limit", fit.belowLimit],
       ["Lots used", fit.lotCount],
       ["Batches used", fit.batchCount],
@@ -3122,6 +3234,7 @@ function downloadAnalysisWorkbook() {
       ])
     ]);
   }
+  for (const exported of state.gaussianExtremeExports) appendSheet(workbook, exported.name, exported.table);
   if (state.lastTrend) {
     const { scope, result: trend } = state.lastTrend;
     appendSheet(workbook, "ParameterTrend_App", [
@@ -3559,7 +3672,7 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
   `;
 }
 
-function drawGaussian(canvas, fit) {
+function drawGaussian(canvas, fit, mode = "combined") {
   if (!canvas || !fit?.bins?.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas);
   const pad = { left: 42, right: 12, top: 16, bottom: 34 };
@@ -3570,23 +3683,25 @@ function drawGaussian(canvas, fit) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
   drawFrame(ctx, pad, width, height, colors);
-  fit.bins.forEach((bin) => {
+  if (mode !== "curve") fit.bins.forEach((bin) => {
     const x0 = pad.left + (bin.lower - fit.start) / (fit.end - fit.start) * plotWidth;
     const x1 = pad.left + (bin.upper - fit.start) / (fit.end - fit.start) * plotWidth;
     const barHeight = bin.observed / maxY * plotHeight;
     ctx.fillStyle = colors.blueSoft;
     ctx.fillRect(x0 + 1, pad.top + plotHeight - barHeight, Math.max(1, x1 - x0 - 2), barHeight);
   });
-  ctx.beginPath();
-  fit.bins.forEach((bin, index) => {
-    const x = pad.left + (bin.center - fit.start) / (fit.end - fit.start) * plotWidth;
-    const y = pad.top + plotHeight - bin.gaussian / maxY * plotHeight;
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.strokeStyle = colors.green;
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  if (mode !== "histogram") {
+    ctx.beginPath();
+    fit.bins.forEach((bin, index) => {
+      const x = pad.left + (bin.center - fit.start) / (fit.end - fit.start) * plotWidth;
+      const y = pad.top + plotHeight - bin.gaussian / maxY * plotHeight;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = colors.green;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
   drawAxisLabels(ctx, pad, width, height, colors, fit.start, fit.end, maxY);
 }
 
@@ -3863,7 +3978,7 @@ function paddedExtent(values) {
 }
 
 function redrawCharts() {
-  if (state.lastGaussian && byId("gaussian-chart")) drawGaussian(byId("gaussian-chart"), state.lastGaussian.fit);
+  if (state.lastGaussian && byId("gaussian-chart")) drawGaussianCharts();
   if (state.lastTrend && byId("trend-lot-chart")) drawTrendCharts();
   if (state.lastPeriod && byId("period-chart-0")) drawPeriodCharts();
   if (state.lastCorrelation && byId("correlation-chart")) drawScatter(byId("correlation-chart"), state.lastCorrelation);
@@ -4078,6 +4193,7 @@ async function runAction(action) {
       }
     });
     byId("save-gaussian-snapshot").disabled = !state.lastGaussian;
+    byId("export-gaussian-extremes").disabled = !state.lastGaussian;
     const merge = state.newLotImport?.preview;
     byId("merge-new-lots").disabled = !merge || Boolean(merge.missingHeaders.length || !merge.addedRows);
     updateLabelActionState();
