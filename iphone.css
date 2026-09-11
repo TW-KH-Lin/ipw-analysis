@@ -520,6 +520,19 @@ tr:last-child td {
   border-bottom: 0;
 }
 
+.structured-correlation-table tr > :first-child {
+  min-width: 145px;
+  max-width: 145px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.structured-correlation-table tr > :last-child {
+  min-width: 260px;
+  max-width: 360px;
+  white-space: normal;
+}
+
 .mini-table {
   margin-top: 12px;
 }

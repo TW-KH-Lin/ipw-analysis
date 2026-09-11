@@ -11,16 +11,16 @@
     <title>IPW Analysis iPhone</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/ipw-180.png">
-    <link rel="stylesheet" href="iphone.css?v=17">
+    <link rel="stylesheet" href="iphone.css?v=18">
     <script defer src="vendor/xlsx.full.min.js"></script>
-    <script type="module" src="iphone-app.js?v=53"></script>
+    <script type="module" src="iphone-app.js?v=54"></script>
     <script type="module" src="foldable-ui.js?v=3"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW HTML v26</p>
+          <p class="eyebrow">IPW HTML v27</p>
           <h1>Analysis</h1>
         </div>
         <label class="file-button">
@@ -326,12 +326,21 @@
 
       <section id="correlation-panel" class="panel" aria-label="Correlation plot">
         <div class="form-grid">
+          <label>Analysis<select id="correlation-analysis" disabled><option value="legacy">Pair plot / pair removal</option><option value="structured">Structured correlation (V93)</option></select></label>
           <label>Data scope<select id="correlation-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
           <label>Y parameter<select id="correlation-y" disabled></select></label>
           <label>X parameter<select id="correlation-x" disabled></select></label>
           <label>Zone scope<select id="correlation-scope" disabled><option value="all">All matched Zones</option><option value="1">Zone 1</option><option value="2">Zone 2</option><option value="3">Zone 3</option><option value="4">Zone 4</option><option value="5">Zone 5</option><option value="6">Zone 6</option></select></label>
           <label>Pair removal<select id="correlation-outliers" disabled><option value="keep">Keep all pairs</option><option value="ratio">Remove ratio extremes</option><option value="x-largest">Remove largest X</option><option value="x-smallest">Remove smallest X</option><option value="y-largest">Remove largest Y</option><option value="y-smallest">Remove smallest Y</option></select></label>
           <label><span id="correlation-removal-label">Maximum removal %</span><input id="correlation-removal" type="number" inputmode="decimal" min="0" max="50" step="0.1" value="0.5" disabled></label>
+        </div>
+        <div id="correlation-structured-settings" class="form-grid" hidden>
+          <label>Compare<select id="correlation-compare" disabled><option value="one">One X parameter</option><option value="all">All X parameters</option></select></label>
+          <label>Method<select id="correlation-method" disabled><option value="all">All methods</option><option value="raw">Raw pooled</option><option value="batch">Batch means</option><option value="within">Batch means within Lot</option><option value="between">Between Lots</option><option value="region">Each Region raw</option><option value="regionWithin">Each Region within Lot</option><option value="overall">Overall within Lot x Region</option></select></label>
+          <label>Minimum N per method<input id="correlation-min-n" type="number" min="3" max="3000000" step="1" value="3" disabled></label>
+          <label>Region coverage<select id="correlation-coverage" disabled><option value="available">Available paired Regions</option><option value="strict">All expected Regions</option></select></label>
+          <label>Minimum paired Regions / Batch<input id="correlation-min-regions" type="number" min="1" max="16384" step="1" value="1" disabled></label>
+          <label>Expected Region IDs<input id="correlation-expected-regions" placeholder="1, 2, 4" autocomplete="off" disabled></label>
         </div>
         <button id="run-correlation" class="command primary" type="button" disabled>Run Correlation</button>
         <div id="correlation-result" class="result-block"></div>

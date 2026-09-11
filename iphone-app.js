@@ -52,6 +52,7 @@ import {
 } from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
+import { buildStructuredCorrelation, structuredParameters } from "./structured-correlation.js?v=1";
 
 const state = {
   workbook: null,
@@ -65,6 +66,7 @@ const state = {
   headers: [],
   rows: [],
   parameters: [],
+  structuredParameters: [],
   trendParameters: [],
   v90Parameters: [],
   lots: [],
@@ -84,6 +86,7 @@ const state = {
   lastTrend: null,
   lastPeriod: null,
   lastCorrelation: null,
+  lastStructuredCorrelation: null,
   lastAssessment: null,
   assessmentBatchQuery: "",
   equalReferenceLots: new Set(),
@@ -143,6 +146,7 @@ function registerOfflineApp() {
 }
 
 const REMEMBERED_CONTROLS = [
+  "correlation-analysis", "correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions",
   "reference-temperature", "reference-humidity",
   "summary-parameter", "gaussian-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end",
   "trend-parameter", "period-parameter", "period-mode", "period-plot", "period-lot", "period-lot-b",
@@ -201,9 +205,11 @@ function restoreAnalysisSettings() {
     input.value = value;
   });
   applyControls();
+  syncStructuredCorrelationControls();
   syncAssessmentReferenceLots();
   syncPeriodLots();
   applyControls();
+  syncStructuredCorrelationControls(false);
   const available = new Set(availableEqualReferenceLots().map(assessmentLotKey));
   state.equalReferenceLots = new Set((Array.isArray(saved.referenceLots) ? saved.referenceLots : [])
     .filter((lot) => typeof lot === "string" && available.has(lot)));
@@ -365,6 +371,16 @@ function bindEvents() {
     invalidateCorrelation();
   });
   byId("correlation-removal").addEventListener("input", invalidateCorrelation);
+  byId("correlation-analysis").addEventListener("change", () => {
+    syncStructuredCorrelationControls();
+    invalidateCorrelation();
+  });
+  ["correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions"].forEach(id => {
+    byId(id).addEventListener("input", () => {
+      syncStructuredCorrelationControls(false);
+      invalidateCorrelation();
+    });
+  });
   byId("export-parameter").addEventListener("change", () => {
     syncZoneChoices("export-zones", byId("export-parameter").value);
     renderExportNote();
@@ -504,9 +520,11 @@ async function selectSource(sheetName) {
   seedLotClassifications(state.headers, state.rows);
   applyClassificationOverrides(state.headers, state.rows);
   state.parameters = getRegionalParameters(state.headers);
+  state.structuredParameters = structuredParameters(state.headers, state.rows);
   state.trendParameters = getTrendParameters(state.headers);
   state.v90Parameters = getV90Parameters(state.headers);
-  if (!state.parameters.length) throw new Error("Clean_Data has no named parameter and Zone headers.");
+  if (!state.parameters.length && !state.structuredParameters.length) throw new Error("Clean_Data has no named numeric parameters.");
+  if (!state.parameters.length) byId("correlation-analysis").value = "structured";
   const lotColumn = headerIndex(state.headers, "Lot");
   state.lots = lotColumn >= 0 ? getLotValues(dataRows(), lotColumn) : [];
   state.types = getTypeValues();
@@ -516,6 +534,7 @@ async function selectSource(sheetName) {
   state.lastTrend = null;
   state.lastPeriod = null;
   state.lastCorrelation = null;
+  state.lastStructuredCorrelation = null;
   state.lastAssessment = null;
   state.lastRelease = null;
   state.lastZmPlan = null;
@@ -528,7 +547,10 @@ async function selectSource(sheetName) {
 function prepareSource(sheetName) {
   const table = state.generatedSources.get(sheetName) || readSheet(sheetName);
   if (!table.length) throw new Error(`${sheetName} has no readable rows.`);
-  const headerRow = findZonedHeaderRow(table);
+  const headerRow = findZonedHeaderRow(table) || (() => {
+    const index = table.slice(0, 30).findIndex(row => headerIndex(row, "Lot") >= 0 && headerIndex(row, "N") >= 0);
+    return index >= 0 ? { index, headers: table[index].map(text) } : null;
+  })();
   if (!headerRow) throw new Error(`${state.workbookName}: ${sheetName} has no named headers such as Thick_1 through Thick_6.`);
   const headers = headerRow.headers;
   const rows = normalizeRows(table.slice(headerRow.index + 1), headers.length);
@@ -1328,6 +1350,7 @@ function populateWorkbookControls() {
   byId("generated-summary-parameter").disabled = !state.lastBuild;
   if (byId("correlation-x").options.length > 1) byId("correlation-x").value = secondParameter;
   enableControls([
+    "correlation-analysis", "correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions",
     "filter-mode",
     "classification-keyword",
     "limit-lot-period",
@@ -1424,6 +1447,10 @@ function populateWorkbookControls() {
   syncZoneChoices("export-zones", byId("export-parameter").value);
   syncCorrelationZones();
   syncCorrelationRemovalInput();
+  syncStructuredCorrelationControls();
+  byId("run-gaussian").disabled = !state.parameters.length;
+  byId("recommend-gaussian").disabled = !state.parameters.length;
+  byId("run-trend").disabled = !state.trendParameters.length;
   syncCorrectionInputs();
   syncPeriodMode();
   syncClassificationInput();
@@ -1472,6 +1499,7 @@ function invalidateAnalyses() {
 
 function invalidateCorrelation() {
   state.lastCorrelation = null;
+  state.lastStructuredCorrelation = null;
   clearResult("correlation-result");
 }
 
@@ -2930,7 +2958,28 @@ function directionalAssessmentColors(signedScore, monitorLimit, outlierLimit) {
   };
 }
 
-function createCorrelation() {
+async function createCorrelation() {
+  if (byId("correlation-analysis").value === "structured") {
+    invalidateCorrelation();
+    setStatus("Calculating structured correlation methods...");
+    await yieldToBrowser();
+    const sourceRows = rowsForAnalysis("correlation-data-scope");
+    const result = buildStructuredCorrelation(state.headers, sourceRows, byId("correlation-y").value, {
+      parameters: state.structuredParameters,
+      xParameter: byId("correlation-x").value,
+      compareAll: byId("correlation-compare").value === "all",
+      method: byId("correlation-method").value,
+      minN: requiredNumber("correlation-min-n"), coverage: byId("correlation-coverage").value,
+      minRegions: requiredNumber("correlation-min-regions"), expectedRegions: byId("correlation-expected-regions").value
+    });
+    state.lastStructuredCorrelation = { ...result, source: state.source, scope: byId("correlation-data-scope").value };
+    byId("correlation-result").innerHTML = `
+      <div class="metric-grid">${metric("Results", result.results.length)}${metric("Numeric correlations", result.results.filter(item => item.r !== null).length)}${metric("Source rows", sourceRows.length)}${metric("Minimum N", result.minN)}</div>
+      <div class="section-heading"><h2>Structured Correlation</h2></div>
+      <div class="table-wrap structured-correlation-table">${renderStructuredCorrelationTable(result)}</div>`;
+    setStatus(`${result.results.length} structured correlation results.`, false, true);
+    return;
+  }
   const yParameter = byId("correlation-y").value;
   const xParameter = byId("correlation-x").value;
   if (xParameter === yParameter) throw new Error("Select two different parameters.");
@@ -2949,6 +2998,19 @@ function createCorrelation() {
   state.lastCorrelation = { xParameter, yParameter, scope, removalMethod, removalValue, result };
   renderCorrelationResult();
   setStatus(`Correlation: ${formatInteger(result.rawN)} included, ${formatInteger(result.excludedN)} excluded.`, false, true);
+}
+
+function structuredCorrelationTable(result) {
+  return [["Target (Y)", "Compare (X)", "Method", "Pearson r", "N used", "Observation unit", "Batches", "Lots", "Regions", "Informative Lots", "Informative Lot-Region groups", "Status"],
+    ...result.results.map(item => [item.yParameter, item.xParameter, item.method, item.r === null ? "n.a." : item.r, item.n, item.unit, item.batches, item.lots, item.regions, item.informativeLots, item.informativeGroups, item.status])];
+}
+
+function renderStructuredCorrelationTable(result) {
+  const [headers, ...rows] = structuredCorrelationTable(result).map(row => [row[2], row[3], row[4], row[0], row[1], ...row.slice(5)]);
+  return `<table><thead><tr>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(row => `<tr>${row.map((cell, index) => index === row.length - 1
+      ? `<td><details><summary>${row[1] === "n.a." ? "Not available" : "Details"}</summary>${escapeHtml(cell)}</details></td>`
+      : `<td>${formatCell(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
 
 function renderCorrelationResult() {
@@ -3014,8 +3076,16 @@ function downloadAnalysisWorkbook() {
   appendSheet(workbook, "Summary", [summary.headers, ...summary.rows]);
   const parameter = byId("export-parameter").value || state.parameters[0];
   const zones = selectedZones("export-zones");
-  appendSheet(workbook, "Origin_Long_App", buildOriginExport(state.headers, filteredRows(), parameter, zones));
-  appendSheet(workbook, "Origin_Wide_App", buildOriginExportWide(state.headers, filteredRows(), parameter, zones));
+  if (state.parameters.length) {
+    appendSheet(workbook, "Origin_Long_App", buildOriginExport(state.headers, filteredRows(), parameter, zones));
+    appendSheet(workbook, "Origin_Wide_App", buildOriginExportWide(state.headers, filteredRows(), parameter, zones));
+  }
+  if (state.lastStructuredCorrelation) {
+    appendSheet(workbook, "Correlation_Structured", structuredCorrelationTable(state.lastStructuredCorrelation));
+    appendSheet(workbook, "Correlation_Settings", [["Source", state.lastStructuredCorrelation.source], ["Data scope", state.lastStructuredCorrelation.scope],
+      ["Method", state.lastStructuredCorrelation.method], ["Coverage", state.lastStructuredCorrelation.coverage], ["Minimum N", state.lastStructuredCorrelation.minN],
+      ["Minimum paired Regions", state.lastStructuredCorrelation.minRegions], ["Expected Regions", state.lastStructuredCorrelation.expectedRegions.join(", ")]]);
+  }
   if (state.lastGaussian) {
     const { parameter: gaussianParameter, zones: gaussianZones, fit } = state.lastGaussian;
     appendSheet(workbook, "GaussianFit_App", [
@@ -3401,6 +3471,23 @@ function syncZoneChoices(containerId, parameter) {
     input.disabled = !available;
     input.checked = available;
   });
+}
+
+function syncStructuredCorrelationControls(refreshParameters = true) {
+  const structured = byId("correlation-analysis").value === "structured";
+  byId("correlation-structured-settings").hidden = !structured;
+  ["correlation-scope", "correlation-outliers", "correlation-removal"].forEach(id => { byId(id).closest("label").hidden = structured; });
+  if (refreshParameters) {
+    const choices = structured ? state.structuredParameters : state.parameters;
+    fillSelect(byId("correlation-y"), choices, byId("correlation-y").value || choices[0]);
+    fillSelect(byId("correlation-x"), choices, byId("correlation-x").value || choices[1]);
+    if (byId("correlation-x").value === byId("correlation-y").value && choices.length > 1) byId("correlation-x").value = choices.find(value => value !== byId("correlation-y").value);
+  }
+  byId("correlation-x").disabled = structured && byId("correlation-compare").value === "all";
+  ["correlation-coverage", "correlation-min-regions"].forEach(id => { byId(id).disabled = !structured; });
+  byId("correlation-expected-regions").disabled = !structured || byId("correlation-coverage").value !== "strict";
+  byId("run-correlation").disabled = (structured ? state.structuredParameters : state.parameters).length < 2;
+  syncCorrelationZones();
 }
 
 function syncCorrelationZones() {
