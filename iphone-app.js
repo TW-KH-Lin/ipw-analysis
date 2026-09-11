@@ -66,6 +66,7 @@ const state = {
   headers: [],
   rows: [],
   sourceLocations: new Map(),
+  sourceColumns: [],
   parameters: [],
   structuredParameters: [],
   trendParameters: [],
@@ -353,6 +354,13 @@ function bindEvents() {
     syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
   });
   byId("gaussian-method").addEventListener("change", invalidateGaussian);
+  byId("gaussian-visible-rows").addEventListener("change", invalidateGaussian);
+  byId("gaussian-full-range").addEventListener("click", () => {
+    ["gaussian-start", "gaussian-end", "gaussian-bin-width"].forEach(id => { byId(id).value = ""; });
+    invalidateGaussian();
+    saveAnalysisSettings();
+    setStatus("Gaussian range reset to all numeric values in the selected data scope.", false, true);
+  });
   ["gaussian-bin-width", "gaussian-start", "gaussian-end", "gaussian-extreme-sigma"].forEach((id) => {
     byId(id).addEventListener("input", invalidateGaussian);
   });
@@ -432,6 +440,7 @@ async function parseWorkbook(data, fileName) {
   const XLSX = getXlsx();
   invalidateGaussian();
   state.sourceLocations.clear();
+  byId("gaussian-visible-rows").checked = false;
   state.workbookName = fileName;
   state.originalData = data.slice(0);
   state.generatedSources = new Map();
@@ -524,7 +533,12 @@ async function selectSource(sheetName) {
   state.headers = source.headers;
   state.rows = source.rows;
   state.sourceLocations = new Map(state.rows.map((row, index) => [row, { row: source.rowNumbers[index], column: source.columnOffset }]));
+  state.sourceColumns = state.headers.map((_, index) => source.columnOffset + index);
   state.generatedClean = source.generatedClean;
+  if (headerIndex(state.headers, "Classification") < 0) {
+    const nIndex = headerIndex(state.headers, "N");
+    state.sourceColumns.splice(nIndex >= 0 ? nIndex : 0, 0, null);
+  }
   ensureClassificationColumn(state.headers, state.rows);
   seedLotClassifications(state.headers, state.rows);
   applyClassificationOverrides(state.headers, state.rows);
@@ -1403,6 +1417,8 @@ function populateWorkbookControls() {
     "gaussian-end",
     "gaussian-extreme-sigma",
     "gaussian-extreme-side",
+    "gaussian-visible-rows",
+    "gaussian-full-range",
     "recommend-gaussian",
     "run-gaussian",
     "trend-data-scope",
@@ -1854,11 +1870,12 @@ function collectGaussianRecords(parameter, includedZones) {
   const sheet = state.workbook.Sheets[state.source];
   for (const row of rowsForAnalysis("gaussian-data-scope")) {
     const location = state.sourceLocations.get(row);
-    if (!location || sheet?.["!rows"]?.[location.row - 1]?.hidden) continue;
+    if (!location) throw new Error("Source row mapping is unavailable. Reopen the workbook before fitting.");
+    if (byId("gaussian-visible-rows").checked && sheet?.["!rows"]?.[location.row - 1]?.hidden) continue;
     for (const zone of includedZones) {
       const column = columns?.[zone - 1];
       if (column === undefined || column < 0) continue;
-      const value = row[column], sourceCell = XLSX.utils.encode_cell({ r: location.row - 1, c: location.column + column });
+      const value = row[column], sourceCell = XLSX.utils.encode_cell({ r: location.row - 1, c: state.sourceColumns[column] });
       if (sheet?.[sourceCell]?.t === "e" || !["number", "string"].includes(typeof value) || text(value) === "" || !Number.isFinite(Number(value))) continue;
       records.push({ value: Number(value), lot: lotColumn >= 0 ? text(row[lotColumn]) : "", batch: batchColumn >= 0 ? text(row[batchColumn]) : "", zone,
         source: state.source, sourceRow: location.row, sourceCell, parameter });
@@ -1890,7 +1907,7 @@ function createGaussian() {
   const lots = new Set(fittedRecords.map((record) => record.lot).filter(Boolean));
   const batches = new Set(fittedRecords.map((record) => `${record.lot}|${record.batch}`).filter((key) => key !== "|"));
   const extremes = gaussianExtremeSnapshot(fittedRecords, fit, requiredNumber("gaussian-extreme-sigma"));
-  state.lastGaussian = { parameter, zones: includedZones, scope, source: state.source, savedAt: new Date().toISOString(), extremes, fit: { ...fit, lotCount: lots.size, batchCount: batches.size } };
+  state.lastGaussian = { parameter, zones: includedZones, scope, visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: state.source, savedAt: new Date().toISOString(), extremes, fit: { ...fit, lotCount: lots.size, batchCount: batches.size } };
   renderGaussianResult();
   renderGaussianExtremes();
   byId("save-gaussian-snapshot").disabled = false;
@@ -3201,6 +3218,7 @@ function downloadAnalysisWorkbook() {
       ["Fit method", fit.method],
       ["Huber iterations", fit.iterations || 0],
       ["Data scope", state.lastGaussian.scope],
+      ["Excel rows", state.lastGaussian.visibleExcelRowsOnly ? "Visible only" : "All rows in selected lots"],
       ["Zones", gaussianZones.map((zone) => `Zone ${zone}`).join(", ")],
       ["Fit N", fit.n],
       ["Visible N", fit.visibleN],

@@ -13,14 +13,14 @@
     <link rel="apple-touch-icon" href="icons/ipw-180.png">
     <link rel="stylesheet" href="iphone.css?v=19">
     <script defer src="vendor/xlsx.full.min.js"></script>
-    <script type="module" src="iphone-app.js?v=55"></script>
+    <script type="module" src="iphone-app.js?v=56"></script>
     <script type="module" src="foldable-ui.js?v=4"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW HTML v28</p>
+          <p class="eyebrow">IPW HTML v29</p>
           <h1>Analysis</h1>
         </div>
         <label class="file-button">
@@ -190,6 +190,7 @@
           <label>End<input id="gaussian-end" inputmode="decimal" placeholder="Auto" disabled></label>
           <label>Extreme boundary (sigma)<input id="gaussian-extreme-sigma" type="number" min="0.001" step="any" value="3" disabled></label>
           <label>Extreme side<select id="gaussian-extreme-side" disabled><option>Both</option><option>High</option><option>Low</option></select></label>
+          <label class="choice-row"><input id="gaussian-visible-rows" type="checkbox" disabled>Visible Excel rows only</label>
         </div>
         <fieldset class="zone-fieldset">
           <legend>Zones</legend>
@@ -197,6 +198,7 @@
         </fieldset>
         <div class="analysis-actions">
           <button id="recommend-gaussian" class="command" type="button" disabled>Recommend Settings</button>
+          <button id="gaussian-full-range" class="command" type="button" disabled>Use Full Range</button>
           <button id="run-gaussian" class="command primary" type="button" disabled>Run Gaussian Fit</button>
           <button id="save-gaussian-snapshot" class="command" type="button" disabled>Save Chart Snapshot</button>
           <button id="export-gaussian-extremes" class="command" type="button" disabled>Export Extreme Cases</button>
