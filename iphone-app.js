@@ -1931,8 +1931,8 @@ function renderGaussianResult() {
       ${metric("Points excluded", formatInteger(fit.excluded))}
       ${metric("Lots used", formatInteger(fit.lotCount))}
       ${metric("MRs used", formatInteger(fit.batchCount))}
-      ${metric("Mean", fit.mean.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
-      ${metric("Sigma", fit.sigma.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
+      ${metric("Mean", fit.mean.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 }))}
+      ${metric("Sigma", fit.sigma.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 }))}
       ${metric("SSE", formatNumber(fit.sse, 2))}
       ${metric(fit.method === "robust-huber" ? "Histogram range" : "Fit range", `${formatNumber(fit.start, 3)} to ${formatNumber(fit.end, 3)}`)}
       ${fit.method === "robust-huber" ? metric("Outside histogram (still fitted)", formatInteger(fit.outsideHistogram)) + metric("Huber iterations", fit.iterations) : ""}
@@ -2007,7 +2007,7 @@ function saveGaussianSnapshot() {
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#172231"; ctx.font = "18px sans-serif";
-  ctx.fillText(`${current.parameter} | ${current.fit.method} | Mu ${current.fit.mean.toFixed(2)} | Sigma ${current.fit.sigma.toFixed(2)}`, 12, 24, canvas.width - 24);
+  ctx.fillText(`${current.parameter} | ${current.fit.method} | Mu ${current.fit.mean.toFixed(3)} | Sigma ${current.fit.sigma.toFixed(3)}`, 12, 24, canvas.width - 24);
   ctx.drawImage(histogram, 0, 40);
   const stamp = new Date();
   const fileName = `${baseFileName()}_${safeFilePart(current.parameter)}_Gaussian_${fileDateStamp(stamp)}.png`;
@@ -3853,7 +3853,7 @@ function drawGaussian(canvas, fit, mode = "combined") {
   ctx.font = "11px sans-serif";
   ctx.textAlign = "left";
   ctx.fillStyle = "#172231";
-  ctx.fillText(`Mean: ${fit.mean.toFixed(2)}   Sigma: ${fit.sigma.toFixed(2)}`, 8, 16, width - 16);
+  ctx.fillText(`Mean: ${fit.mean.toFixed(3)}   Sigma: ${fit.sigma.toFixed(3)}`, 8, 16, width - 16);
   const labelLanes = [[], [], [], []];
   const cutoffLabels = [];
   cutoffs.forEach((cutoff) => {
