@@ -1938,6 +1938,14 @@ function renderGaussianResult() {
       ${fit.method === "robust-huber" ? metric("Outside histogram (still fitted)", formatInteger(fit.outsideHistogram)) + metric("Huber iterations", fit.iterations) : ""}
     </div>
     <details class="gaussian-chart-section" open><summary>Observed Histogram + Fitted Gaussian</summary>
+      <div class="gaussian-axis-controls">
+        <label>X-axis start<input id="gaussian-view-start" type="number" step="any" value="${fit.start}"></label>
+        <label>X-axis end<input id="gaussian-view-end" type="number" step="any" value="${fit.end}"></label>
+        <input id="gaussian-view-start-slider" type="range" aria-label="X-axis start" min="${fit.start}" max="${fit.end}" step="any" value="${fit.start}">
+        <input id="gaussian-view-end-slider" type="range" aria-label="X-axis end" min="${fit.start}" max="${fit.end}" step="any" value="${fit.end}">
+        <button id="gaussian-view-reset" type="button" class="command">Reset X-axis</button>
+        <span id="gaussian-view-error" role="alert"></span>
+      </div>
       <div class="chart-card"><canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></div></details>
     <div class="table-wrap mini-table compact-table cutoff-table">${renderTable([
       ["Percentile cutoff", "Value"],
@@ -1952,12 +1960,43 @@ function renderGaussianResult() {
     ])}</div>
   `;
   requestAnimationFrame(drawGaussianCharts);
+  ["start", "end"].forEach(side => {
+    byId(`gaussian-view-${side}`).addEventListener("input", updateGaussianView);
+    byId(`gaussian-view-${side}-slider`).addEventListener("input", event => {
+      byId(`gaussian-view-${side}`).value = Number(event.target.value).toPrecision(12);
+      updateGaussianView();
+    });
+  });
+  byId("gaussian-view-reset").addEventListener("click", () => {
+    byId("gaussian-view-start").value = fit.start;
+    byId("gaussian-view-end").value = fit.end;
+    updateGaussianView();
+  });
   byId("gaussian-result").querySelectorAll(".gaussian-chart-section").forEach(section => section.addEventListener("toggle", () => { if (section.open) requestAnimationFrame(drawGaussianCharts); }));
 }
 
 function drawGaussianCharts() {
   if (!state.lastGaussian) return;
-  drawGaussian(byId("gaussian-chart"), state.lastGaussian.fit, "combined");
+  drawGaussian(byId("gaussian-chart"), { ...state.lastGaussian.fit, ...state.lastGaussian.viewRange }, "combined");
+}
+
+function updateGaussianView() {
+  const current = state.lastGaussian;
+  if (!current) return;
+  const startInput = byId("gaussian-view-start"), endInput = byId("gaussian-view-end");
+  const start = Number(startInput.value), end = Number(endInput.value);
+  const valid = startInput.value !== "" && endInput.value !== "" && Number.isFinite(start) && Number.isFinite(end) && end > start && Number.isFinite(end - start);
+  startInput.setAttribute("aria-invalid", String(!valid)); endInput.setAttribute("aria-invalid", String(!valid));
+  byId("gaussian-view-error").textContent = valid ? "" : "Enter a finite start smaller than the end.";
+  if (!valid) return;
+  current.viewRange = { start, end };
+  for (const side of ["start", "end"]) {
+    const slider = byId(`gaussian-view-${side}-slider`);
+    slider.min = Math.min(current.fit.start, start);
+    slider.max = Math.max(current.fit.end, end);
+    slider.value = side === "start" ? start : end;
+  }
+  requestAnimationFrame(drawGaussianCharts);
 }
 
 function selectedGaussianExtremes() {
@@ -2127,6 +2166,14 @@ function renderTrendResult() {
       ${metric("MR center", formatNumber(trend.batchCenter, 4))}
       ${metric("MR sigma", formatNumber(trend.batchSigma, 4))}
     </div>
+    <div class="gaussian-axis-controls">
+      <label>Start date<input id="trend-view-start" type="date"></label>
+      <label>End date<input id="trend-view-end" type="date"></label>
+      <input id="trend-view-start-slider" type="range" aria-label="Trend start date" step="86400000">
+      <input id="trend-view-end-slider" type="range" aria-label="Trend end date" step="86400000">
+      <button id="trend-view-reset" type="button" class="command">Reset time range</button>
+      <span id="trend-view-error" role="alert"></span>
+    </div>
     <div class="trend-chart-grid">
       <article class="chart-card">
         <h3>Lot Mean</h3>
@@ -2150,6 +2197,44 @@ function renderTrendResult() {
     ])}</div>
     ${biasTable}
   `;
+  const dates = [...trend.lots, ...trend.batches].map(item => item.date).filter(Number.isFinite);
+  const day = 86400000;
+  const extent = dates.reduce((range, date) => ({ min: Math.min(range.min, date), max: Math.max(range.max, date) }), { min: Infinity, max: -Infinity });
+  const first = Math.floor(extent.min / day) * day;
+  const last = Math.floor(extent.max / day) * day;
+  const isoDate = value => new Date(value).toISOString().slice(0, 10);
+  const updateTimeRange = () => {
+    const start = Date.parse(byId("trend-view-start").value);
+    const end = Date.parse(byId("trend-view-end").value);
+    const valid = Number.isFinite(start) && Number.isFinite(end) && start <= end;
+    byId("trend-view-error").textContent = valid ? "" : "Enter an end date on or after the start date.";
+    for (const side of ["start", "end"]) byId(`trend-view-${side}`).setAttribute("aria-invalid", String(!valid));
+    if (!valid) return;
+    state.lastTrend.viewRange = { min: start, max: end + day - 1 };
+    for (const side of ["start", "end"]) {
+      const slider = byId(`trend-view-${side}-slider`);
+      slider.min = Math.min(first, start);
+      slider.max = Math.max(last, end, first + day);
+      slider.value = side === "start" ? start : end;
+    }
+    drawTrendCharts();
+  };
+  const resetTimeRange = () => {
+    byId("trend-view-start").value = isoDate(first);
+    byId("trend-view-end").value = isoDate(last);
+    updateTimeRange();
+  };
+  if (dates.length) {
+    for (const side of ["start", "end"]) {
+      byId(`trend-view-${side}`).addEventListener("input", updateTimeRange);
+      byId(`trend-view-${side}-slider`).addEventListener("input", event => {
+        byId(`trend-view-${side}`).value = isoDate(Number(event.target.value));
+        updateTimeRange();
+      });
+    }
+    byId("trend-view-reset").addEventListener("click", resetTimeRange);
+    resetTimeRange();
+  }
   requestAnimationFrame(drawTrendCharts);
   byId("trend-result").querySelectorAll("[data-trend-series], [data-trend-zone]").forEach(input => input.addEventListener("change", drawTrendCharts));
 }
@@ -3824,6 +3909,8 @@ function drawGaussian(canvas, fit, mode = "combined") {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
   drawFrame(ctx, pad, width, height, colors);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(pad.left, pad.top, plotWidth, plotHeight); ctx.clip();
   if (mode !== "curve") fit.bins.forEach((bin) => {
     const x0 = pad.left + (bin.lower - fit.start) / (fit.end - fit.start) * plotWidth;
     const x1 = pad.left + (bin.upper - fit.start) / (fit.end - fit.start) * plotWidth;
@@ -3843,6 +3930,7 @@ function drawGaussian(canvas, fit, mode = "combined") {
     ctx.lineWidth = 2;
     ctx.stroke();
   }
+  ctx.restore();
   const cutoffs = [
     { label: "2.5%", value: fit.low25, color: "#9f1239" },
     { label: "15%", value: fit.low15, color: "#92400e" },
@@ -4010,11 +4098,15 @@ function drawTrendLineChart(canvas, series) {
   pad.left = Math.max(pad.left, ...yExtent.ticks.map(value => ctx.measureText(formatInteger(value)).width + 12));
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
-  const xExtent = trendExtent(finitePoints.map((point) => point.x), 86400000);
+  const xExtent = state.lastTrend?.viewRange || trendExtent(finitePoints.map((point) => point.x), 86400000);
   const xScale = (value) => pad.left + (value - xExtent.min) / (xExtent.max - xExtent.min) * plotWidth;
   const yScale = (value) => pad.top + plotHeight - (value - yExtent.min) / (yExtent.max - yExtent.min) * plotHeight;
   ctx.clearRect(0, 0, width, height);
   drawTrendGrid(ctx, pad, width, height, colors, yExtent);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(pad.left, pad.top, plotWidth, plotHeight);
+  ctx.clip();
   for (const item of series) {
     ctx.beginPath();
     let previous = null;
@@ -4044,6 +4136,7 @@ function drawTrendLineChart(canvas, series) {
       }
     }
   }
+  ctx.restore();
   drawTrendAxisLabels(ctx, pad, width, height, colors, xExtent, yExtent);
 }
 

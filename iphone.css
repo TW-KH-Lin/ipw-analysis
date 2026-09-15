@@ -545,6 +545,17 @@ tr:last-child td {
   margin-top: 12px;
 }
 
+.gaussian-axis-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 12px 0;
+  align-items: center;
+}
+.gaussian-axis-controls label { min-width: 0; }
+.gaussian-axis-controls input[type="range"] { padding: 0; min-width: 0; width: 100%; }
+#gaussian-view-error { color: var(--red, #b42318); font-size: 12px; }
+
 #structured-plot-result > label:not([hidden]) {
   display: grid;
   gap: 6px;
