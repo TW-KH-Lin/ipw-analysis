@@ -2100,11 +2100,12 @@ function renderTrendResult() {
   const regionalCharts = trend.regional ? `
     <article class="chart-card">
       <h3>Zone Values</h3>
-      ${chartLegend(ZONES.map((zone, index) => [`Zone ${zone}`, TREND_COLORS[index]]))}
+      <div class="chart-key">${ZONES.map((zone, index) => `<label><input type="checkbox" data-trend-zone="${zone}" checked> <span style="--key-color:${TREND_COLORS[index]}">Zone ${zone}</span></label>`).join("")}</div>
       <canvas id="trend-zone-chart" aria-label="Zone values over production time"></canvas>
     </article>
     <article class="chart-card">
       <h3>Persistent Zone Bias</h3>
+      <p>Average difference between each zone and its batch mean. Positive means higher; negative means lower. Error bars show the 95% confidence interval. An interval excluding zero indicates a consistent offset, not necessarily an out-of-spec result.</p>
       <canvas id="trend-bias-chart" aria-label="Zone value minus batch mean"></canvas>
     </article>` : "";
   const biasTable = trend.regional ? `
@@ -2134,7 +2135,7 @@ function renderTrendResult() {
       </article>
       <article class="chart-card">
         <h3>Batch Mean and Rolling Trend</h3>
-        ${chartLegend([["Batch", TREND_COLORS[0]], [`Rolling ${trend.rollingWindow}`, TREND_COLORS[2]], ["+/-2 SD", TREND_COLORS[3]]])}
+        <div class="chart-key">${[["batch", "Batch mean", TREND_COLORS[0]], ["rolling", `Rolling ${trend.rollingWindow}`, TREND_COLORS[2]], ["center", "Center", TREND_COLORS[1]], ["limits", "+/-2 SD", TREND_COLORS[3]]].map(([key, label, color]) => `<label><input type="checkbox" data-trend-series="${key}" checked> <span style="--key-color:${color}">${label}</span></label>`).join("")}</div>
         <canvas id="trend-batch-chart" aria-label="Batch mean and rolling trend over production time"></canvas>
       </article>
       ${regionalCharts}
@@ -2150,6 +2151,7 @@ function renderTrendResult() {
     ${biasTable}
   `;
   requestAnimationFrame(drawTrendCharts);
+  byId("trend-result").querySelectorAll("[data-trend-series], [data-trend-zone]").forEach(input => input.addEventListener("change", drawTrendCharts));
 }
 
 function chartLegend(items) {
@@ -3818,7 +3820,7 @@ function drawTrendCharts() {
     { color: TREND_COLORS[1], width: 1.2, breakGroups: true, data: batchPoints(() => trend.batchCenter) },
     { color: TREND_COLORS[3], width: 1.1, dash: [5, 4], breakGroups: true, data: batchPoints(() => trend.batchCenter + 2 * trend.batchSigma) },
     { color: TREND_COLORS[3], width: 1.1, dash: [5, 4], breakGroups: true, data: batchPoints(() => trend.batchCenter - 2 * trend.batchSigma) }
-  ]);
+  ].filter((_, index) => byId("trend-result").querySelector(`[data-trend-series="${["batch", "rolling", "center", "limits", "limits"][index]}"]`)?.checked));
 
   if (trend.regional) {
     drawTrendLineChart(byId("trend-zone-chart"), ZONES.map((zone, index) => ({
@@ -3831,7 +3833,7 @@ function drawTrendCharts() {
         y: item.zones[index],
         group: trendGroup(item.lot)
       }))
-    })));
+    })).filter((_, index) => byId("trend-result").querySelector(`[data-trend-zone="${ZONES[index]}"]`)?.checked));
     drawTrendBiasChart(byId("trend-bias-chart"), trend.zoneBias);
   }
 }
@@ -3839,17 +3841,25 @@ function drawTrendCharts() {
 function drawTrendLineChart(canvas, series) {
   if (!canvas) return;
   const finitePoints = series.flatMap((item) => item.data).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
-  if (!finitePoints.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas);
+  if (!finitePoints.length) {
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = colors.muted;
+    ctx.font = "12px sans-serif";
+    ctx.fillText("No series selected or no values available.", 12, 24, width - 24);
+    return;
+  }
   const pad = { left: 48, right: 14, top: 14, bottom: 38 };
+  const yExtent = integerChartAxis(finitePoints.map((point) => point.y));
+  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  pad.left = Math.max(pad.left, ...yExtent.ticks.map(value => ctx.measureText(formatInteger(value)).width + 12));
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
   const xExtent = trendExtent(finitePoints.map((point) => point.x), 86400000);
-  const yExtent = paddedExtent(finitePoints.map((point) => point.y));
   const xScale = (value) => pad.left + (value - xExtent.min) / (xExtent.max - xExtent.min) * plotWidth;
   const yScale = (value) => pad.top + plotHeight - (value - yExtent.min) / (yExtent.max - yExtent.min) * plotHeight;
   ctx.clearRect(0, 0, width, height);
-  drawTrendGrid(ctx, pad, width, height, colors);
+  drawTrendGrid(ctx, pad, width, height, colors, yExtent);
   for (const item of series) {
     ctx.beginPath();
     let previous = null;
@@ -3886,14 +3896,17 @@ function drawTrendBiasChart(canvas, values) {
   if (!canvas || !values.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas);
   const pad = { left: 48, right: 12, top: 14, bottom: 38 };
+  const absoluteMax = Math.max(1e-9, ...values.flatMap((item) => [Math.abs(item.meanBias || 0), Math.abs(item.ciLow || 0), Math.abs(item.ciHigh || 0)]));
+  const yExtent = integerChartAxis([-absoluteMax * 1.2, absoluteMax * 1.2]);
+  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  pad.left = Math.max(pad.left, ...yExtent.ticks.map(value => ctx.measureText(formatInteger(value)).width + 12));
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
-  const absoluteMax = Math.max(1e-9, ...values.flatMap((item) => [Math.abs(item.meanBias || 0), Math.abs(item.ciLow || 0), Math.abs(item.ciHigh || 0)]));
-  const minY = -absoluteMax * 1.2;
-  const maxY = absoluteMax * 1.2;
+  const minY = yExtent.min;
+  const maxY = yExtent.max;
   const yScale = (value) => pad.top + plotHeight - (value - minY) / (maxY - minY) * plotHeight;
   ctx.clearRect(0, 0, width, height);
-  drawTrendGrid(ctx, pad, width, height, colors);
+  drawTrendGrid(ctx, pad, width, height, colors, yExtent);
   const slot = plotWidth / values.length;
   values.forEach((item, index) => {
     const x = pad.left + index * slot + slot * 0.22;
@@ -3931,19 +3944,21 @@ function drawTrendBiasChart(canvas, values) {
   ctx.fillStyle = colors.muted;
   ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
   ctx.textAlign = "left";
-  ctx.fillText(formatNumber(maxY, 3), 4, pad.top + 8);
-  ctx.fillText(formatNumber(minY, 3), 4, height - pad.bottom);
 }
 
-function drawTrendGrid(ctx, pad, width, height, colors) {
+function drawTrendGrid(ctx, pad, width, height, colors, yExtent) {
   ctx.strokeStyle = colors.line;
   ctx.lineWidth = 1;
-  for (let index = 0; index <= 4; index += 1) {
-    const y = pad.top + (height - pad.top - pad.bottom) * index / 4;
+  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  ctx.fillStyle = colors.muted;
+  ctx.textAlign = "right";
+  for (const value of yExtent.ticks) {
+    const y = pad.top + (height - pad.top - pad.bottom) * (yExtent.max - value) / (yExtent.max - yExtent.min);
     ctx.beginPath();
     ctx.moveTo(pad.left, y);
     ctx.lineTo(width - pad.right, y);
     ctx.stroke();
+    ctx.fillText(formatInteger(value), pad.left - 7, y + 4);
   }
   drawFrame(ctx, pad, width, height, colors);
 }
@@ -3956,8 +3971,6 @@ function drawTrendAxisLabels(ctx, pad, width, height, colors, xExtent, yExtent) 
   ctx.textAlign = "right";
   ctx.fillText(formatTrendDate(xExtent.max), width - pad.right, height - 12);
   ctx.textAlign = "left";
-  ctx.fillText(formatNumber(yExtent.max, 3), 4, pad.top + 8);
-  ctx.fillText(formatNumber(yExtent.min, 3), 4, height - pad.bottom);
 }
 
 function trendExtent(values, minimumRange) {
