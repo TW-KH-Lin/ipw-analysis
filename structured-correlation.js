@@ -5,6 +5,47 @@ export const CORRELATION_METHODS = [
   ["overall", "Overall within Lot x Region"]
 ];
 const clean = value => String(value ?? "").trim();
+
+export function structuredConclusions(results) {
+  const groups = new Map();
+  for (const row of results) {
+    const key = JSON.stringify([row.xParameter, row.yParameter]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()].map(rows => {
+    const valid = rows.filter(row => Number.isFinite(row.r) && row.n >= Math.max(3, row.minN || 3));
+    const strength = r => Math.abs(r) >= 0.7 ? "very strong" : Math.abs(r) >= 0.5 ? "strong" : Math.abs(r) >= 0.3 ? "moderate" : "weak";
+    const describe = row => `${row.method}: r=${row.r.toFixed(3)}, N=${row.n} (${row.r === 0 ? "no linear association" : `${strength(row.r)} ${row.r > 0 ? "positive" : "negative"} linear association`})`;
+    const coreNames = ["Raw pooled", "Between Lots", "Batch means", "Batch means within Lot", "Overall within Lot x Region"];
+    const core = coreNames.map(name => valid.find(row => row.method === name)).filter(Boolean);
+    const lines = core.map(describe);
+    const regions = valid.filter(row => /^Region \d+/.test(row.method));
+    if (regions.length) {
+      const strongest = regions.reduce((best, row) => Math.abs(row.r) > Math.abs(best.r) ? row : best);
+      lines.push(`Largest absolute region-specific r: ${describe(strongest)}. This compares associations within regions, not differences between region averages.`);
+      if (regions.some(row => row.r > 0) && regions.some(row => row.r < 0)) lines.push("Region-specific results have different signs; there is no uniform direction across the displayed region results.");
+    }
+    const excluded = rows.filter(row => row.excluded > 0);
+    const between = valid.find(row => row.method === "Between Lots");
+    const within = valid.find(row => row.method === "Batch means within Lot");
+    if (between && within && !excluded.length) {
+      const difference = Math.abs(between.r) - Math.abs(within.r);
+      lines.push(Math.abs(difference) < 0.1
+        ? "The absolute correlations between lots and between batches within lots are similar. This does not identify a single source of the association."
+        : difference > 0
+          ? "The association is stronger across lot averages than across batches within the same lot. Lot-level differences may contribute to the overall relationship."
+          : "The association is stronger across batches within the same lot than across lot averages. The relationship is not limited to differences between lots.");
+    }
+    lines.push("Strength uses unrounded |r|: below 0.3 weak; 0.3 to below 0.5 moderate; 0.5 to below 0.7 strong; 0.7 or above very strong. These are descriptive thresholds, not significance tests.");
+    if (!valid.length) lines.push("No interpretable correlation is available in the current table. Check the minimum N and variation in both parameters.");
+    if (!between || !within) lines.push("Both Between Lots and Batch means within Lot are needed to compare lot-level and within-lot batch associations. Run All methods for that comparison.");
+    if (excluded.length) lines.push(`Uses updated table values: ${excluded.map(row => `${row.method}: ${row.excluded} excluded (${row.removal || "user exclusion"})`).join("; ")}. Exclusions can change r and retain different populations, so these results do not establish which level drives the association.`);
+    if (valid.some(row => row.n < 10)) lines.push("Some results use fewer than 10 pairs and can be sensitive to individual observations.");
+    lines.push("Descriptive linear associations only, not causation or significance tests. N represents the observation unit for each method; clustered pairs are not necessarily independent.");
+    return { xParameter: rows[0].xParameter, yParameter: rows[0].yParameter, lines };
+  });
+}
 const identity = value => clean(value).toUpperCase();
 const numeric = value => (typeof value === "number" || typeof value === "string") && clean(value) !== "" && Number.isFinite(Number(value));
 const regionHeader = header => {

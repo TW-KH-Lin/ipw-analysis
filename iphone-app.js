@@ -52,7 +52,7 @@ import {
 } from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
-import { buildStructuredCorrelation, structuredParameters, trimStructuredPlot } from "./structured-correlation.js?v=4";
+import { buildStructuredCorrelation, structuredParameters, trimStructuredPlot, structuredConclusions } from "./structured-correlation.js?v=5";
 
 const state = {
   workbook: null,
@@ -3104,7 +3104,10 @@ async function createCorrelation() {
       <div class="metric-grid">${metric("Results", result.results.length)}${metric("Numeric correlations", result.results.filter(item => item.r !== null).length)}${metric("Source rows", sourceRows.length)}${metric("Minimum N", result.minN)}</div>
       <div class="section-heading"><h2>Structured Correlation</h2></div>
       <div class="table-wrap structured-correlation-table">${renderStructuredCorrelationTable(result)}</div>
+      <button type="button" class="command" id="show-structured-conclusion">Show conclusion</button>
+      <details id="structured-conclusion" hidden><summary>Correlation conclusion</summary><div id="structured-conclusion-text"></div></details>
       <div id="structured-plot-result"></div>`;
+    byId("show-structured-conclusion").addEventListener("click", showStructuredConclusion);
     byId("correlation-result").querySelectorAll("[data-structured-plot]").forEach(button => button.addEventListener("click", () => runAction(() => plotStructuredCorrelation(Number(button.dataset.structuredPlot)))));
     setStatus(`${result.results.length} structured correlation results.`, false, true);
     return;
@@ -3214,7 +3217,18 @@ function updateStructuredTable() {
   table.innerHTML = renderStructuredCorrelationTable(current);
   byId("correlation-result").querySelector(".metric-grid").innerHTML = `${metric("Results", current.results.length)}${metric("Numeric correlations", current.results.filter(item => item.r !== null).length)}${metric("Source rows", current.plotRows.length)}${metric("Minimum N", current.minN)}`;
   table.querySelectorAll("[data-structured-plot]").forEach(button => button.addEventListener("click", () => runAction(() => plotStructuredCorrelation(Number(button.dataset.structuredPlot)))));
+  if (!byId("structured-conclusion").hidden) showStructuredConclusion(false);
   setStatus("Selected table result updated. Workbook export includes the updated result and exclusion details. Source data is unchanged.", false, true);
+}
+
+function showStructuredConclusion(scroll = true) {
+  const current = state.lastStructuredCorrelation;
+  if (!current) return;
+  byId("structured-conclusion-text").innerHTML = structuredConclusions(current.results).map(item =>
+    `<section><h3>${escapeHtml(item.xParameter)} vs ${escapeHtml(item.yParameter)}</h3>${item.lines.map(line => `<p>${escapeHtml(line)}</p>`).join("")}</section>`).join("");
+  const section = byId("structured-conclusion");
+  section.hidden = false;
+  if (scroll) { section.open = true; section.scrollIntoView({ block: "nearest" }); }
 }
 
 function drawStructuredPlot() {
