@@ -20,7 +20,7 @@ import {
   recommendGaussianSettings,
   text,
   zoneColumns
-} from "./analysis.js?v=16";
+} from "./analysis.js?v=17";
 import {
   buildCleanDataFromAuswertung,
   buildFullSummary,

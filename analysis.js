@@ -241,6 +241,14 @@ export function gaussianExtremeSnapshot(records, fit, multiplier = 3) {
   return { lower, upper, multiplier, records: extremes, lowCount: extremes.filter(record => record.side === "Low").length, highCount: extremes.filter(record => record.side === "High").length };
 }
 
+export function histogramBinIndex(value, start, width, count) {
+  const quotient = (value - start) / width;
+  const nearest = Math.round(quotient);
+  const tolerance = 16 * Number.EPSILON * Math.max(1, Math.abs(quotient));
+  const stable = Math.abs(quotient - nearest) <= tolerance ? nearest : quotient;
+  return Math.max(0, Math.min(count - 1, Math.floor(stable)));
+}
+
 export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd, options = {}) {
   const method = options.method || "standard";
   const robust = method === "robust-huber";
@@ -284,7 +292,7 @@ export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd,
     return { lower, upper, center: (lower + upper) / 2, observed: 0, gaussian: 0 };
   });
   for (const value of included) {
-    const index = Math.min(binCount - 1, Math.floor((value - start) / binWidth));
+    const index = histogramBinIndex(value, start, binWidth, binCount);
     bins[index].observed += 1;
   }
   if (stats.sigma > 0) {
