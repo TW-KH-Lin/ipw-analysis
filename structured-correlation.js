@@ -12,6 +12,41 @@ const regionHeader = header => {
   return match && Number(match[2]) > 0 ? { base: match[1], id: Number(match[2]) } : null;
 };
 
+export function trimStructuredPlot(points, { axis = "x", side = "largest", count = 0, minN = 3, method = "count", percent = 15 } = {}) {
+  if (!["count", "ratio", "line"].includes(method)) throw new Error("Choose a valid exclusion method.");
+  if (!["x", "y"].includes(axis) || !["largest", "smallest"].includes(side)) throw new Error("Choose X or Y and largest or smallest.");
+  if (!Number.isInteger(count) || count < 0 || points.length - count < minN) throw new Error(`Keep at least ${minN} pairs; enter a valid whole-number removal count.`);
+  const ranked = points.map((point, index) => ({ point, index })).sort((a, b) => (side === "largest" ? b.point[axis] - a.point[axis] : a.point[axis] - b.point[axis]) || a.index - b.index);
+  const removed = new Set(ranked.slice(0, count).map(item => item.index));
+  let undefinedRatios = 0;
+  if (method !== "count") {
+    if (!Number.isFinite(percent) || percent < 0) throw new Error("Enter a nonnegative tolerance percentage.");
+    const baseline = accumulator();
+    points.forEach(point => add(baseline, point.x, point.y, "plot"));
+    if (!(baseline.xx > 0)) throw new Error("The original data must have variation in X.");
+    const slope = baseline.xy / baseline.xx, intercept = baseline.y - slope * baseline.x;
+    if (!Number.isFinite(slope) || !Number.isFinite(intercept)) throw new Error("The original fitted line is not finite.");
+    if (method === "ratio" && slope === 0) throw new Error("Ratio percentage is undefined for a zero slope. Use fitted-line tolerance instead.");
+    removed.clear();
+    points.forEach((point, index) => {
+      if (method === "ratio" && point.x === 0) { removed.add(index); undefinedRatios++; return; }
+      const actual = method === "ratio" ? point.y / point.x : point.y;
+      const reference = method === "ratio" ? slope : slope * point.x + intercept;
+      const delta = Math.abs(actual - reference), limit = Math.abs(reference) * percent / 100;
+      const rounding = Number.EPSILON * Math.max(1, Math.abs(actual), Math.abs(reference)) * 16;
+      if (!Number.isFinite(delta) || delta > limit + rounding) removed.add(index);
+    });
+  }
+  const retained = points.filter((_, index) => !removed.has(index));
+  if (retained.length < minN) throw new Error(`This setting retains ${retained.length} pairs. Increase the tolerance to keep at least ${minN}.`);
+  const stats = accumulator();
+  retained.forEach(point => add(stats, point.x, point.y, "plot"));
+  const slope = stats.xx > 0 ? stats.xy / stats.xx : null;
+  const r = stats.xx > 0 && stats.yy > 0 ? Math.max(-1, Math.min(1, stats.xy / Math.sqrt(stats.xx) / Math.sqrt(stats.yy))) : null;
+  return { points: retained, n: retained.length, excluded: removed.size, undefinedRatios, r, slope, intercept: slope === null ? null : stats.y - slope * stats.x,
+    removal: method === "count" ? (count ? `${axis.toUpperCase()} ${side} ${count}` : "None") : `${method === "ratio" ? "Y/X vs original slope" : "Y vs original fitted line"}: +/-${percent}%${undefinedRatios ? `; ${undefinedRatios} undefined X=0 ratios excluded` : ""}` };
+}
+
 export function structuredParameters(headers, rows) {
   const found = new Map();
   headers.forEach((header, column) => {

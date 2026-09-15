@@ -52,7 +52,7 @@ import {
 } from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
-import { buildStructuredCorrelation, structuredParameters } from "./structured-correlation.js?v=2";
+import { buildStructuredCorrelation, structuredParameters, trimStructuredPlot } from "./structured-correlation.js?v=3";
 
 const state = {
   workbook: null,
@@ -3152,18 +3152,51 @@ function plotStructuredCorrelation(index) {
   }).results.find(item => item.method === selected.method);
   if (!result?.points?.length || result.n !== selected.n) throw new Error("Rebuild structured correlation before plotting.");
   current.plot = result;
+  current.originalPlot = result;
   byId("structured-plot-result").innerHTML = `<div class="section-heading"><h2>${escapeHtml(result.method)}</h2><button type="button" class="command" id="save-structured-plot">Save PNG</button></div>
-    <p>X: ${escapeHtml(result.xParameter)} | Y: ${escapeHtml(result.yParameter)} | ${escapeHtml(result.unit)} | N: ${formatInteger(result.n)} | r: ${formatNumber(result.r, 4)}</p>
+    <p>X: ${escapeHtml(result.xParameter)} | Y: ${escapeHtml(result.yParameter)} | ${escapeHtml(result.unit)}</p>
+    <label>Exclusion method<select id="structured-trim-method"><option value="count">Largest / smallest pairs</option><option value="ratio">Y/X ratio versus original slope (%)</option><option value="line">Y versus original fitted line (%)</option></select></label>
+    <label id="structured-percent-control" hidden>Tolerance (+/- %)<input id="structured-trim-percent" type="number" min="0" step="any" value="15"></label>
+    <div class="control-grid" id="structured-count-controls"><label>Extreme axis<select id="structured-trim-axis"><option value="x">X</option><option value="y">Y</option></select></label>
+    <label>Remove<select id="structured-trim-side"><option value="largest">Largest</option><option value="smallest">Smallest</option></select></label>
+    <label>Pairs to exclude<input id="structured-trim-count" type="number" min="0" step="1" value="0"></label></div>
+    <div class="button-row"><button class="command" id="structured-trim-apply" type="button">Apply exclusion</button><button class="command" id="structured-trim-reset" type="button">Reset</button></div>
+    <p id="structured-plot-stats"></p>
     <div class="chart-card"><canvas id="structured-correlation-chart" aria-label="${escapeHtml(result.method)} correlation plot"></canvas></div>`;
   byId("save-structured-plot").addEventListener("click", () => runAction(saveStructuredPlot));
+  byId("structured-trim-apply").addEventListener("click", () => runAction(() => applyStructuredTrim(false)));
+  byId("structured-trim-reset").addEventListener("click", () => runAction(() => applyStructuredTrim(true)));
+  byId("structured-trim-method").addEventListener("change", () => {
+    const count = byId("structured-trim-method").value === "count";
+    byId("structured-count-controls").hidden = !count;
+    byId("structured-percent-control").hidden = count;
+  });
   requestAnimationFrame(() => { drawStructuredPlot(); byId("structured-plot-result").scrollIntoView({ block: "nearest" }); });
+}
+
+function applyStructuredTrim(reset) {
+  const current = state.lastStructuredCorrelation;
+  if (!current?.originalPlot) return;
+  const trimmed = trimStructuredPlot(current.originalPlot.points, {
+    method: reset ? "count" : byId("structured-trim-method").value,
+    percent: reset ? 15 : requiredNumber("structured-trim-percent"),
+    axis: byId("structured-trim-axis").value, side: byId("structured-trim-side").value,
+    count: reset || byId("structured-trim-method").value !== "count" ? 0 : requiredNumber("structured-trim-count"), minN: current.minN
+  });
+  current.plot = { ...current.originalPlot, ...trimmed };
+  if (reset) byId("structured-trim-count").value = "0";
+  drawStructuredPlot();
+  setStatus("Plot statistics updated. The original correlation table and source data are unchanged.", false, true);
 }
 
 function drawStructuredPlot() {
   const plot = state.lastStructuredCorrelation?.plot;
   if (!plot) return;
+  byId("structured-plot-stats").textContent = `Original N: ${state.lastStructuredCorrelation.originalPlot.n} | Included: ${plot.n} | Excluded: ${plot.excluded || 0} | r: ${plot.r === null ? "n.a." : formatNumber(plot.r, 4)} | Exclusion: ${plot.removal || "None"}`;
   const canvas = byId("structured-correlation-chart");
-  drawScatter(canvas, { result: { pairs: plot.points, included: plot.points, slope: plot.slope, intercept: plot.intercept } });
+  const residual = plot.unit.includes("residual") ? " (residual)" : "";
+  drawScatter(canvas, { xParameter: plot.xParameter + residual, yParameter: plot.yParameter + residual,
+    result: { pairs: plot.points, included: plot.points, slope: plot.slope, intercept: plot.intercept } });
 }
 
 function saveStructuredPlot() {
@@ -3171,14 +3204,15 @@ function saveStructuredPlot() {
   if (!plot || !source) throw new Error("Plot a structured correlation result first.");
   drawStructuredPlot();
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(700, source.width); canvas.height = source.height + 100;
+  canvas.width = Math.max(700, source.width); canvas.height = source.height + 124;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#172231"; ctx.font = "16px sans-serif";
   ctx.fillText(plot.method, 12, 24, canvas.width - 24);
   ctx.fillText(`X: ${plot.xParameter} | Y: ${plot.yParameter}`, 12, 48, canvas.width - 24);
-  ctx.fillText(`${plot.unit} | N: ${plot.n} | r: ${formatNumber(plot.r, 4)}`, 12, 72, canvas.width - 24);
-  ctx.drawImage(source, (canvas.width - source.width) / 2, 100);
+  ctx.fillText(`${plot.unit} | N: ${plot.n} | r: ${plot.r === null ? "n.a." : formatNumber(plot.r, 4)}`, 12, 72, canvas.width - 24);
+  ctx.fillText(`Excluded: ${plot.excluded || 0} | ${plot.removal || "None"}`, 12, 96, canvas.width - 24);
+  ctx.drawImage(source, (canvas.width - source.width) / 2, 124);
   const link = document.createElement("a");
   link.href = canvas.toDataURL("image/png");
   link.download = `${safeFilePart(plot.xParameter)}_${safeFilePart(plot.yParameter)}_${safeFilePart(plot.method)}.png`;
@@ -3812,17 +3846,42 @@ function drawGaussian(canvas, fit, mode = "combined") {
 function drawScatter(canvas, current) {
   if (!canvas || !current?.result?.pairs?.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas);
-  const pad = { left: 44, right: 16, top: 16, bottom: 34 };
-  const plotWidth = width - pad.left - pad.right;
-  const plotHeight = height - pad.top - pad.bottom;
+  const pad = { left: 54, right: 24, top: 16, bottom: 58 };
   const valuesX = current.result.included.map((pair) => pair.x);
   const valuesY = current.result.included.map((pair) => pair.y);
-  const extentX = paddedExtent(valuesX);
-  const extentY = paddedExtent(valuesY);
+  const boundsX = paddedExtent(valuesX), boundsY = paddedExtent(valuesY);
+  const extentX = integerChartAxis([boundsX.min, boundsX.max]);
+  const extentY = integerChartAxis([boundsY.min, boundsY.max]);
+  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  pad.left = Math.max(pad.left, ...extentY.ticks.map(value => ctx.measureText(formatInteger(value)).width + 30));
+  pad.right = Math.max(pad.right, ctx.measureText(formatInteger(extentX.max)).width / 2 + 8);
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
   const xScale = (value) => pad.left + (value - extentX.min) / (extentX.max - extentX.min) * plotWidth;
   const yScale = (value) => pad.top + plotHeight - (value - extentY.min) / (extentY.max - extentY.min) * plotHeight;
   ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = colors.line;
+  ctx.lineWidth = 1;
+  ctx.fillStyle = colors.muted;
+  ctx.textAlign = "right";
+  for (const value of extentY.ticks) {
+    const y = yScale(value);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke();
+    ctx.fillText(formatInteger(value), pad.left - 7, y + 4);
+  }
+  ctx.textAlign = "center";
+  const labelWidth = Math.max(...extentX.ticks.map(value => ctx.measureText(formatInteger(value)).width)) + 10;
+  const stride = Math.max(1, Math.ceil(labelWidth / (plotWidth / (extentX.ticks.length - 1))));
+  extentX.ticks.forEach((value, index) => {
+    const x = xScale(value);
+    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, height - pad.bottom); ctx.stroke();
+    if (index % stride === 0) ctx.fillText(formatInteger(value), x, height - pad.bottom + 18);
+  });
   drawFrame(ctx, pad, width, height, colors);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(pad.left, pad.top, plotWidth, plotHeight); ctx.clip();
   for (const pair of current.result.included) {
     ctx.beginPath();
     ctx.arc(xScale(pair.x), yScale(pair.y), 3, 0, Math.PI * 2);
@@ -3839,7 +3898,15 @@ function drawScatter(canvas, current) {
     ctx.lineWidth = 2;
     ctx.stroke();
   }
-  drawAxisLabels(ctx, pad, width, height, colors, extentX.min, extentX.max, extentY.max);
+  ctx.restore();
+  ctx.fillStyle = colors.ink;
+  ctx.font = "12px Aptos, Calibri, Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(current.xParameter || "X", pad.left + plotWidth / 2, height - 8, plotWidth);
+  ctx.save();
+  ctx.translate(13, pad.top + plotHeight / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText(current.yParameter || "Y", 0, 0, plotHeight);
+  ctx.restore();
 }
 
 function drawTrendCharts() {

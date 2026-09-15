@@ -545,6 +545,21 @@ tr:last-child td {
   margin-top: 12px;
 }
 
+#structured-plot-result > label:not([hidden]) {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+#structured-plot-result .button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+#structured-plot-result .button-row button { flex: 1 1 130px; }
+
 #trend-result .chart-key label {
   display: inline-flex;
   align-items: center;
