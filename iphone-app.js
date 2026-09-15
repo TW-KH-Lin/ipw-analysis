@@ -1938,14 +1938,14 @@ function renderGaussianResult() {
       ${fit.method === "robust-huber" ? metric("Outside histogram (still fitted)", formatInteger(fit.outsideHistogram)) + metric("Huber iterations", fit.iterations) : ""}
     </div>
     <details class="gaussian-chart-section" open><summary>Observed Histogram + Fitted Gaussian</summary>
-      <div class="gaussian-axis-controls">
-        <label>X-axis start<input id="gaussian-view-start" type="number" step="any" value="${fit.start}"></label>
-        <label>X-axis end<input id="gaussian-view-end" type="number" step="any" value="${fit.end}"></label>
-        <input id="gaussian-view-start-slider" type="range" aria-label="X-axis start" min="${fit.start}" max="${fit.end}" step="any" value="${fit.start}">
-        <input id="gaussian-view-end-slider" type="range" aria-label="X-axis end" min="${fit.start}" max="${fit.end}" step="any" value="${fit.end}">
+      <details open><summary>X-axis range</summary><div class="gaussian-axis-controls">
+        <label>X-axis start<input id="gaussian-view-start" type="number" step="0.1" value="${fit.start}"></label>
+        <label>X-axis end<input id="gaussian-view-end" type="number" step="0.1" value="${fit.end}"></label>
+        <input id="gaussian-view-start-slider" type="range" aria-label="X-axis start" min="${Math.floor(fit.start * 10) / 10}" max="${Math.ceil(fit.end * 10) / 10}" step="0.1" value="${fit.start}">
+        <input id="gaussian-view-end-slider" type="range" aria-label="X-axis end" min="${Math.floor(fit.start * 10) / 10}" max="${Math.ceil(fit.end * 10) / 10}" step="0.1" value="${fit.end}">
         <button id="gaussian-view-reset" type="button" class="command">Reset X-axis</button>
         <span id="gaussian-view-error" role="alert"></span>
-      </div>
+      </div></details>
       <div class="chart-card"><canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></div></details>
     <div class="table-wrap mini-table compact-table cutoff-table">${renderTable([
       ["Percentile cutoff", "Value"],
@@ -1992,8 +1992,8 @@ function updateGaussianView() {
   current.viewRange = { start, end };
   for (const side of ["start", "end"]) {
     const slider = byId(`gaussian-view-${side}-slider`);
-    slider.min = Math.min(current.fit.start, start);
-    slider.max = Math.max(current.fit.end, end);
+    slider.min = Math.floor(Math.min(current.fit.start, start) * 10) / 10;
+    slider.max = Math.ceil(Math.max(current.fit.end, end) * 10) / 10;
     slider.value = side === "start" ? start : end;
   }
   requestAnimationFrame(drawGaussianCharts);
@@ -2166,14 +2166,14 @@ function renderTrendResult() {
       ${metric("MR center", formatNumber(trend.batchCenter, 4))}
       ${metric("MR sigma", formatNumber(trend.batchSigma, 4))}
     </div>
-    <div class="gaussian-axis-controls">
+    <details open><summary>Time range</summary><div class="gaussian-axis-controls">
       <label>Start date<input id="trend-view-start" type="date"></label>
       <label>End date<input id="trend-view-end" type="date"></label>
       <input id="trend-view-start-slider" type="range" aria-label="Trend start date" step="86400000">
       <input id="trend-view-end-slider" type="range" aria-label="Trend end date" step="86400000">
       <button id="trend-view-reset" type="button" class="command">Reset time range</button>
       <span id="trend-view-error" role="alert"></span>
-    </div>
+    </div></details>
     <div class="trend-chart-grid">
       <article class="chart-card">
         <h3>Lot Mean</h3>
