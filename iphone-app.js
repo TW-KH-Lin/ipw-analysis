@@ -52,7 +52,7 @@ import {
 } from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
-import { buildStructuredCorrelation, structuredParameters } from "./structured-correlation.js?v=1";
+import { buildStructuredCorrelation, structuredParameters } from "./structured-correlation.js?v=2";
 
 const state = {
   workbook: null,
@@ -3098,11 +3098,14 @@ async function createCorrelation() {
       minN: requiredNumber("correlation-min-n"), coverage: byId("correlation-coverage").value,
       minRegions: requiredNumber("correlation-min-regions"), expectedRegions: byId("correlation-expected-regions").value
     });
-    state.lastStructuredCorrelation = { ...result, source: state.source, scope: byId("correlation-data-scope").value };
+    state.lastStructuredCorrelation = { ...result, source: state.source, scope: byId("correlation-data-scope").value,
+      plotHeaders: state.headers.slice(), plotRows: sourceRows.map(row => row.slice()), plotParameters: state.structuredParameters.slice(), plot: null };
     byId("correlation-result").innerHTML = `
       <div class="metric-grid">${metric("Results", result.results.length)}${metric("Numeric correlations", result.results.filter(item => item.r !== null).length)}${metric("Source rows", sourceRows.length)}${metric("Minimum N", result.minN)}</div>
       <div class="section-heading"><h2>Structured Correlation</h2></div>
-      <div class="table-wrap structured-correlation-table">${renderStructuredCorrelationTable(result)}</div>`;
+      <div class="table-wrap structured-correlation-table">${renderStructuredCorrelationTable(result)}</div>
+      <div id="structured-plot-result"></div>`;
+    byId("correlation-result").querySelectorAll("[data-structured-plot]").forEach(button => button.addEventListener("click", () => runAction(() => plotStructuredCorrelation(Number(button.dataset.structuredPlot)))));
     setStatus(`${result.results.length} structured correlation results.`, false, true);
     return;
   }
@@ -3133,10 +3136,53 @@ function structuredCorrelationTable(result) {
 
 function renderStructuredCorrelationTable(result) {
   const [headers, ...rows] = structuredCorrelationTable(result).map(row => [row[2], row[3], row[4], row[0], row[1], ...row.slice(5)]);
-  return `<table><thead><tr>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
-    <tbody>${rows.map(row => `<tr>${row.map((cell, index) => index === row.length - 1
+  return `<table><thead><tr><th>Plot</th>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((row, resultIndex) => `<tr><td><button type="button" class="command" data-structured-plot="${resultIndex}" ${result.results[resultIndex].r === null ? "disabled" : ""}>Plot</button></td>${row.map((cell, index) => index === row.length - 1
       ? `<td><details><summary>${row[1] === "n.a." ? "Not available" : "Details"}</summary>${escapeHtml(cell)}</details></td>`
       : `<td>${formatCell(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+function plotStructuredCorrelation(index) {
+  const current = state.lastStructuredCorrelation, selected = current?.results[index];
+  if (!selected || selected.r === null) throw new Error("Select an available correlation result.");
+  const result = buildStructuredCorrelation(current.plotHeaders, current.plotRows, selected.yParameter, {
+    parameters: current.plotParameters, xParameter: selected.xParameter, method: current.method,
+    coverage: current.coverage, minN: current.minN, minRegions: current.minRegions,
+    expectedRegions: current.expectedRegions.join(","), plotMethod: selected.method
+  }).results.find(item => item.method === selected.method);
+  if (!result?.points?.length || result.n !== selected.n) throw new Error("Rebuild structured correlation before plotting.");
+  current.plot = result;
+  byId("structured-plot-result").innerHTML = `<div class="section-heading"><h2>${escapeHtml(result.method)}</h2><button type="button" class="command" id="save-structured-plot">Save PNG</button></div>
+    <p>X: ${escapeHtml(result.xParameter)} | Y: ${escapeHtml(result.yParameter)} | ${escapeHtml(result.unit)} | N: ${formatInteger(result.n)} | r: ${formatNumber(result.r, 4)}</p>
+    <div class="chart-card"><canvas id="structured-correlation-chart" aria-label="${escapeHtml(result.method)} correlation plot"></canvas></div>`;
+  byId("save-structured-plot").addEventListener("click", () => runAction(saveStructuredPlot));
+  requestAnimationFrame(() => { drawStructuredPlot(); byId("structured-plot-result").scrollIntoView({ block: "nearest" }); });
+}
+
+function drawStructuredPlot() {
+  const plot = state.lastStructuredCorrelation?.plot;
+  if (!plot) return;
+  const canvas = byId("structured-correlation-chart");
+  drawScatter(canvas, { result: { pairs: plot.points, included: plot.points, slope: plot.slope, intercept: plot.intercept } });
+}
+
+function saveStructuredPlot() {
+  const plot = state.lastStructuredCorrelation?.plot, source = byId("structured-correlation-chart");
+  if (!plot || !source) throw new Error("Plot a structured correlation result first.");
+  drawStructuredPlot();
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(700, source.width); canvas.height = source.height + 100;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#172231"; ctx.font = "16px sans-serif";
+  ctx.fillText(plot.method, 12, 24, canvas.width - 24);
+  ctx.fillText(`X: ${plot.xParameter} | Y: ${plot.yParameter}`, 12, 48, canvas.width - 24);
+  ctx.fillText(`${plot.unit} | N: ${plot.n} | r: ${formatNumber(plot.r, 4)}`, 12, 72, canvas.width - 24);
+  ctx.drawImage(source, (canvas.width - source.width) / 2, 100);
+  const link = document.createElement("a");
+  link.href = canvas.toDataURL("image/png");
+  link.download = `${safeFilePart(plot.xParameter)}_${safeFilePart(plot.yParameter)}_${safeFilePart(plot.method)}.png`;
+  document.body.append(link); link.click(); link.remove();
 }
 
 function renderCorrelationResult() {
@@ -4035,9 +4081,12 @@ function drawAxisLabels(ctx, pad, width, height, colors, minX, maxX, maxY) {
 }
 
 function paddedExtent(values) {
-  const finite = values.filter(Number.isFinite);
-  let min = Math.min(...finite);
-  let max = Math.max(...finite);
+  let min = Infinity, max = -Infinity;
+  for (const value of values) {
+    if (!Number.isFinite(value)) continue;
+    min = Math.min(min, value);
+    max = Math.max(max, value);
+  }
   if (min === max) {
     min -= 1;
     max += 1;
@@ -4047,6 +4096,7 @@ function paddedExtent(values) {
 }
 
 function redrawCharts() {
+  drawStructuredPlot();
   if (state.lastGaussian && byId("gaussian-chart")) drawGaussianCharts();
   if (state.lastTrend && byId("trend-lot-chart")) drawTrendCharts();
   if (state.lastPeriod && byId("period-chart-0")) drawPeriodCharts();

@@ -520,11 +520,16 @@ tr:last-child td {
   border-bottom: 0;
 }
 
-.structured-correlation-table tr > :first-child {
+.structured-correlation-table tr > :nth-child(2) {
   min-width: 145px;
   max-width: 145px;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.structured-correlation-table tr > :first-child {
+  min-width: 64px;
+  width: 64px;
 }
 
 .gaussian-chart-section { margin-top: 16px; }

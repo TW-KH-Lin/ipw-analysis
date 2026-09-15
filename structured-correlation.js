@@ -36,10 +36,11 @@ function parameterColumns(headers, name) {
   return { scalar, regions };
 }
 
-function accumulator() {
-  return { n: 0, x: 0, y: 0, xx: 0, yy: 0, xy: 0, lots: new Set(), batches: new Set(), regions: new Set(), rawPairs: 0, groups: new Set() };
+function accumulator(capture = false) {
+  return { n: 0, x: 0, y: 0, xx: 0, yy: 0, xy: 0, lots: new Set(), batches: new Set(), regions: new Set(), rawPairs: 0, groups: new Set(), points: capture ? [] : undefined };
 }
 function add(stats, x, y, lot, batchIds = [], regionIds = [], rawPairs = 1, group = null) {
+  if (stats.points) stats.points.push({ x, y });
   const dx = x - stats.x, dy = y - stats.y;
   stats.n++;
   stats.x += dx / stats.n; stats.y += dy / stats.n;
@@ -88,9 +89,10 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
     }
     if (coverage === "strict" && !scalar && !expected.size) throw new Error("Enter Expected Region IDs before using strict coverage.");
     if (rows.length * ids.length > 3000000) throw new Error("More than 3 million candidate pairs. Filter the data first.");
-    const raw = accumulator(), batch = accumulator(), within = accumulator(), between = accumulator(), overall = accumulator();
-    const regionStats = new Map(ids.map(id => [id, accumulator()]));
-    const adjustedStats = new Map(ids.map(id => [id, accumulator()]));
+    const capture = name => accumulator(options.plotMethod === name);
+    const raw = capture("Raw pooled"), batch = capture("Batch means"), within = capture("Batch means within Lot"), between = capture("Between Lots"), overall = capture("Overall within Lot x Region");
+    const regionStats = new Map(ids.map(id => [id, capture(`Region ${id} raw`)]));
+    const adjustedStats = new Map(ids.map(id => [id, capture(`Region ${id} within Lot`)]));
     const lotMeans = new Map(), lotRegionMeans = new Map(), accepted = [];
     let missingIdentity = 0, rejected = 0;
     const signatures = new Set();
@@ -180,7 +182,8 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
       if (id === "between") status += "; each Lot contributes one pair";
       output.push({ ...base, method: name, r, n: stats.n, unit, batches: stats.batches.size, lots: stats.lots.size, regions: stats.regions.size, rawPairs: stats.rawPairs,
         informativeLots: ["within", "regionWithin", "overall"].includes(id) ? stats.lots.size : 0,
-        informativeGroups: stats.groups.size, status });
+        informativeGroups: stats.groups.size, status,
+        ...(stats.points ? { points: stats.points, slope: stats.xx > 0 ? stats.xy / stats.xx : null, intercept: stats.xx > 0 ? stats.y - stats.xy / stats.xx * stats.x : null } : {}) });
     }
   }
   return { results: output, method, coverage, minRegions, minN, expectedRegions: [...expected] };
