@@ -1941,10 +1941,12 @@ function renderGaussianResult() {
       <div class="chart-card"><canvas id="gaussian-chart" aria-label="Observed histogram"></canvas></div></details>
     <details class="gaussian-chart-section" open><summary>Fitted Gaussian</summary>
       <div class="chart-card"><canvas id="gaussian-curve-chart" aria-label="Fitted Gaussian curve"></canvas></div></details>
-    <div class="table-wrap mini-table cutoff-table">${renderTable([
-      ["Cutoff", "Low", "High"],
-      ["2.5%", fit.low25, fit.high25],
-      ["15%", fit.low15, fit.high15]
+    <div class="table-wrap mini-table compact-table cutoff-table">${renderTable([
+      ["Percentile cutoff", "Value"],
+      ["2.5%", fit.low25],
+      ["15%", fit.low15],
+      ["85%", fit.high15],
+      ["97.5%", fit.high25]
     ])}</div>
     <div class="table-wrap mini-table">${renderTable([
       ["Bin", "Observed", "Gaussian"],
@@ -3235,9 +3237,9 @@ function downloadAnalysisWorkbook() {
       ["Mean", fit.mean],
       ["Sigma", fit.sigma],
       ["2.5% low cutoff", fit.low25],
-      ["2.5% high cutoff", fit.high25],
+      ["97.5% cutoff", fit.high25],
       ["15% low cutoff", fit.low15],
-      ["15% high cutoff", fit.high15],
+      ["85% cutoff", fit.high15],
       ["SSE", fit.sse],
       [],
       ["Bin", "Observed", "Gaussian"],
@@ -3693,7 +3695,7 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
 function drawGaussian(canvas, fit, mode = "combined") {
   if (!canvas || !fit?.bins?.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas);
-  const pad = { left: 42, right: 12, top: 16, bottom: 34 };
+  const pad = { left: 42, right: 12, top: 58, bottom: 34 };
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
   const maxY = Math.max(1, ...fit.bins.flatMap((bin) => [bin.observed, bin.gaussian]));
@@ -3720,6 +3722,31 @@ function drawGaussian(canvas, fit, mode = "combined") {
     ctx.lineWidth = 2;
     ctx.stroke();
   }
+  const cutoffs = [
+    { label: "2.5%", value: fit.low25, color: "#9f1239" },
+    { label: "15%", value: fit.low15, color: "#92400e" },
+    { label: "85%", value: fit.high15, color: "#0f766e" },
+    { label: "97.5%", value: fit.high25, color: "#6d28d9" }
+  ];
+  ctx.save();
+  ctx.font = "11px sans-serif";
+  ctx.textAlign = "left";
+  cutoffs.forEach((cutoff, index) => {
+    const legendX = 8 + (index % 2) * (width / 2);
+    const legendY = 16 + Math.floor(index / 2) * 18;
+    ctx.fillStyle = cutoff.color;
+    ctx.fillText(`${cutoff.label}: ${formatNumber(cutoff.value, 2)}`, legendX, legendY, width / 2 - 12);
+    if (!Number.isFinite(cutoff.value) || cutoff.value < fit.start || cutoff.value > fit.end) return;
+    const x = pad.left + (cutoff.value - fit.start) / (fit.end - fit.start) * plotWidth;
+    ctx.beginPath();
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = cutoff.color;
+    ctx.lineWidth = 1.5;
+    ctx.moveTo(x, pad.top);
+    ctx.lineTo(x, height - pad.bottom);
+    ctx.stroke();
+  });
+  ctx.restore();
   drawAxisLabels(ctx, pad, width, height, colors, fit.start, fit.end, maxY);
 }
 
