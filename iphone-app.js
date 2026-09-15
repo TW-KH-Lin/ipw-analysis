@@ -52,7 +52,7 @@ import {
 } from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
-import { buildStructuredCorrelation, structuredParameters, trimStructuredPlot } from "./structured-correlation.js?v=3";
+import { buildStructuredCorrelation, structuredParameters, trimStructuredPlot } from "./structured-correlation.js?v=4";
 
 const state = {
   workbook: null,
@@ -3137,13 +3137,13 @@ function structuredCorrelationTable(result) {
 function renderStructuredCorrelationTable(result) {
   const [headers, ...rows] = structuredCorrelationTable(result).map(row => [row[2], row[3], row[4], row[0], row[1], ...row.slice(5)]);
   return `<table><thead><tr><th>Plot</th>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
-    <tbody>${rows.map((row, resultIndex) => `<tr><td><button type="button" class="command" data-structured-plot="${resultIndex}" ${result.results[resultIndex].r === null ? "disabled" : ""}>Plot</button></td>${row.map((cell, index) => index === row.length - 1
+    <tbody>${rows.map((row, resultIndex) => `<tr><td><button type="button" class="command" data-structured-plot="${resultIndex}" ${(result.results[resultIndex].originalResult || result.results[resultIndex]).r === null ? "disabled" : ""}>Plot</button></td>${row.map((cell, index) => index === row.length - 1
       ? `<td><details><summary>${row[1] === "n.a." ? "Not available" : "Details"}</summary>${escapeHtml(cell)}</details></td>`
       : `<td>${formatCell(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
 
 function plotStructuredCorrelation(index) {
-  const current = state.lastStructuredCorrelation, selected = current?.results[index];
+  const current = state.lastStructuredCorrelation, tableRow = current?.results[index], selected = tableRow?.originalResult || tableRow;
   if (!selected || selected.r === null) throw new Error("Select an available correlation result.");
   const result = buildStructuredCorrelation(current.plotHeaders, current.plotRows, selected.yParameter, {
     parameters: current.plotParameters, xParameter: selected.xParameter, method: current.method,
@@ -3153,40 +3153,68 @@ function plotStructuredCorrelation(index) {
   if (!result?.points?.length || result.n !== selected.n) throw new Error("Rebuild structured correlation before plotting.");
   current.plot = result;
   current.originalPlot = result;
+  current.plotIndex = index;
+  if (tableRow.trimOptions) current.plot = { ...result, ...trimStructuredPlot(result.points, tableRow.trimOptions), trimOptions: tableRow.trimOptions };
   byId("structured-plot-result").innerHTML = `<div class="section-heading"><h2>${escapeHtml(result.method)}</h2><button type="button" class="command" id="save-structured-plot">Save PNG</button></div>
     <p>X: ${escapeHtml(result.xParameter)} | Y: ${escapeHtml(result.yParameter)} | ${escapeHtml(result.unit)}</p>
     <label>Exclusion method<select id="structured-trim-method"><option value="count">Largest / smallest pairs</option><option value="ratio">Y/X ratio versus original slope (%)</option><option value="line">Y versus original fitted line (%)</option></select></label>
-    <label id="structured-percent-control" hidden>Tolerance (+/- %)<input id="structured-trim-percent" type="number" min="0" step="any" value="15"></label>
+    <label id="structured-percent-control" hidden>Tolerance (+/- %)<input id="structured-trim-percent" type="number" min="0" step="any" value="90"></label>
     <div class="control-grid" id="structured-count-controls"><label>Extreme axis<select id="structured-trim-axis"><option value="x">X</option><option value="y">Y</option></select></label>
     <label>Remove<select id="structured-trim-side"><option value="largest">Largest</option><option value="smallest">Smallest</option></select></label>
     <label>Pairs to exclude<input id="structured-trim-count" type="number" min="0" step="1" value="0"></label></div>
-    <div class="button-row"><button class="command" id="structured-trim-apply" type="button">Apply exclusion</button><button class="command" id="structured-trim-reset" type="button">Reset</button></div>
+    <div class="button-row"><button class="command" id="structured-trim-apply" type="button">Apply exclusion</button><button class="command" id="structured-trim-reset" type="button">Reset</button><button class="command" id="structured-update-table" type="button">Update table</button></div>
     <p id="structured-plot-stats"></p>
     <div class="chart-card"><canvas id="structured-correlation-chart" aria-label="${escapeHtml(result.method)} correlation plot"></canvas></div>`;
   byId("save-structured-plot").addEventListener("click", () => runAction(saveStructuredPlot));
   byId("structured-trim-apply").addEventListener("click", () => runAction(() => applyStructuredTrim(false)));
   byId("structured-trim-reset").addEventListener("click", () => runAction(() => applyStructuredTrim(true)));
+  byId("structured-update-table").addEventListener("click", () => runAction(updateStructuredTable));
   byId("structured-trim-method").addEventListener("change", () => {
     const count = byId("structured-trim-method").value === "count";
     byId("structured-count-controls").hidden = !count;
     byId("structured-percent-control").hidden = count;
   });
+  if (tableRow.trimOptions) {
+    const options = tableRow.trimOptions;
+    byId("structured-trim-method").value = options.method;
+    byId("structured-trim-percent").value = options.percent;
+    byId("structured-trim-axis").value = options.axis;
+    byId("structured-trim-side").value = options.side;
+    byId("structured-trim-count").value = options.count;
+    byId("structured-trim-method").dispatchEvent(new Event("change"));
+  }
   requestAnimationFrame(() => { drawStructuredPlot(); byId("structured-plot-result").scrollIntoView({ block: "nearest" }); });
 }
 
 function applyStructuredTrim(reset) {
   const current = state.lastStructuredCorrelation;
   if (!current?.originalPlot) return;
-  const trimmed = trimStructuredPlot(current.originalPlot.points, {
+  const trimOptions = {
     method: reset ? "count" : byId("structured-trim-method").value,
-    percent: reset ? 15 : requiredNumber("structured-trim-percent"),
+    percent: reset ? 90 : requiredNumber("structured-trim-percent"),
     axis: byId("structured-trim-axis").value, side: byId("structured-trim-side").value,
     count: reset || byId("structured-trim-method").value !== "count" ? 0 : requiredNumber("structured-trim-count"), minN: current.minN
-  });
-  current.plot = { ...current.originalPlot, ...trimmed };
+  };
+  const trimmed = trimStructuredPlot(current.originalPlot.points, trimOptions);
+  current.plot = { ...current.originalPlot, ...trimmed, trimOptions };
   if (reset) byId("structured-trim-count").value = "0";
   drawStructuredPlot();
   setStatus("Plot statistics updated. The original correlation table and source data are unchanged.", false, true);
+}
+
+function updateStructuredTable() {
+  const current = state.lastStructuredCorrelation;
+  if (!current?.plot) return;
+  const original = current.results[current.plotIndex].originalResult || current.results[current.plotIndex];
+  const { points, ...plot } = current.plot;
+  current.results[current.plotIndex] = { ...original, ...plot, originalResult: original,
+    informativeLots: original.informativeLots ? plot.lots : 0,
+    status: `${original.status}; Plot exclusions: ${plot.excluded || 0}; ${plot.removal || "None"}; original N=${original.n}, original r=${original.r}` };
+  const table = byId("correlation-result").querySelector(".structured-correlation-table");
+  table.innerHTML = renderStructuredCorrelationTable(current);
+  byId("correlation-result").querySelector(".metric-grid").innerHTML = `${metric("Results", current.results.length)}${metric("Numeric correlations", current.results.filter(item => item.r !== null).length)}${metric("Source rows", current.plotRows.length)}${metric("Minimum N", current.minN)}`;
+  table.querySelectorAll("[data-structured-plot]").forEach(button => button.addEventListener("click", () => runAction(() => plotStructuredCorrelation(Number(button.dataset.structuredPlot)))));
+  setStatus("Selected table result updated. Workbook export includes the updated result and exclusion details. Source data is unchanged.", false, true);
 }
 
 function drawStructuredPlot() {

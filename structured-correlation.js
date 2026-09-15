@@ -12,7 +12,7 @@ const regionHeader = header => {
   return match && Number(match[2]) > 0 ? { base: match[1], id: Number(match[2]) } : null;
 };
 
-export function trimStructuredPlot(points, { axis = "x", side = "largest", count = 0, minN = 3, method = "count", percent = 15 } = {}) {
+export function trimStructuredPlot(points, { axis = "x", side = "largest", count = 0, minN = 3, method = "count", percent = 90 } = {}) {
   if (!["count", "ratio", "line"].includes(method)) throw new Error("Choose a valid exclusion method.");
   if (!["x", "y"].includes(axis) || !["largest", "smallest"].includes(side)) throw new Error("Choose X or Y and largest or smallest.");
   if (!Number.isInteger(count) || count < 0 || points.length - count < minN) throw new Error(`Keep at least ${minN} pairs; enter a valid whole-number removal count.`);
@@ -40,10 +40,11 @@ export function trimStructuredPlot(points, { axis = "x", side = "largest", count
   const retained = points.filter((_, index) => !removed.has(index));
   if (retained.length < minN) throw new Error(`This setting retains ${retained.length} pairs. Increase the tolerance to keep at least ${minN}.`);
   const stats = accumulator();
-  retained.forEach(point => add(stats, point.x, point.y, "plot"));
+  retained.forEach(point => add(stats, point.x, point.y, point.lot ?? "plot", point.batchIds, point.regionIds, point.rawPairs, point.group));
   const slope = stats.xx > 0 ? stats.xy / stats.xx : null;
   const r = stats.xx > 0 && stats.yy > 0 ? Math.max(-1, Math.min(1, stats.xy / Math.sqrt(stats.xx) / Math.sqrt(stats.yy))) : null;
   return { points: retained, n: retained.length, excluded: removed.size, undefinedRatios, r, slope, intercept: slope === null ? null : stats.y - slope * stats.x,
+    lots: stats.lots.size, batches: stats.batches.size, regions: stats.regions.size, rawPairs: stats.rawPairs, informativeGroups: stats.groups.size,
     removal: method === "count" ? (count ? `${axis.toUpperCase()} ${side} ${count}` : "None") : `${method === "ratio" ? "Y/X vs original slope" : "Y vs original fitted line"}: +/-${percent}%${undefinedRatios ? `; ${undefinedRatios} undefined X=0 ratios excluded` : ""}` };
 }
 
@@ -75,7 +76,7 @@ function accumulator(capture = false) {
   return { n: 0, x: 0, y: 0, xx: 0, yy: 0, xy: 0, lots: new Set(), batches: new Set(), regions: new Set(), rawPairs: 0, groups: new Set(), points: capture ? [] : undefined };
 }
 function add(stats, x, y, lot, batchIds = [], regionIds = [], rawPairs = 1, group = null) {
-  if (stats.points) stats.points.push({ x, y });
+  if (stats.points) stats.points.push({ x, y, lot, batchIds, regionIds, rawPairs, group });
   const dx = x - stats.x, dy = y - stats.y;
   stats.n++;
   stats.x += dx / stats.n; stats.y += dy / stats.n;
