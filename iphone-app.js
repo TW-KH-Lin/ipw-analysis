@@ -2041,13 +2041,48 @@ function saveGaussianSnapshot() {
   if (!current || !histogram) throw new Error("Run a Gaussian fit before saving a snapshot.");
   drawGaussianCharts();
   const canvas = document.createElement("canvas");
-  canvas.width = histogram.width;
-  canvas.height = histogram.height + 40;
+  const chartWidth = Math.max(900, histogram.width);
+  const chartHeight = Math.round(histogram.height * chartWidth / histogram.width);
+  const tableWidth = 460, gap = 24, margin = 24;
+  const fit = current.fit;
+  const view = current.viewRange || fit;
+  const rows = [
+    ["Parameter", current.parameter],
+    ["Fit method", fit.method],
+    ["Bin width", formatNumber(fit.binWidth, 6)],
+    ["Histogram start", formatNumber(fit.start, 6)],
+    ["Histogram end", formatNumber(fit.end, 6)],
+    ["Displayed start", formatNumber(view.start, 6)],
+    ["Displayed end", formatNumber(view.end, 6)],
+    ["Points used", formatInteger(fit.n)],
+    ["Lots used", formatInteger(fit.lotCount)],
+    ["MRs used", formatInteger(fit.batchCount)],
+    ["Mean", fit.mean.toFixed(3)],
+    ["Sigma", fit.sigma.toFixed(3)],
+    ["Zones", current.zones.join(", ")],
+    ["Data scope", current.scope]
+  ];
+  canvas.width = chartWidth + tableWidth + gap + margin * 2;
+  canvas.height = Math.max(chartHeight, (rows.length + 1) * 42) + 80;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#172231"; ctx.font = "18px sans-serif";
-  ctx.fillText(`${current.parameter} | ${current.fit.method} | Mu ${current.fit.mean.toFixed(3)} | Sigma ${current.fit.sigma.toFixed(3)}`, 12, 24, canvas.width - 24);
-  ctx.drawImage(histogram, 0, 40);
+  ctx.fillText("Observed Histogram + Fitted Gaussian", margin, 30);
+  ctx.drawImage(histogram, margin, 56, chartWidth, chartHeight);
+  const tableX = margin + chartWidth + gap;
+  const tableRows = [["Setting", "Value"], ...rows];
+  tableRows.forEach(([label, value], index) => {
+    const y = 56 + index * 42;
+    ctx.fillStyle = index === 0 ? "#e8eef1" : index % 2 ? "#ffffff" : "#f5f7f8";
+    ctx.fillRect(tableX, y, tableWidth, 42);
+    ctx.strokeStyle = "#cbd5dc";
+    ctx.strokeRect(tableX, y, tableWidth, 42);
+    ctx.beginPath(); ctx.moveTo(tableX + 190, y); ctx.lineTo(tableX + 190, y + 42); ctx.stroke();
+    ctx.fillStyle = "#172231";
+    ctx.font = index === 0 ? "bold 18px sans-serif" : "18px sans-serif";
+    ctx.fillText(label, tableX + 12, y + 27, 166);
+    ctx.fillText(String(value), tableX + 202, y + 27, tableWidth - 214);
+  });
   const stamp = new Date();
   const fileName = `${baseFileName()}_${safeFilePart(current.parameter)}_Gaussian_${fileDateStamp(stamp)}.png`;
   const link = document.createElement("a");
