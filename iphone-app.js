@@ -3692,7 +3692,7 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
 function drawGaussian(canvas, fit, mode = "combined") {
   if (!canvas || !fit?.bins?.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas);
-  const pad = { left: 42, right: 12, top: 82, bottom: 34 };
+  const pad = { left: 42, right: 12, top: 100, bottom: 34 };
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
   const maxY = Math.max(1, ...fit.bins.flatMap((bin) => [bin.observed, bin.gaussian]));
@@ -3728,6 +3728,8 @@ function drawGaussian(canvas, fit, mode = "combined") {
   ctx.save();
   ctx.font = "11px sans-serif";
   ctx.textAlign = "left";
+  ctx.fillStyle = "#172231";
+  ctx.fillText(`Mean: ${fit.mean.toFixed(2)}   Sigma: ${fit.sigma.toFixed(2)}`, 8, 16, width - 16);
   const labelLanes = [[], [], [], []];
   const cutoffLabels = [];
   cutoffs.forEach((cutoff) => {
@@ -3739,7 +3741,7 @@ function drawGaussian(canvas, fit, mode = "combined") {
     // Keep close or identical percentile labels separate without moving their cutoff lines.
     const lane = labelLanes.findIndex(items => items.every(item => labelX > item.end + 8 || labelX + labelWidth + 8 < item.start));
     labelLanes[lane].push({ start: labelX, end: labelX + labelWidth });
-    const labelY = 16 + lane * 18;
+    const labelY = 34 + lane * 18;
     cutoffLabels.push({ label, labelX, labelY, labelWidth, color: cutoff.color });
     ctx.beginPath();
     ctx.setLineDash([4, 3]);
