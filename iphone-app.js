@@ -1937,10 +1937,8 @@ function renderGaussianResult() {
       ${metric(fit.method === "robust-huber" ? "Histogram range" : "Fit range", `${formatNumber(fit.start, 3)} to ${formatNumber(fit.end, 3)}`)}
       ${fit.method === "robust-huber" ? metric("Outside histogram (still fitted)", formatInteger(fit.outsideHistogram)) + metric("Huber iterations", fit.iterations) : ""}
     </div>
-    <details class="gaussian-chart-section" open><summary>Observed Histogram</summary>
-      <div class="chart-card"><canvas id="gaussian-chart" aria-label="Observed histogram"></canvas></div></details>
-    <details class="gaussian-chart-section" open><summary>Fitted Gaussian</summary>
-      <div class="chart-card"><canvas id="gaussian-curve-chart" aria-label="Fitted Gaussian curve"></canvas></div></details>
+    <details class="gaussian-chart-section" open><summary>Observed Histogram + Fitted Gaussian</summary>
+      <div class="chart-card"><canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></div></details>
     <div class="table-wrap mini-table compact-table cutoff-table">${renderTable([
       ["Percentile cutoff", "Value"],
       ["2.5%", fit.low25],
@@ -1959,8 +1957,7 @@ function renderGaussianResult() {
 
 function drawGaussianCharts() {
   if (!state.lastGaussian) return;
-  drawGaussian(byId("gaussian-chart"), state.lastGaussian.fit, "histogram");
-  drawGaussian(byId("gaussian-curve-chart"), state.lastGaussian.fit, "curve");
+  drawGaussian(byId("gaussian-chart"), state.lastGaussian.fit, "combined");
 }
 
 function selectedGaussianExtremes() {
@@ -2001,17 +1998,17 @@ function exportGaussianExtremes() {
 
 function saveGaussianSnapshot() {
   const current = state.lastGaussian;
-  const histogram = byId("gaussian-chart"), curve = byId("gaussian-curve-chart");
-  if (!current || !histogram || !curve) throw new Error("Run a Gaussian fit before saving a snapshot.");
+  const histogram = byId("gaussian-chart");
+  if (!current || !histogram) throw new Error("Run a Gaussian fit before saving a snapshot.");
   drawGaussianCharts();
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(histogram.width, curve.width);
-  canvas.height = histogram.height + curve.height + 64;
+  canvas.width = histogram.width;
+  canvas.height = histogram.height + 40;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#172231"; ctx.font = "18px sans-serif";
   ctx.fillText(`${current.parameter} | ${current.fit.method} | Mu ${current.fit.mean.toFixed(2)} | Sigma ${current.fit.sigma.toFixed(2)}`, 12, 24, canvas.width - 24);
-  ctx.drawImage(histogram, 0, 40); ctx.drawImage(curve, 0, histogram.height + 64);
+  ctx.drawImage(histogram, 0, 40);
   const stamp = new Date();
   const fileName = `${baseFileName()}_${safeFilePart(current.parameter)}_Gaussian_${fileDateStamp(stamp)}.png`;
   const link = document.createElement("a");
