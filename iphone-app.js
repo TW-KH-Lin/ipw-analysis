@@ -3695,7 +3695,7 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
 function drawGaussian(canvas, fit, mode = "combined") {
   if (!canvas || !fit?.bins?.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas);
-  const pad = { left: 42, right: 12, top: 58, bottom: 34 };
+  const pad = { left: 42, right: 12, top: 82, bottom: 34 };
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
   const maxY = Math.max(1, ...fit.bins.flatMap((bin) => [bin.observed, bin.gaussian]));
@@ -3731,20 +3731,32 @@ function drawGaussian(canvas, fit, mode = "combined") {
   ctx.save();
   ctx.font = "11px sans-serif";
   ctx.textAlign = "left";
-  cutoffs.forEach((cutoff, index) => {
-    const legendX = 8 + (index % 2) * (width / 2);
-    const legendY = 16 + Math.floor(index / 2) * 18;
-    ctx.fillStyle = cutoff.color;
-    ctx.fillText(`${cutoff.label}: ${formatNumber(cutoff.value, 2)}`, legendX, legendY, width / 2 - 12);
+  const labelLanes = [[], [], [], []];
+  const cutoffLabels = [];
+  cutoffs.forEach((cutoff) => {
     if (!Number.isFinite(cutoff.value) || cutoff.value < fit.start || cutoff.value > fit.end) return;
     const x = pad.left + (cutoff.value - fit.start) / (fit.end - fit.start) * plotWidth;
+    const label = `${cutoff.label}: ${formatNumber(cutoff.value, 2)}`;
+    const labelWidth = Math.min(ctx.measureText(label).width, width - 16);
+    const labelX = Math.max(8, Math.min(width - 8 - labelWidth, x - labelWidth / 2));
+    // Keep close or identical percentile labels separate without moving their cutoff lines.
+    const lane = labelLanes.findIndex(items => items.every(item => labelX > item.end + 8 || labelX + labelWidth + 8 < item.start));
+    labelLanes[lane].push({ start: labelX, end: labelX + labelWidth });
+    const labelY = 16 + lane * 18;
+    cutoffLabels.push({ label, labelX, labelY, labelWidth, color: cutoff.color });
     ctx.beginPath();
     ctx.setLineDash([4, 3]);
     ctx.strokeStyle = cutoff.color;
     ctx.lineWidth = 1.5;
-    ctx.moveTo(x, pad.top);
+    ctx.moveTo(x, labelY + 5);
     ctx.lineTo(x, height - pad.bottom);
     ctx.stroke();
+  });
+  cutoffLabels.forEach(({ label, labelX, labelY, labelWidth, color }) => {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(labelX - 2, labelY - 12, labelWidth + 4, 16);
+    ctx.fillStyle = color;
+    ctx.fillText(label, labelX, labelY, labelWidth);
   });
   ctx.restore();
   drawAxisLabels(ctx, pad, width, height, colors, fit.start, fit.end, maxY);
