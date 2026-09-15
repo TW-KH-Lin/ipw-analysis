@@ -2041,8 +2041,7 @@ function saveGaussianSnapshot() {
   if (!current || !histogram) throw new Error("Run a Gaussian fit before saving a snapshot.");
   drawGaussianCharts();
   const canvas = document.createElement("canvas");
-  const chartWidth = Math.max(900, histogram.width);
-  const chartHeight = Math.round(histogram.height * chartWidth / histogram.width);
+  const chartWidth = 1000;
   const tableWidth = 460, gap = 24, margin = 24;
   const fit = current.fit;
   const view = current.viewRange || fit;
@@ -2062,13 +2061,16 @@ function saveGaussianSnapshot() {
     ["Zones", current.zones.join(", ")],
     ["Data scope", current.scope]
   ];
+  const chartHeight = (rows.length + 1) * 42;
+  const exportChart = document.createElement("canvas");
+  drawGaussian(exportChart, { ...fit, ...current.viewRange }, "combined", { width: chartWidth, height: chartHeight });
   canvas.width = chartWidth + tableWidth + gap + margin * 2;
   canvas.height = Math.max(chartHeight, (rows.length + 1) * 42) + 80;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#172231"; ctx.font = "18px sans-serif";
   ctx.fillText("Observed Histogram + Fitted Gaussian", margin, 30);
-  ctx.drawImage(histogram, margin, 56, chartWidth, chartHeight);
+  ctx.drawImage(exportChart, margin, 56, chartWidth, chartHeight);
   const tableX = margin + chartWidth + gap;
   const tableRows = [["Setting", "Value"], ...rows];
   tableRows.forEach(([label, value], index) => {
@@ -3933,9 +3935,9 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
   `;
 }
 
-function drawGaussian(canvas, fit, mode = "combined") {
+function drawGaussian(canvas, fit, mode = "combined", dimensions) {
   if (!canvas || !fit?.bins?.length) return;
-  const { ctx, width, height, colors } = setupCanvas(canvas);
+  const { ctx, width, height, colors } = setupCanvas(canvas, dimensions);
   const pad = { left: 42, right: 12, top: 100, bottom: 34 };
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
@@ -4271,9 +4273,9 @@ function trendGroup(value) {
   return Number.isFinite(Number(rendered)) ? String(Number(rendered)) : rendered.toUpperCase();
 }
 
-function setupCanvas(canvas) {
+function setupCanvas(canvas, dimensions) {
   const ratio = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
+  const rect = dimensions || canvas.getBoundingClientRect();
   const width = Math.max(300, rect.width || 300);
   const height = Math.max(220, rect.height || 240);
   canvas.width = Math.floor(width * ratio);
