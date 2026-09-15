@@ -1,8 +1,8 @@
 export const CORRELATION_METHODS = [
-  ["all", "All methods"], ["raw", "Raw pooled"], ["batch", "Batch means"],
-  ["within", "Batch means within Lot"], ["between", "Between Lots"],
-  ["region", "Each Region raw"], ["regionWithin", "Each Region within Lot"],
-  ["overall", "Overall within Lot x Region"]
+  ["all", "All methods"], ["raw", "Raw pooled"], ["batch", "MR means"],
+  ["within", "MR means within Lot"], ["between", "Between Lots"],
+  ["region", "Each Zone raw"], ["regionWithin", "Each Zone within Lot"],
+  ["overall", "Overall within Lot x Zone"]
 ];
 const clean = value => String(value ?? "").trim();
 
@@ -17,29 +17,29 @@ export function structuredConclusions(results) {
     const valid = rows.filter(row => Number.isFinite(row.r) && row.n >= Math.max(3, row.minN || 3));
     const strength = r => Math.abs(r) >= 0.7 ? "very strong" : Math.abs(r) >= 0.5 ? "strong" : Math.abs(r) >= 0.3 ? "moderate" : "weak";
     const describe = row => `${row.method}: r=${row.r.toFixed(3)}, N=${row.n} (${row.r === 0 ? "no linear association" : `${strength(row.r)} ${row.r > 0 ? "positive" : "negative"} linear association`})`;
-    const coreNames = ["Raw pooled", "Between Lots", "Batch means", "Batch means within Lot", "Overall within Lot x Region"];
+    const coreNames = ["Raw pooled", "Between Lots", "MR means", "MR means within Lot", "Overall within Lot x Zone"];
     const core = coreNames.map(name => valid.find(row => row.method === name)).filter(Boolean);
     const lines = core.map(describe);
-    const regions = valid.filter(row => /^Region \d+/.test(row.method));
+    const regions = valid.filter(row => /^Zone \d+/.test(row.method));
     if (regions.length) {
       const strongest = regions.reduce((best, row) => Math.abs(row.r) > Math.abs(best.r) ? row : best);
-      lines.push(`Largest absolute region-specific r: ${describe(strongest)}. This compares associations within regions, not differences between region averages.`);
-      if (regions.some(row => row.r > 0) && regions.some(row => row.r < 0)) lines.push("Region-specific results have different signs; there is no uniform direction across the displayed region results.");
+      lines.push(`Largest absolute Zone-specific r: ${describe(strongest)}. This compares associations within Zones, not differences between Zone averages.`);
+      if (regions.some(row => row.r > 0) && regions.some(row => row.r < 0)) lines.push("Zone-specific results have different signs; there is no uniform direction across the displayed Zone results.");
     }
     const excluded = rows.filter(row => row.excluded > 0);
     const between = valid.find(row => row.method === "Between Lots");
-    const within = valid.find(row => row.method === "Batch means within Lot");
+    const within = valid.find(row => row.method === "MR means within Lot");
     if (between && within && !excluded.length) {
       const difference = Math.abs(between.r) - Math.abs(within.r);
       lines.push(Math.abs(difference) < 0.1
-        ? "The absolute correlations between lots and between batches within lots are similar. This does not identify a single source of the association."
+        ? "The absolute correlations between lots and between MRs within lots are similar. This does not identify a single source of the association."
         : difference > 0
-          ? "The association is stronger across lot averages than across batches within the same lot. Lot-level differences may contribute to the overall relationship."
-          : "The association is stronger across batches within the same lot than across lot averages. The relationship is not limited to differences between lots.");
+          ? "The association is stronger across lot averages than across MRs within the same lot. Lot-level differences may contribute to the overall relationship."
+          : "The association is stronger across MRs within the same lot than across lot averages. The relationship is not limited to differences between lots.");
     }
     lines.push("Strength uses unrounded |r|: below 0.3 weak; 0.3 to below 0.5 moderate; 0.5 to below 0.7 strong; 0.7 or above very strong. These are descriptive thresholds, not significance tests.");
     if (!valid.length) lines.push("No interpretable correlation is available in the current table. Check the minimum N and variation in both parameters.");
-    if (!between || !within) lines.push("Both Between Lots and Batch means within Lot are needed to compare lot-level and within-lot batch associations. Run All methods for that comparison.");
+    if (!between || !within) lines.push("Both Between Lots and MR means within Lot are needed to compare lot-level and within-lot MR associations. Run All methods for that comparison.");
     if (excluded.length) lines.push(`Uses updated table values: ${excluded.map(row => `${row.method}: ${row.excluded} excluded (${row.removal || "user exclusion"})`).join("; ")}. Exclusions can change r and retain different populations, so these results do not establish which level drives the association.`);
     if (valid.some(row => row.n < 10)) lines.push("Some results use fewer than 10 pairs and can be sensitive to individual observations.");
     lines.push("Descriptive linear associations only, not causation or significance tests. N represents the observation unit for each method; clustered pairs are not necessarily independent.");
@@ -107,7 +107,7 @@ function parameterColumns(headers, name) {
   headers.forEach((header, column) => {
     const region = regionHeader(header);
     if (!region || identity(region.base) !== identity(name)) return;
-    if (regions.has(region.id)) throw new Error(`Duplicate Region header: ${header}`);
+    if (regions.has(region.id)) throw new Error(`Duplicate Zone header: ${header}`);
     regions.set(region.id, column);
   });
   return { scalar, regions };
@@ -136,12 +136,12 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
   const method = options.method || "all", coverage = options.coverage || "available";
   const minN = Number(options.minN ?? 3), minRegions = Number(options.minRegions ?? 1);
   if (!CORRELATION_METHODS.some(([id]) => id === method)) throw new Error("Select a valid correlation method.");
-  if (!["available", "strict"].includes(coverage)) throw new Error("Select a valid Region coverage policy.");
+  if (!["available", "strict"].includes(coverage)) throw new Error("Select a valid Zone coverage policy.");
   if (!Number.isInteger(minN) || minN < 3 || minN > 3000000) throw new Error("Minimum N must be an integer from 3 to 3000000.");
-  if (!Number.isInteger(minRegions) || minRegions < 1 || minRegions > 16384) throw new Error("Minimum paired Regions must be an integer from 1 to 16384.");
+  if (!Number.isInteger(minRegions) || minRegions < 1 || minRegions > 16384) throw new Error("Minimum paired Zones must be an integer from 1 to 16384.");
   const expected = new Set();
   clean(options.expectedRegions).split(/[,;\s]+/).filter(Boolean).forEach(token => {
-    if (!/^\d{1,8}$/.test(token) || Number(token) < 1) throw new Error("Expected Region IDs must be positive integers, such as 1,2,4.");
+    if (!/^\d{1,8}$/.test(token) || Number(token) < 1) throw new Error("Expected Zone IDs must be positive integers, such as 1,2,4.");
     expected.add(Number(token));
   });
   const lotColumn = headers.findIndex(header => identity(header) === "LOT");
@@ -161,15 +161,15 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
     const ids = scalar ? [0] : [...new Set([...xs.regions.keys(), ...ys.regions.keys()])];
     const base = { xParameter, yParameter, coverage, minRegions, minN };
     if (Boolean(xs.regions.size) !== Boolean(ys.regions.size) || scalar && (xs.scalar < 0 || ys.scalar < 0)) {
-      output.push({ ...base, method: "Unavailable pair", r: null, n: 0, unit: "n.a.", batches: 0, lots: 0, regions: 0, informativeLots: 0, informativeGroups: 0, rawPairs: 0, status: "Different measurement levels: select explicit Batch-level columns for both parameters." });
+      output.push({ ...base, method: "Unavailable pair", r: null, n: 0, unit: "n.a.", batches: 0, lots: 0, regions: 0, informativeLots: 0, informativeGroups: 0, rawPairs: 0, status: "Different measurement levels: select explicit MR-level columns for both parameters." });
       continue;
     }
-    if (coverage === "strict" && !scalar && !expected.size) throw new Error("Enter Expected Region IDs before using strict coverage.");
+    if (coverage === "strict" && !scalar && !expected.size) throw new Error("Enter Expected Zone IDs before using strict coverage.");
     if (rows.length * ids.length > 3000000) throw new Error("More than 3 million candidate pairs. Filter the data first.");
     const capture = name => accumulator(options.plotMethod === name);
-    const raw = capture("Raw pooled"), batch = capture("Batch means"), within = capture("Batch means within Lot"), between = capture("Between Lots"), overall = capture("Overall within Lot x Region");
-    const regionStats = new Map(ids.map(id => [id, capture(`Region ${id} raw`)]));
-    const adjustedStats = new Map(ids.map(id => [id, capture(`Region ${id} within Lot`)]));
+    const raw = capture("Raw pooled"), batch = capture("MR means"), within = capture("MR means within Lot"), between = capture("Between Lots"), overall = capture("Overall within Lot x Zone");
+    const regionStats = new Map(ids.map(id => [id, capture(`Zone ${id} raw`)]));
+    const adjustedStats = new Map(ids.map(id => [id, capture(`Zone ${id} within Lot`)]));
     const lotMeans = new Map(), lotRegionMeans = new Map(), accepted = [];
     let missingIdentity = 0, rejected = 0;
     const signatures = new Set();
@@ -229,16 +229,16 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
       });
     }
     const methods = [
-      ["raw", "Raw pooled", raw, scalar ? "Batch scalar pairs" : "Region pairs"],
-      ["batch", "Batch means", batch, "Batch occurrences"],
-      ["within", "Batch means within Lot", within, "Batch residual pairs"],
+      ["raw", "Raw pooled", raw, scalar ? "MR scalar pairs" : "Zone pairs"],
+      ["batch", "MR means", batch, "MR occurrences"],
+      ["within", "MR means within Lot", within, "MR residual pairs"],
       ["between", "Between Lots", between, "Lots (one point each)"],
-      ...(!scalar ? ids.map(id => ["region", `Region ${id} raw`, regionStats.get(id), "Region pairs"]) : []),
-      ...(!scalar ? ids.map(id => ["regionWithin", `Region ${id} within Lot`, adjustedStats.get(id), "Region residual pairs"]) : []),
-      ...(!scalar ? [["overall", "Overall within Lot x Region", overall, "Region residual pairs"]] : [])
+      ...(!scalar ? ids.map(id => ["region", `Zone ${id} raw`, regionStats.get(id), "Zone pairs"]) : []),
+      ...(!scalar ? ids.map(id => ["regionWithin", `Zone ${id} within Lot`, adjustedStats.get(id), "Zone residual pairs"]) : []),
+      ...(!scalar ? [["overall", "Overall within Lot x Zone", overall, "Zone residual pairs"]] : [])
     ].filter(([id]) => method === "all" || id === method);
     if (!methods.length) {
-      output.push({ ...base, method: CORRELATION_METHODS.find(([id]) => id === method)[1], r: null, n: 0, unit: "n.a.", batches: 0, lots: 0, regions: 0, informativeLots: 0, informativeGroups: 0, rawPairs: 0, status: "No Region identity for this method." });
+      output.push({ ...base, method: CORRELATION_METHODS.find(([id]) => id === method)[1], r: null, n: 0, unit: "n.a.", batches: 0, lots: 0, regions: 0, informativeLots: 0, informativeGroups: 0, rawPairs: 0, status: "No Zone identity for this method." });
     }
     for (const [id, name, stats, unit] of methods) {
       let r = null;
@@ -249,13 +249,13 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
         else status = "Values exceed the supported numeric range";
       }
       if (["batch", "within", "between"].includes(id)) {
-        if (signatures.size > 1) status += "; matched Region subsets vary between Batches";
-        if (rejected) status += `; ${rejected} Batches ineligible for Batch means`;
-      } else status += "; Batch-mean coverage does not filter raw/Region observations";
+        if (signatures.size > 1) status += "; matched Zone subsets vary between MRs";
+        if (rejected) status += `; ${rejected} MRs ineligible for MR means`;
+      } else status += "; MR-mean coverage does not filter raw/Zone observations";
       if (id === "within") status += `; ${singletonLots} singleton Lots excluded`;
-      if (["regionWithin", "overall"].includes(id)) status += `; ${singletonGroups} singleton Lot-Region groups excluded across pair`;
+      if (["regionWithin", "overall"].includes(id)) status += `; ${singletonGroups} singleton Lot-Zone groups excluded across pair`;
       if (missingIdentity) status += `; ${missingIdentity} source rows excluded: missing Lot/N`;
-      if (scalar) status += "; no Region identity; coverage not applicable";
+      if (scalar) status += "; no Zone identity; coverage not applicable";
       if (id === "between") status += "; each Lot contributes one pair";
       output.push({ ...base, method: name, r, n: stats.n, unit, batches: stats.batches.size, lots: stats.lots.size, regions: stats.regions.size, rawPairs: stats.rawPairs,
         informativeLots: ["within", "regionWithin", "overall"].includes(id) ? stats.lots.size : 0,

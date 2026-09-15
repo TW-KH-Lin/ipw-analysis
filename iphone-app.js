@@ -52,7 +52,7 @@ import {
 } from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
-import { buildStructuredCorrelation, structuredParameters, trimStructuredPlot, structuredConclusions } from "./structured-correlation.js?v=5";
+import { buildStructuredCorrelation, structuredParameters, trimStructuredPlot, structuredConclusions } from "./structured-correlation.js?v=6";
 
 const state = {
   workbook: null,
@@ -1145,7 +1145,7 @@ function selectedLabelParameters() {
 function renderLabelSelectionPreview() {
   const container = byId("label-selection-preview");
   if (!state.headers.length || !byId("label-batch").value) {
-    container.innerHTML = '<p class="empty-state">No batch selected.</p>';
+    container.innerHTML = '<p class="empty-state">No MR selected.</p>';
     return;
   }
   const lot = byId("label-lot").value;
@@ -1163,7 +1163,7 @@ function renderLabelSelectionPreview() {
   container.innerHTML = `
     <div class="metric-grid">
       ${metric("Lot", lot)}
-      ${metric("Batch N", batch)}
+      ${metric("MR N", batch)}
       ${metric("Zone", zone)}
       ${metric("Saved", selectedDataLabel() ? "Yes" : "No")}
       ${mapping.automatic ? metric("Master roll", `${mapping.machine} / ${mapping.width} / ${mapping.roll || "-"}`) : ""}
@@ -1182,7 +1182,7 @@ function renderDataLabelsTable() {
     return;
   }
   container.innerHTML = renderTable([
-    ["Lot", "Batch N", "Zone", "Parameters", "Values", "Label", "Comment", "Notes", "Updated"],
+    ["Lot", "MR N", "Zone", "Parameters", "Values", "Label", "Comment", "Notes", "Updated"],
     ...state.dataLabels.map((item) => [
       item.lot,
       item.batch,
@@ -1233,7 +1233,7 @@ async function saveDataLabel() {
 
 async function removeSelectedDataLabel() {
   const existing = selectedDataLabel();
-  if (!existing) throw new Error("No saved label matches that Lot, Batch N, and Zone.");
+  if (!existing) throw new Error("No saved label matches that Lot, MR N, and Zone.");
   const previous = state.dataLabels;
   state.dataLabels = removeDataLabel(state.dataLabels, existing.lot, existing.batch, existing.zone);
   try {
@@ -1344,7 +1344,7 @@ function styleWorkbookCell(sheet, row, column, item) {
   const details = [
     "[IPW LABEL]",
     `Lot: ${text(item.lot)}`,
-    `Batch N: ${text(item.batch)}`,
+    `MR N: ${text(item.batch)}`,
     `Zone: ${item.zone}`,
     `Parameters: ${item.parameters.join(", ")}`,
     ...(item.label ? [`Label: ${item.label}`] : []),
@@ -1809,7 +1809,7 @@ function buildParameterSummaryRows(headers, rows, parameter) {
   const typeColumn = headerIndex(headers, "Type");
   const classificationColumn = headerIndex(headers, "Classification");
   const zoneIndexes = ZONES.map((zone) => headerIndex(headers, `${parameter}_${zone}`)).filter((index) => index >= 0);
-  const outputHeaders = ["Lot", "Classification", "Type", "Rows", "Batches", "Mean", "Sigma", "Min", "Max"];
+  const outputHeaders = ["Lot", "Classification", "Type", "Rows", "MRs", "Mean", "Sigma", "Min", "Max"];
   if (lotColumn < 0 || !zoneIndexes.length) return [outputHeaders];
   const grouped = new Map();
   for (const row of rows) {
@@ -1930,7 +1930,7 @@ function renderGaussianResult() {
       ${metric("Points used", formatInteger(fit.n))}
       ${metric("Points excluded", formatInteger(fit.excluded))}
       ${metric("Lots used", formatInteger(fit.lotCount))}
-      ${metric("Batches used", formatInteger(fit.batchCount))}
+      ${metric("MRs used", formatInteger(fit.batchCount))}
       ${metric("Mean", fit.mean.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
       ${metric("Sigma", fit.sigma.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
       ${metric("SSE", formatNumber(fit.sse, 2))}
@@ -1966,7 +1966,7 @@ function selectedGaussianExtremes() {
 }
 
 function gaussianExtremesTable(records) {
-  return [["Source sheet", "Source row", "Source cell", "Lot", "N / Batch", "Zone", "Parameter", "Value", "Z-score (fit)", "Classification", "Mu", "Sigma", "Sigma multiplier"],
+  return [["Source sheet", "Source row", "Source cell", "Lot", "N / MR", "Zone", "Parameter", "Value", "Z-score (fit)", "Classification", "Mu", "Sigma", "Sigma multiplier"],
     ...records.map(record => [record.source, record.sourceRow, record.sourceCell, record.lot, record.batch, record.zone, record.parameter, record.value, record.zScore, `${record.side} extreme`, record.mean, record.sigma, record.multiplier])];
 }
 
@@ -2064,7 +2064,7 @@ async function createTrend() {
   state.lastTrend = { scope, result };
   renderTrendResult();
   setStatus(
-    `Parameter trend: ${formatInteger(result.batches.length)} batches, ${formatInteger(result.lots.length)} lots, ${formatInteger(result.fallbackCount)} fallback dates.`,
+    `Parameter trend: ${formatInteger(result.batches.length)} MRs, ${formatInteger(result.lots.length)} lots, ${formatInteger(result.fallbackCount)} fallback dates.`,
     false,
     true
   );
@@ -2105,27 +2105,27 @@ function renderTrendResult() {
     </article>
     <article class="chart-card">
       <h3>Persistent Zone Bias</h3>
-      <p>Average difference between each zone and its batch mean. Positive means higher; negative means lower. Error bars show the 95% confidence interval. An interval excluding zero indicates a consistent offset, not necessarily an out-of-spec result.</p>
-      <canvas id="trend-bias-chart" aria-label="Zone value minus batch mean"></canvas>
+      <p>Average difference between each zone and its MR mean. Positive means higher; negative means lower. Error bars show the 95% confidence interval. An interval excluding zero indicates a consistent offset, not necessarily an out-of-spec result.</p>
+      <canvas id="trend-bias-chart" aria-label="Zone value minus MR mean"></canvas>
     </article>` : "";
   const biasTable = trend.regional ? `
     <div class="section-heading"><h2>Zone Bias</h2></div>
     <div class="table-wrap bias-table">${renderTable([
-      ["Zone", "Batches", "Mean value", "Mean bias", "Bias SD", "95% CI low", "95% CI high", "Signal"],
+      ["Zone", "MRs", "Mean value", "Mean bias", "Bias SD", "95% CI low", "95% CI high", "Signal"],
       ...trend.zoneBias.map((item) => [
         `Zone ${item.zone}`, item.n, item.meanValue, item.meanBias, item.biasSigma, item.ciLow, item.ciHigh, item.signal
       ])
     ])}</div>` : "";
   byId("trend-result").innerHTML = `
     <div class="metric-grid">
-      ${metric("Batches", formatInteger(trend.batches.length))}
+      ${metric("MRs", formatInteger(trend.batches.length))}
       ${metric("Lots", formatInteger(trend.lots.length))}
       ${metric("Fallback dates", formatInteger(trend.fallbackCount))}
       ${metric("Date source", dateSource)}
       ${metric("Lot center", formatNumber(trend.lotCenter, 4))}
       ${metric("Lot sigma", formatNumber(trend.lotSigma, 4))}
-      ${metric("Batch center", formatNumber(trend.batchCenter, 4))}
-      ${metric("Batch sigma", formatNumber(trend.batchSigma, 4))}
+      ${metric("MR center", formatNumber(trend.batchCenter, 4))}
+      ${metric("MR sigma", formatNumber(trend.batchSigma, 4))}
     </div>
     <div class="trend-chart-grid">
       <article class="chart-card">
@@ -2134,9 +2134,9 @@ function renderTrendResult() {
         <canvas id="trend-lot-chart" aria-label="Lot mean over production time"></canvas>
       </article>
       <article class="chart-card">
-        <h3>Batch Mean and Rolling Trend</h3>
-        <div class="chart-key">${[["batch", "Batch mean", TREND_COLORS[0]], ["rolling", `Rolling ${trend.rollingWindow}`, TREND_COLORS[2]], ["center", "Center", TREND_COLORS[1]], ["limits", "+/-2 SD", TREND_COLORS[3]]].map(([key, label, color]) => `<label><input type="checkbox" data-trend-series="${key}" checked> <span style="--key-color:${color}">${label}</span></label>`).join("")}</div>
-        <canvas id="trend-batch-chart" aria-label="Batch mean and rolling trend over production time"></canvas>
+        <h3>MR Mean and Rolling Trend</h3>
+        <div class="chart-key">${[["batch", "MR mean", TREND_COLORS[0]], ["rolling", `Rolling ${trend.rollingWindow}`, TREND_COLORS[2]], ["center", "Center", TREND_COLORS[1]], ["limits", "+/-2 SD", TREND_COLORS[3]]].map(([key, label, color]) => `<label><input type="checkbox" data-trend-series="${key}" checked> <span style="--key-color:${color}">${label}</span></label>`).join("")}</div>
+        <canvas id="trend-batch-chart" aria-label="MR mean and rolling trend over production time"></canvas>
       </article>
       ${regionalCharts}
     </div>
@@ -2504,7 +2504,7 @@ function showZmPlan() {
       };
     }));
   }
-  if (!batchValues.size) throw new Error(`No Batch N values from Lot ${current.lot} match M1 through M50.`);
+  if (!batchValues.size) throw new Error(`No MR N values from Lot ${current.lot} match M1 through M50.`);
 
   const coordinateResult = parseZmCoordinates(byId("zm-coordinates").value, totalRolls);
   const bulkLabel = text(byId("zm-mark-label").value) || "X";
@@ -2529,7 +2529,7 @@ function showZmPlan() {
   byId("save-zm-plan-png").disabled = false;
   renderZmPlan();
   setStatus(
-    `${layoutName}: ${batchValues.size} Batch row(s) shown, ${coordinateResult.marked.size} M/R area(s) labeled${coordinateResult.invalid.length ? `; invalid: ${coordinateResult.invalid.join(", ")}` : ""}.`,
+    `${layoutName}: ${batchValues.size} MR row(s) shown, ${coordinateResult.marked.size} M/R area(s) labeled${coordinateResult.invalid.length ? `; invalid: ${coordinateResult.invalid.join(", ")}` : ""}.`,
     Boolean(coordinateResult.invalid.length),
     !coordinateResult.invalid.length
   );
@@ -2607,7 +2607,7 @@ function renderZmPlan() {
       ${metric("Layout", plan.layoutName)}
       ${metric("Lot", plan.lot)}
       ${metric("Parameter", plan.parameter)}
-      ${metric("Batches shown", formatInteger(plan.batchValues.size))}
+      ${metric("MRs shown", formatInteger(plan.batchValues.size))}
       ${metric("M/R labels", formatInteger(plan.labels.size))}
     </div>
     ${plan.invalidCoordinates.length ? `<p class="mapping-result is-error">Invalid coordinates: ${plan.invalidCoordinates.map(escapeHtml).join(", ")}</p>` : ""}
@@ -2876,7 +2876,7 @@ function renderAssessmentResult() {
   byId("assessment-result").innerHTML = `
     <div class="metric-grid">
       ${metricHtml("Overall", statusBadge(assessment.overall))}
-      ${metric("Matching", batchZoneMode ? "Batch + Zone" : "Zone only")}
+      ${metric("Matching", batchZoneMode ? "MR + Zone" : "Zone only")}
       ${metric("Compared", formatInteger(assessment.comparedCount))}
       ${metric("Monitor", formatInteger(assessment.monitorCount))}
       ${metric("Out of range", formatInteger(assessment.outlierCount))}
@@ -2887,8 +2887,8 @@ function renderAssessmentResult() {
       <p class="result-note">Reference lots: ${assessment.referenceLots.map(escapeHtml).join(", ")}</p>` : ""}
     <div class="section-heading"><h2>Whole-lot Parameter Summary</h2></div>
     <div class="table-wrap compact-table">${renderV90AssessmentSummary(assessment.summaries)}</div>
-    <div class="section-heading"><h2>Batch x Parameter x Zone</h2></div>
-    <label>Batch N<input id="assessment-batch-filter" type="search" autocomplete="off" placeholder="All batches" value="${escapeHtml(state.assessmentBatchQuery)}" aria-describedby="assessment-batch-status"></label>
+    <div class="section-heading"><h2>MR x Parameter x Zone</h2></div>
+    <label>MR N<input id="assessment-batch-filter" type="search" autocomplete="off" placeholder="All MRs" value="${escapeHtml(state.assessmentBatchQuery)}" aria-describedby="assessment-batch-status"></label>
     <p id="assessment-batch-status" class="result-note" role="status"></p>
     <p class="result-note">Higher-than-Mu values shade toward red; lower-than-Mu values shade toward green.</p>
     <div id="assessment-batch-table" class="table-wrap"></div>
@@ -2917,24 +2917,24 @@ function renderAssessmentBatchTables() {
     error = failure.message;
   }
   byId("assessment-batch-filter").setAttribute("aria-invalid", String(Boolean(error)));
-  byId("assessment-batch-status").textContent = error || `${indexes.length} of ${assessment.grid.length} batch rows shown`;
+  byId("assessment-batch-status").textContent = error || `${indexes.length} of ${assessment.grid.length} MR rows shown`;
   const batchZoneMode = assessment.referenceGranularity === "batch-zone";
   const rows = [
-    ["Batch N", ...assessment.columns.map(column => column.header)],
-    ["Mu", ...assessment.columns.map(column => batchZoneMode ? "Per Batch" : column.reference.mean)],
-    ["Sigma", ...assessment.columns.map(column => batchZoneMode ? "Per Batch" : column.reference.sigma)],
+    ["MR N", ...assessment.columns.map(column => column.header)],
+    ["Mu", ...assessment.columns.map(column => batchZoneMode ? "Per MR" : column.reference.mean)],
+    ["Sigma", ...assessment.columns.map(column => batchZoneMode ? "Per MR" : column.reference.sigma)],
     ...indexes.map(index => [assessment.grid[index].batch, ...assessment.grid[index].values])
   ];
   byId("assessment-batch-table").innerHTML = indexes.length
     ? renderV90AssessmentTable(rows, assessment, indexes)
-    : '<p class="empty-state">No matching batches.</p>';
+    : '<p class="empty-state">No matching MRs.</p>';
   const referenceTable = byId("assessment-result").querySelector(".applied-reference-wrap");
   if (referenceTable) {
     const batches = new Set(indexes.map(index => text(assessment.grid[index].batch)));
     const references = assessment.appliedReferences.filter(item => batches.has(text(item.batch)));
     referenceTable.innerHTML = references.length
       ? renderAppliedReferenceTable(references, current.referenceViewZone, assessment.referenceMode === "equal-lots")
-      : '<p class="empty-state">No matching batches.</p>';
+      : '<p class="empty-state">No matching MRs.</p>';
   }
 }
 
@@ -2943,7 +2943,7 @@ function renderAppliedReferenceViewer(assessment, requestedZone) {
   const allZones = viewZone === 0;
   return `
     <details class="foldable-section applied-reference-module" open>
-      <summary>Applied Batch + Zone References</summary>
+      <summary>Applied MR + Zone References</summary>
       <div class="foldable-section-body">
         <div class="zm-view-tabs" role="tablist" aria-label="Applied reference Zone view">
           ${ZONES.map((zone) => `<button type="button" class="zm-view-tab assessment-reference-tab ${viewZone === zone ? "is-active" : ""}" data-reference-view-zone="${zone}" role="tab" aria-selected="${viewZone === zone}">Zone ${zone}</button>`).join("")}
@@ -2962,7 +2962,7 @@ function renderAppliedReferenceTable(references, viewZone, equalLotMode = false)
     return `<table class="applied-reference-table is-zone-view">
       <thead>
         <tr><th colspan="5" class="zm-zone-${viewZone}">ZONE ${viewZone}</th></tr>
-        <tr><th>Batch N</th><th>${equalLotMode ? "Lots" : "N"}</th><th>Mu</th><th>Sigma</th><th>${equalLotMode ? "Values" : "Excluded"}</th></tr>
+        <tr><th>MR N</th><th>${equalLotMode ? "Lots" : "N"}</th><th>Mu</th><th>Sigma</th><th>${equalLotMode ? "Values" : "Excluded"}</th></tr>
       </thead>
       <tbody>${zoneReferences.map((item) => `<tr><td>${formatCell(item.batch)}</td><td>${formatCell(item.n)}</td><td>${formatCell(item.mean)}</td><td>${formatCell(item.sigma)}</td><td>${formatCell(equalLotMode ? item.valueCount : item.excluded)}</td></tr>`).join("")}</tbody>
     </table>`;
@@ -2976,7 +2976,7 @@ function renderAppliedReferenceTable(references, viewZone, equalLotMode = false)
   });
   return `<table class="applied-reference-table is-all-zones">
     <thead>
-      <tr><th rowspan="2">Batch N</th>${ZONES.map((zone) => `<th colspan="4" class="zm-zone-${zone}">ZONE ${zone}</th>`).join("")}</tr>
+      <tr><th rowspan="2">MR N</th>${ZONES.map((zone) => `<th colspan="4" class="zm-zone-${zone}">ZONE ${zone}</th>`).join("")}</tr>
       <tr>${ZONES.map(() => `<th>${equalLotMode ? "Lots" : "N"}</th><th>Mu</th><th>Sigma</th><th>${equalLotMode ? "Values" : "Excluded"}</th>`).join("")}</tr>
     </thead>
     <tbody>${[...batches.values()].map((batch) => `<tr><td>${formatCell(batch.batch)}</td>${ZONES.map((zone) => {
@@ -3025,7 +3025,7 @@ function renderV90AssessmentTable(rows, assessment, gridIndexes) {
         : "";
       const inspectable = assessment.referenceMode === "equal-lots" && gridRow && columnIndex > 0;
       const content = inspectable
-        ? `<button type="button" class="assessment-value-button" data-row="${gridIndex}" data-column="${columnIndex - 1}" aria-label="Details for Batch ${escapeHtml(gridRow.batch)}, ${escapeHtml(headers[columnIndex])}">${formatCell(row[columnIndex]) || "-"}</button>`
+        ? `<button type="button" class="assessment-value-button" data-row="${gridIndex}" data-column="${columnIndex - 1}" aria-label="Details for MR ${escapeHtml(gridRow.batch)}, ${escapeHtml(headers[columnIndex])}">${formatCell(row[columnIndex]) || "-"}</button>`
         : formatCell(row[columnIndex]);
       return `<td${status ? ` class="${statusClass(status)}"` : ""}${style ? ` style="${style}"` : ""}${direction ? ` title="${escapeHtml(direction)}"` : ""}>${content}</td>`;
     }).join("")}</tr>`;
@@ -3039,9 +3039,9 @@ function showEqualLotDetails(rowIndex, columnIndex) {
   const column = assessment.columns[columnIndex];
   const reference = row?.references[columnIndex];
   if (!row || !column || !reference) return;
-  byId("equal-lot-title").textContent = `${column.header} - Batch ${text(row.batch)}`;
+  byId("equal-lot-title").textContent = `${column.header} - MR ${text(row.batch)}`;
   byId("equal-lot-details").innerHTML = `
-    <p class="result-note">Target Lot ${escapeHtml(assessment.selectedLot)} | ${assessment.referenceGranularity === "batch-zone" ? "Matching Batch + Zone" : "All batches within Zone"}</p>
+    <p class="result-note">Target Lot ${escapeHtml(assessment.selectedLot)} | ${assessment.referenceGranularity === "batch-zone" ? "Matching MR + Zone" : "All MRs within Zone"}</p>
     <div class="metric-grid">
       ${metric("Target value", formatCell(row.values[columnIndex]))}
       ${metric("Reference Mu", formatCell(reference.mean))}
@@ -3133,7 +3133,7 @@ async function createCorrelation() {
 }
 
 function structuredCorrelationTable(result) {
-  return [["Target (Y)", "Compare (X)", "Method", "Pearson r", "N used", "Observation unit", "Batches", "Lots", "Regions", "Informative Lots", "Informative Lot-Region groups", "Status"],
+  return [["Target (Y)", "Compare (X)", "Method", "Pearson r", "N used", "Observation unit", "MRs", "Lots", "Zones", "Informative Lots", "Informative Lot-Zone groups", "Status"],
     ...result.results.map(item => [item.yParameter, item.xParameter, item.method, item.r === null ? "n.a." : item.r, item.n, item.unit, item.batches, item.lots, item.regions, item.informativeLots, item.informativeGroups, item.status])];
 }
 
@@ -3278,7 +3278,7 @@ function renderCorrelationResult() {
     </div>
     <div class="chart-card"><canvas id="correlation-chart" aria-label="Matched-zone correlation scatter plot"></canvas></div>
     <div class="table-wrap mini-table">${renderTable([
-      ["Lot", "Batch N", "Zone", "X", "Y", "Status"],
+      ["Lot", "MR N", "Zone", "X", "Y", "Status"],
       ...displayPairs.slice(0, 80).map((pair) => [pair.lot, pair.batch, `Zone ${pair.zone}`, pair.x, pair.y, pair.included ? "Included" : `Excluded: ${pair.exclusionReason || "Extreme"}`])
     ])}</div>
   `;
@@ -3332,7 +3332,7 @@ function downloadAnalysisWorkbook() {
     appendSheet(workbook, "Correlation_Structured", structuredCorrelationTable(state.lastStructuredCorrelation));
     appendSheet(workbook, "Correlation_Settings", [["Source", state.lastStructuredCorrelation.source], ["Data scope", state.lastStructuredCorrelation.scope],
       ["Method", state.lastStructuredCorrelation.method], ["Coverage", state.lastStructuredCorrelation.coverage], ["Minimum N", state.lastStructuredCorrelation.minN],
-      ["Minimum paired Regions", state.lastStructuredCorrelation.minRegions], ["Expected Regions", state.lastStructuredCorrelation.expectedRegions.join(", ")]]);
+      ["Minimum paired Zones", state.lastStructuredCorrelation.minRegions], ["Expected Zones", state.lastStructuredCorrelation.expectedRegions.join(", ")]]);
   }
   if (state.lastGaussian) {
     const { parameter: gaussianParameter, zones: gaussianZones, fit } = state.lastGaussian;
@@ -3351,7 +3351,7 @@ function downloadAnalysisWorkbook() {
       ["Histogram N", fit.histogramN],
       ["Recorded below limit", fit.belowLimit],
       ["Lots used", fit.lotCount],
-      ["Batches used", fit.batchCount],
+      ["MRs used", fit.batchCount],
       ["Bin width", fit.binWidth],
       ["Histogram start", fit.start],
       ["Histogram end", fit.end],
@@ -3381,15 +3381,15 @@ function downloadAnalysisWorkbook() {
     appendSheet(workbook, "ParameterTrend_App", [
       ["Parameter", trend.parameter],
       ["Data scope", scope],
-      ["Rolling batches", trend.rollingWindow],
-      ["Visible batches", trend.batches.length],
+      ["Rolling MRs", trend.rollingWindow],
+      ["Visible MRs", trend.batches.length],
       ["Visible lots", trend.lots.length],
       ["Auswertung date keys", trend.lookupCount],
       ["Lot-code fallback", trend.fallbackCount],
       ["Lot center", trend.lotCenter],
       ["Lot sigma", trend.lotSigma],
-      ["Batch center", trend.batchCenter],
-      ["Batch sigma", trend.batchSigma],
+      ["MR center", trend.batchCenter],
+      ["MR sigma", trend.batchSigma],
       [],
       ["Lot date", "Lot", "Lot mean", "Lot SD", "N values", "Center", "+2 SD", "-2 SD"],
       ...trend.lots.map((item) => [
@@ -3397,7 +3397,7 @@ function downloadAnalysisWorkbook() {
         trend.lotCenter, trend.lotCenter + 2 * trend.lotSigma, trend.lotCenter - 2 * trend.lotSigma
       ]),
       [],
-      ["DateTime", "Lot", "Batch N", "Batch mean", "Batch SD", "Rolling mean", "Center", "+2 SD", "-2 SD", ...ZONES.map((zone) => `Zone ${zone}`)],
+      ["DateTime", "Lot", "MR N", "MR mean", "MR SD", "Rolling mean", "Center", "+2 SD", "-2 SD", ...ZONES.map((zone) => `Zone ${zone}`)],
       ...trend.batches.map((item) => [
         new Date(item.date), item.lot, item.batch, item.mean, item.sigma, item.rollingMean,
         trend.batchCenter, trend.batchCenter + 2 * trend.batchSigma, trend.batchCenter - 2 * trend.batchSigma,
@@ -3405,7 +3405,7 @@ function downloadAnalysisWorkbook() {
       ]),
       ...(trend.regional ? [
         [],
-        ["Zone", "N Batches", "Mean value", "Mean bias", "Bias SD", "95% CI low", "95% CI high", "Signal"],
+        ["Zone", "N MRs", "Mean value", "Mean bias", "Bias SD", "95% CI low", "95% CI high", "Signal"],
         ...trend.zoneBias.map((item) => [
           `Zone ${item.zone}`, item.n, item.meanValue, item.meanBias, item.biasSigma, item.ciLow, item.ciHigh, item.signal
         ])
@@ -3439,7 +3439,7 @@ function downloadAnalysisWorkbook() {
       ["Slope", result.slope],
       ["Intercept", result.intercept],
       [],
-      ["Lot", "Batch N", "Zone", "X value", "Y value", "Status"],
+      ["Lot", "MR N", "Zone", "X value", "Y value", "Status"],
       ...result.pairs.map((pair) => [pair.lot, pair.batch, `Zone ${pair.zone}`, pair.x, pair.y, pair.included ? "Included" : `Excluded: ${pair.exclusionReason || "Extreme"}`])
     ]);
   }
@@ -3452,7 +3452,7 @@ function downloadAnalysisWorkbook() {
       ["Lot", lot],
       ["Reference", mode],
       ...(equalLotMode ? [["Reference Lots", ...assessment.referenceLots], ["Sigma", "Equal-Lot population SD (within + between)"]] : []),
-      ["Historical matching", batchZoneMode ? "Batch + Zone" : "Zone only"],
+      ["Historical matching", batchZoneMode ? "MR + Zone" : "Zone only"],
       ["Overall", assessment.overall],
       ["Compared", assessment.comparedCount],
       ["Monitor", assessment.monitorCount],
@@ -3463,15 +3463,15 @@ function downloadAnalysisWorkbook() {
       ["Parameter", "N", "Mean Z", "Z SD", "Monitor %", "Out %", "Signal"],
       ...assessment.summaries.map((item) => [item.parameter, item.n, item.meanZ, item.zSigma, item.monitorPct, item.outlierPct, item.signal]),
       [],
-      ["Batch N", ...assessment.columns.map((column) => column.header)],
-      ["Mu", ...assessment.columns.map((column) => batchZoneMode ? "Per Batch" : column.reference.mean)],
-      ["Sigma", ...assessment.columns.map((column) => batchZoneMode ? "Per Batch" : column.reference.sigma)],
+      ["MR N", ...assessment.columns.map((column) => column.header)],
+      ["Mu", ...assessment.columns.map((column) => batchZoneMode ? "Per MR" : column.reference.mean)],
+      ["Sigma", ...assessment.columns.map((column) => batchZoneMode ? "Per MR" : column.reference.sigma)],
       ...assessment.grid.map((row) => [row.batch, ...row.values])
     ];
     if (batchZoneMode) assessmentRows.push(
       [],
-      ["Applied Batch + Zone References"],
-      ["Batch N", "Parameter", "Zone", equalLotMode ? "Lots" : "N", "Mu", "Sigma", equalLotMode ? "Values" : "Excluded"],
+      ["Applied MR + Zone References"],
+      ["MR N", "Parameter", "Zone", equalLotMode ? "Lots" : "N", "Mu", "Sigma", equalLotMode ? "Values" : "Excluded"],
       ...assessment.appliedReferences.map((item) => [item.batch, item.parameter, item.zone, item.n, item.mean, item.sigma, equalLotMode ? item.valueCount : item.excluded])
     );
     if (equalLotMode && !batchZoneMode) assessmentRows.push(

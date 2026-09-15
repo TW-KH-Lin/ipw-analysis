@@ -177,7 +177,7 @@ function tableTitleFromContext(table) {
   if (table.classList.contains("bias-table")) return "Zone bias table";
   const result = table.closest(".result-block");
   if (result?.id === "assessment-result") {
-    return table.classList.contains("compact-table") ? "Parameter summary table" : "Batch by parameter and Zone";
+    return table.classList.contains("compact-table") ? "Parameter summary table" : "MR by parameter and Zone";
   }
   if (result?.id === "gaussian-result") return "Histogram values";
   if (result?.id === "correlation-result") return "Correlation pairs";

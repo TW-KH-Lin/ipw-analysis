@@ -14,15 +14,15 @@
     <link rel="stylesheet" href="../iphone.css?v=22">
     <link rel="stylesheet" href="workspace.css?v=1">
     <script defer src="../vendor/xlsx.full.min.js"></script>
-    <script type="module" src="../iphone-app.js?v=65"></script>
+    <script type="module" src="../iphone-app.js?v=66"></script>
     <script type="module" src="workspace-ui.js?v=4"></script>
-    <script type="module" src="../foldable-ui.js?v=4"></script>
+    <script type="module" src="../foldable-ui.js?v=5"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW Workspace v26</p>
+          <p class="eyebrow">IPW Workspace v27</p>
           <h1>Quality Analysis</h1>
         </div>
         <div class="header-actions">
@@ -181,7 +181,7 @@
       <section id="labels-panel" class="panel" aria-label="Data labels">
         <div class="form-grid">
           <label>Lot<select id="label-lot" disabled></select></label>
-          <label>Batch N<select id="label-batch" disabled></select></label>
+          <label>MR N<select id="label-batch" disabled></select></label>
           <label>Machine<select id="label-machine" disabled><option value="">Manual Zone</option><option value="9">Machine 9</option><option value="10">Machine 10</option><option value="17">Machine 17</option></select></label>
           <label>Roll width<select id="label-roll-width" disabled></select></label>
           <label>Master roll number<input id="label-roll-number" type="number" min="1" step="1" inputmode="numeric" disabled></label>
@@ -240,7 +240,7 @@
           <label>Parameter<select id="trend-parameter" disabled></select></label>
           <label>Start date<input id="trend-start" type="date" disabled></label>
           <label>End date<input id="trend-end" type="date" disabled></label>
-          <label>Rolling batches<input id="trend-window" inputmode="numeric" value="5" disabled></label>
+          <label>Rolling MRs<input id="trend-window" inputmode="numeric" value="5" disabled></label>
         </div>
         <button id="run-trend" class="command primary section-command" type="button" disabled>Build Parameter Trend</button>
         <div id="trend-result" class="result-block"></div>
@@ -295,7 +295,7 @@
           <label>Lot<select id="assessment-lot" disabled></select></label>
           <label>Reference method<select id="assessment-reference" disabled><option value="history">Historical Zone Values</option><option value="filtered">Filtered Lots</option><option value="manual">Manual Mu / Sigma</option><option value="reference-lot">Reference Lot</option><option value="equal-lots">Selected Lots - Equal weight</option></select></label>
           <label id="assessment-reference-lot-field" hidden>Reference Lot<select id="assessment-reference-lot" disabled></select></label>
-          <label>Historical matching<select id="assessment-granularity" disabled><option value="zone">Zone only</option><option value="batch-zone">Batch + Zone</option></select></label>
+          <label>Historical matching<select id="assessment-granularity" disabled><option value="zone">Zone only</option><option value="batch-zone">MR + Zone</option></select></label>
           <label>Monitor limit<input id="assessment-monitor" inputmode="decimal" value="2" disabled></label>
           <label>Out-of-range limit<input id="assessment-outlier" inputmode="decimal" value="3" disabled></label>
           <label>Manual mu<input id="assessment-mu" inputmode="decimal" placeholder="Manual only" disabled></label>
@@ -368,11 +368,11 @@
         </div>
         <div id="correlation-structured-settings" class="form-grid" hidden>
           <label>Compare<select id="correlation-compare" disabled><option value="one">One X parameter</option><option value="all">All X parameters</option></select></label>
-          <label>Method<select id="correlation-method" disabled><option value="all">All methods</option><option value="raw">Raw pooled</option><option value="batch">Batch means</option><option value="within">Batch means within Lot</option><option value="between">Between Lots</option><option value="region">Each Region raw</option><option value="regionWithin">Each Region within Lot</option><option value="overall">Overall within Lot x Region</option></select></label>
+          <label>Method<select id="correlation-method" disabled><option value="all">All methods</option><option value="raw">Raw pooled</option><option value="batch">MR means</option><option value="within">MR means within Lot</option><option value="between">Between Lots</option><option value="region">Each Zone raw</option><option value="regionWithin">Each Zone within Lot</option><option value="overall">Overall within Lot x Zone</option></select></label>
           <label>Minimum N per method<input id="correlation-min-n" type="number" min="3" max="3000000" step="1" value="3" disabled></label>
-          <label>Region coverage<select id="correlation-coverage" disabled><option value="available">Available paired Regions</option><option value="strict">All expected Regions</option></select></label>
-          <label>Minimum paired Regions / Batch<input id="correlation-min-regions" type="number" min="1" max="16384" step="1" value="1" disabled></label>
-          <label>Expected Region IDs<input id="correlation-expected-regions" placeholder="1, 2, 4" autocomplete="off" disabled></label>
+          <label>Zone coverage<select id="correlation-coverage" disabled><option value="available">Available paired Zones</option><option value="strict">All expected Zones</option></select></label>
+          <label>Minimum paired Zones / MR<input id="correlation-min-regions" type="number" min="1" max="16384" step="1" value="1" disabled></label>
+          <label>Expected Zone IDs<input id="correlation-expected-regions" placeholder="1, 2, 4" autocomplete="off" disabled></label>
         </div>
         <button id="run-correlation" class="command primary" type="button" disabled>Run Correlation</button>
         <div id="correlation-result" class="result-block"></div>
