@@ -2044,22 +2044,17 @@ function saveGaussianSnapshot() {
   const chartWidth = 1000;
   const tableWidth = 460, gap = 24, margin = 24;
   const fit = current.fit;
-  const view = current.viewRange || fit;
   const rows = [
     ["Parameter", current.parameter],
-    ["Fit method", fit.method],
+    ["Fit method", ({ "robust-huber": "Robust Gaussian (Huber)", "nacl-truncated": "NaCl truncated Gaussian", "standard": "Standard Gaussian" })[fit.method] || fit.method],
     ["Bin width", formatNumber(fit.binWidth, 6)],
-    ["Histogram start", formatNumber(fit.start, 6)],
-    ["Histogram end", formatNumber(fit.end, 6)],
-    ["Displayed start", formatNumber(view.start, 6)],
-    ["Displayed end", formatNumber(view.end, 6)],
+    ["Histogram range", `${formatNumber(fit.start, 6)} to ${formatNumber(fit.end, 6)}`],
     ["Points used", formatInteger(fit.n)],
     ["Lots used", formatInteger(fit.lotCount)],
     ["MRs used", formatInteger(fit.batchCount)],
     ["Mean", fit.mean.toFixed(3)],
     ["Sigma", fit.sigma.toFixed(3)],
-    ["Zones", current.zones.join(", ")],
-    ["Data scope", current.scope]
+    ["Zones", current.zones.join(", ")]
   ];
   const chartHeight = (rows.length + 1) * 42;
   const exportChart = document.createElement("canvas");
@@ -3938,13 +3933,26 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
 function drawGaussian(canvas, fit, mode = "combined", dimensions) {
   if (!canvas || !fit?.bins?.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas, dimensions);
-  const pad = { left: 42, right: 12, top: 100, bottom: 34 };
+  const fontSize = dimensions ? 18 : 14;
+  const pad = { left: 48, right: 12, top: dimensions ? 136 : 120, bottom: 34 };
+  const yAxis = integerChartAxis([0, Math.max(1, ...fit.bins.flatMap(bin => [bin.observed, bin.gaussian]))]);
+  ctx.font = `${fontSize}px sans-serif`;
+  pad.left = Math.max(pad.left, ...yAxis.ticks.map(value => ctx.measureText(formatInteger(value)).width + 14));
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
-  const maxY = Math.max(1, ...fit.bins.flatMap((bin) => [bin.observed, bin.gaussian]));
+  const maxY = yAxis.max;
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = colors.line;
+  ctx.lineWidth = 1;
+  ctx.fillStyle = colors.muted;
+  ctx.textAlign = "right";
+  yAxis.ticks.forEach(value => {
+    const y = pad.top + plotHeight - value / maxY * plotHeight;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke();
+    ctx.fillText(formatInteger(value), pad.left - 8, y + 5);
+  });
   drawFrame(ctx, pad, width, height, colors);
   ctx.save();
   ctx.beginPath(); ctx.rect(pad.left, pad.top, plotWidth, plotHeight); ctx.clip();
@@ -3975,10 +3983,10 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
     { label: "97.5%", value: fit.high25, color: "#6d28d9" }
   ];
   ctx.save();
-  ctx.font = "11px sans-serif";
+  ctx.font = `${fontSize}px sans-serif`;
   ctx.textAlign = "left";
   ctx.fillStyle = "#172231";
-  ctx.fillText(`Mean: ${fit.mean.toFixed(3)}   Sigma: ${fit.sigma.toFixed(3)}`, 8, 16, width - 16);
+  ctx.fillText(`Mean: ${fit.mean.toFixed(3)}   Sigma: ${fit.sigma.toFixed(3)}`, 8, fontSize + 4, width - 16);
   const labelLanes = [[], [], [], []];
   const cutoffLabels = [];
   cutoffs.forEach((cutoff) => {
@@ -3990,7 +3998,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
     // Keep close or identical percentile labels separate without moving their cutoff lines.
     const lane = labelLanes.findIndex(items => items.every(item => labelX > item.end + 8 || labelX + labelWidth + 8 < item.start));
     labelLanes[lane].push({ start: labelX, end: labelX + labelWidth });
-    const labelY = 34 + lane * 18;
+    const labelY = fontSize * 2 + 10 + lane * (fontSize + 5);
     cutoffLabels.push({ label, labelX, labelY, labelWidth, color: cutoff.color });
     ctx.beginPath();
     ctx.setLineDash([4, 3]);
@@ -4002,12 +4010,17 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
   });
   cutoffLabels.forEach(({ label, labelX, labelY, labelWidth, color }) => {
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(labelX - 2, labelY - 12, labelWidth + 4, 16);
+    ctx.fillRect(labelX - 2, labelY - fontSize - 1, labelWidth + 4, fontSize + 5);
     ctx.fillStyle = color;
     ctx.fillText(label, labelX, labelY, labelWidth);
   });
   ctx.restore();
-  drawAxisLabels(ctx, pad, width, height, colors, fit.start, fit.end, maxY);
+  ctx.font = `${fontSize}px sans-serif`;
+  ctx.fillStyle = colors.muted;
+  ctx.textAlign = "left";
+  ctx.fillText(formatNumber(fit.start, 3), pad.left, height - 10);
+  ctx.textAlign = "right";
+  ctx.fillText(formatNumber(fit.end, 3), width - pad.right, height - 10);
 }
 
 function drawScatter(canvas, current) {
