@@ -103,8 +103,6 @@ const GENERATED_CLEAN = "Generated Clean_Data";
 const GENERATED_CORRECTED = "Generated Clean_Data_Cor";
 const ZONES = [1, 2, 3, 4, 5, 6];
 const TREND_COLORS = ["#195d8d", "#2e7d4f", "#a86a00", "#b3261e", "#7656a1", "#00838f"];
-const PREVIEW_ROWS = 18;
-const PREVIEW_COLUMNS = 12;
 
 document.addEventListener("DOMContentLoaded", () => {
   bindEvents();
@@ -347,6 +345,7 @@ function bindEvents() {
     byId(id).addEventListener("input", invalidateAssessment);
   });
   byId("summary-parameter").addEventListener("change", renderCurrentData);
+  ["preview-lot", "preview-parameter"].forEach(id => byId(id).addEventListener("change", renderPreviewTable));
   byId("generated-summary-parameter").addEventListener("change", renderGeneratedSummaryTable);
   byId("gaussian-parameter").addEventListener("change", () => {
     invalidateGaussian();
@@ -1765,16 +1764,36 @@ function renderSummaryTable() {
 }
 
 function renderPreviewTable() {
-  const rows = filteredRows().slice(0, PREVIEW_ROWS);
-  const headers = state.headers.slice(0, PREVIEW_COLUMNS);
+  const lotColumn = headerIndex(state.headers, "Lot");
+  const mrColumn = headerIndex(state.headers, "N");
+  const available = state.rows.filter(row => isDataRow(state.headers, row));
+  const lots = [...new Set(available.map(row => text(row[lotColumn])).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const parameters = state.structuredParameters || [];
+  fillSelect(byId("preview-lot"), lots);
+  fillSelect(byId("preview-parameter"), parameters);
+  byId("preview-lot").disabled = !lots.length;
+  byId("preview-parameter").disabled = !parameters.length;
+  const lot = byId("preview-lot").value, parameter = byId("preview-parameter").value;
+  const zoneIndices = state.headers.map((header, index) => ({ index, match: text(header).match(/^(.+)_([1-6])$/) }))
+    .filter(item => item.match && item.match[1].toLowerCase() === parameter.toLowerCase())
+    .sort((a, b) => Number(a.match[2]) - Number(b.match[2]));
+  const scalar = state.headers.findIndex(header => text(header).toLowerCase() === parameter.toLowerCase());
+  const columns = [...(mrColumn >= 0 ? [mrColumn] : []), ...(zoneIndices.length ? zoneIndices.map(item => item.index) : scalar >= 0 ? [scalar] : [])];
+  const headers = columns.map(column => column === mrColumn ? "MR" : state.headers[column]);
+  const rows = available.filter(row => text(row[lotColumn]) === lot);
+  byId("preview-status").textContent = lots.length && parameters.length ? `Lot ${lot} | ${parameter} | ${formatInteger(rows.length)} rows` : "";
   if (!rows.length) {
-    byId("preview-table").innerHTML = '<p class="empty-state">No data rows.</p>';
+    byId("preview-table").innerHTML = '<p class="empty-state">No Lot data available.</p>';
+    return;
+  }
+  if (!parameter || columns.length === (mrColumn >= 0 ? 1 : 0)) {
+    byId("preview-table").innerHTML = '<p class="empty-state">No parameter values available.</p>';
     return;
   }
   byId("preview-table").innerHTML = `
     <table>
       <thead><tr>${headers.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr></thead>
-      <tbody>${rows.map((row) => `<tr>${headers.map((_, index) => {
+      <tbody>${rows.map((row) => `<tr>${columns.map((index) => {
         const className = previewCellIsLabeled(row, index) ? ' class="labeled-cell"' : "";
         return `<td${className}>${formatCell(row[index])}</td>`;
       }).join("")}</tr>`).join("")}</tbody>
