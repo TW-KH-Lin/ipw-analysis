@@ -96,7 +96,9 @@ export function replayStructuredExclusions(original, steps = []) {
   for (const step of steps) {
     const trimmed = trimStructuredPlot(result.points, step.options);
     trimHistory.push({ options: { ...step.options }, savedAt: step.savedAt,
-      removed: trimmed.excluded, remaining: trimmed.n,
+      removed: trimmed.excluded, remaining: trimmed.n, r: trimmed.r,
+      removedPercent: result.points.length ? trimmed.excluded / result.points.length * 100 : 0,
+      cumulativeRemovedPercent: original.points.length ? (original.points.length - trimmed.n) / original.points.length * 100 : 0,
       description: trimmed.removal.replace("original slope", "step baseline slope").replace("original fitted line", "step baseline fitted line") });
     result = { ...original, ...trimmed };
   }

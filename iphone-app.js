@@ -52,7 +52,7 @@ import {
 } from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
-import { buildStructuredCorrelation, structuredParameters, replayStructuredExclusions, structuredConclusions } from "./structured-correlation.js?v=8";
+import { buildStructuredCorrelation, structuredParameters, replayStructuredExclusions, structuredConclusions } from "./structured-correlation.js?v=9";
 
 const state = {
   workbook: null,
@@ -3381,7 +3381,7 @@ function drawStructuredPlot() {
   if (!plot) return;
   byId("structured-trim-undo").disabled = !plot.trimHistory?.length;
   byId("structured-trim-history").innerHTML = plot.trimHistory?.length
-    ? renderTable([["Step", "Removal", "Excluded", "Remaining", "Time"], ...plot.trimHistory.map((step, index) => [index + 1, step.description, step.removed, step.remaining, step.savedAt ? formatDateTime(step.savedAt) : "-"])])
+    ? renderTable([["Step", "Removal", "Excluded", "Remaining", "Pearson r after removal", "Step removed (%)", "Total removed (%)", "Time"], ...plot.trimHistory.map((step, index) => [index + 1, step.description, step.removed, step.remaining, step.r === null ? "n.a." : formatNumber(step.r, 4), `${formatNumber(step.removedPercent, 2)}%`, `${formatNumber(step.cumulativeRemovedPercent, 2)}%`, step.savedAt ? formatDateTime(step.savedAt) : "-"])])
     : '<p class="empty-state">No removals.</p>';
   byId("structured-plot-stats").textContent = `Original N: ${state.lastStructuredCorrelation.originalPlot.n} | Included: ${plot.n} | Excluded: ${plot.excluded || 0} | r: ${plot.r === null ? "n.a." : formatNumber(plot.r, 4)} | Exclusion: ${plot.removal || "None"}`;
   const canvas = byId("structured-correlation-chart");
@@ -3480,9 +3480,9 @@ function downloadAnalysisWorkbook() {
   if (state.lastStructuredCorrelation) {
     appendSheet(workbook, "Correlation_Structured", structuredCorrelationTable(state.lastStructuredCorrelation));
     appendSheet(workbook, "Correlation_Removal_History", [
-      ["Y", "X", "Method", "Step", "Removal", "Excluded", "Remaining", "Time"],
+      ["Y", "X", "Method", "Step", "Removal", "Excluded", "Remaining", "Pearson r after removal", "Step removed (%)", "Total removed (%)", "Time"],
       ...state.lastStructuredCorrelation.results.flatMap(row => (row.trimHistory || []).map((step, index) =>
-        [row.yParameter, row.xParameter, row.method, index + 1, step.description, step.removed, step.remaining, step.savedAt || ""]))
+        [row.yParameter, row.xParameter, row.method, index + 1, step.description, step.removed, step.remaining, step.r === null ? "n.a." : step.r, step.removedPercent, step.cumulativeRemovedPercent, step.savedAt || ""]))
     ]);
     appendSheet(workbook, "Correlation_Settings", [["Source", state.lastStructuredCorrelation.source], ["Data scope", state.lastStructuredCorrelation.scope],
       ["Method", state.lastStructuredCorrelation.method], ["Coverage", state.lastStructuredCorrelation.coverage], ["Minimum N", state.lastStructuredCorrelation.minN],
