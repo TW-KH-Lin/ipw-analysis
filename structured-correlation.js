@@ -55,7 +55,7 @@ const regionHeader = header => {
 
 export function trimStructuredPlot(points, { axis = "x", side = "largest", count = 0, minN = 3, method = "count", percent = 90 } = {}) {
   if (!["count", "ratio", "line"].includes(method)) throw new Error("Choose a valid exclusion method.");
-  if (!["x", "y"].includes(axis) || !["largest", "smallest"].includes(side)) throw new Error("Choose X or Y and largest or smallest.");
+  if (!["x", "y"].includes(axis) || !["largest", "smallest"].includes(side)) throw new Error("Choose X or Y and a valid direction.");
   if (!Number.isInteger(count) || count < 0 || points.length - count < minN) throw new Error(`Keep at least ${minN} pairs; enter a valid whole-number removal count.`);
   const ranked = points.map((point, index) => ({ point, index })).sort((a, b) => (side === "largest" ? b.point[axis] - a.point[axis] : a.point[axis] - b.point[axis]) || a.index - b.index);
   const removed = new Set(ranked.slice(0, count).map(item => item.index));
@@ -87,6 +87,20 @@ export function trimStructuredPlot(points, { axis = "x", side = "largest", count
   return { points: retained, n: retained.length, excluded: removed.size, undefinedRatios, r, slope, intercept: slope === null ? null : stats.y - slope * stats.x,
     lots: stats.lots.size, batches: stats.batches.size, regions: stats.regions.size, rawPairs: stats.rawPairs, informativeGroups: stats.groups.size,
     removal: method === "count" ? (count ? `${axis.toUpperCase()} ${side} ${count}` : "None") : `${method === "ratio" ? "Y/X vs original slope" : "Y vs original fitted line"}: +/-${percent}%${undefinedRatios ? `; ${undefinedRatios} undefined X=0 ratios excluded` : ""}` };
+}
+
+export function replayStructuredExclusions(original, steps = []) {
+  let result = { ...original, excluded: 0, removal: "None" };
+  const trimHistory = [];
+  for (const step of steps) {
+    const trimmed = trimStructuredPlot(result.points, step.options);
+    trimHistory.push({ options: { ...step.options }, savedAt: step.savedAt,
+      removed: trimmed.excluded, remaining: trimmed.n,
+      description: trimmed.removal.replace("original slope", "step baseline slope").replace("original fitted line", "step baseline fitted line") });
+    result = { ...original, ...trimmed };
+  }
+  return { ...result, excluded: original.points.length - result.points.length, trimHistory,
+    removal: trimHistory.map((step, index) => `${index + 1}. ${step.description} (${step.removed} removed, ${step.remaining} remaining)`).join("; ") || "None" };
 }
 
 export function structuredParameters(headers, rows) {

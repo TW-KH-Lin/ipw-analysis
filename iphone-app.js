@@ -52,7 +52,7 @@ import {
 } from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
-import { buildStructuredCorrelation, structuredParameters, trimStructuredPlot, structuredConclusions } from "./structured-correlation.js?v=6";
+import { buildStructuredCorrelation, structuredParameters, replayStructuredExclusions, structuredConclusions } from "./structured-correlation.js?v=7";
 
 const state = {
   workbook: null,
@@ -3277,28 +3277,34 @@ function plotStructuredCorrelation(index) {
   current.plot = result;
   current.originalPlot = result;
   current.plotIndex = index;
-  if (tableRow.trimOptions) current.plot = { ...result, ...trimStructuredPlot(result.points, tableRow.trimOptions), trimOptions: tableRow.trimOptions };
+  current.plot = replayStructuredExclusions(result, tableRow.trimHistory || (tableRow.trimOptions ? [{ options: tableRow.trimOptions }] : []));
   byId("structured-plot-result").innerHTML = `<div class="section-heading"><h2>${escapeHtml(result.method)}</h2><button type="button" class="command" id="save-structured-plot">Save PNG</button></div>
     <p>X: ${escapeHtml(result.xParameter)} | Y: ${escapeHtml(result.yParameter)} | ${escapeHtml(result.unit)}</p>
-    <label>Exclusion method<select id="structured-trim-method"><option value="count">Largest / smallest pairs</option><option value="ratio">Y/X ratio versus original slope (%)</option><option value="line">Y versus original fitted line (%)</option></select></label>
+    <label>Exclusion method<select id="structured-trim-method"><option value="count">Largest / smallest pairs</option><option value="ratio">Y/X ratio versus current slope (%)</option><option value="line">Y versus current fitted line (%)</option></select></label>
     <label id="structured-percent-control" hidden>Tolerance (+/- %)<input id="structured-trim-percent" type="number" min="0" step="any" value="90"></label>
     <div class="control-grid" id="structured-count-controls"><label>Extreme axis<select id="structured-trim-axis"><option value="x">X</option><option value="y">Y</option></select></label>
     <label>Remove<select id="structured-trim-side"><option value="largest">Largest</option><option value="smallest">Smallest</option></select></label>
     <label>Pairs to exclude<input id="structured-trim-count" type="number" min="0" step="1" value="0"></label></div>
-    <div class="button-row"><button class="command" id="structured-trim-apply" type="button">Apply exclusion</button><button class="command" id="structured-trim-reset" type="button">Reset</button><button class="command" id="structured-update-table" type="button">Update table</button></div>
+    <div class="button-row"><button class="command" id="structured-trim-apply" type="button">Apply exclusion</button><button class="command" id="structured-trim-undo" type="button">Undo last removal</button><button class="command" id="structured-trim-reset" type="button">Reset</button><button class="command" id="structured-update-table" type="button">Update table</button></div>
+    <details open><summary>Removal history</summary><div id="structured-trim-history" class="table-wrap"></div></details>
     <p id="structured-plot-stats"></p>
     <div class="chart-card"><canvas id="structured-correlation-chart" aria-label="${escapeHtml(result.method)} correlation plot"></canvas></div>`;
   byId("save-structured-plot").addEventListener("click", () => runAction(saveStructuredPlot));
   byId("structured-trim-apply").addEventListener("click", () => runAction(() => applyStructuredTrim(false)));
   byId("structured-trim-reset").addEventListener("click", () => runAction(() => applyStructuredTrim(true)));
   byId("structured-update-table").addEventListener("click", () => runAction(updateStructuredTable));
+  byId("structured-trim-undo").addEventListener("click", () => runAction(() => {
+    current.plot = replayStructuredExclusions(current.originalPlot, current.plot.trimHistory.slice(0, -1));
+    drawStructuredPlot();
+    setStatus("Last removal undone. Update table to save this revision.", false, true);
+  }));
   byId("structured-trim-method").addEventListener("change", () => {
     const count = byId("structured-trim-method").value === "count";
     byId("structured-count-controls").hidden = !count;
     byId("structured-percent-control").hidden = count;
   });
-  if (tableRow.trimOptions) {
-    const options = tableRow.trimOptions;
+  if (current.plot.trimHistory.length) {
+    const options = current.plot.trimHistory.at(-1).options;
     byId("structured-trim-method").value = options.method;
     byId("structured-trim-percent").value = options.percent;
     byId("structured-trim-axis").value = options.axis;
@@ -3318,8 +3324,8 @@ function applyStructuredTrim(reset) {
     axis: byId("structured-trim-axis").value, side: byId("structured-trim-side").value,
     count: reset || byId("structured-trim-method").value !== "count" ? 0 : requiredNumber("structured-trim-count"), minN: current.minN
   };
-  const trimmed = trimStructuredPlot(current.originalPlot.points, trimOptions);
-  current.plot = { ...current.originalPlot, ...trimmed, trimOptions };
+  const steps = reset ? [] : [...(current.plot.trimHistory || []), { options: trimOptions, savedAt: new Date().toISOString() }];
+  current.plot = replayStructuredExclusions(current.originalPlot, steps);
   if (reset) byId("structured-trim-count").value = "0";
   drawStructuredPlot();
   setStatus("Plot statistics updated. The original correlation table and source data are unchanged.", false, true);
@@ -3354,6 +3360,10 @@ function showStructuredConclusion(scroll = true) {
 function drawStructuredPlot() {
   const plot = state.lastStructuredCorrelation?.plot;
   if (!plot) return;
+  byId("structured-trim-undo").disabled = !plot.trimHistory?.length;
+  byId("structured-trim-history").innerHTML = plot.trimHistory?.length
+    ? renderTable([["Step", "Removal", "Excluded", "Remaining", "Time"], ...plot.trimHistory.map((step, index) => [index + 1, step.description, step.removed, step.remaining, step.savedAt ? formatDateTime(step.savedAt) : "-"])])
+    : '<p class="empty-state">No removals.</p>';
   byId("structured-plot-stats").textContent = `Original N: ${state.lastStructuredCorrelation.originalPlot.n} | Included: ${plot.n} | Excluded: ${plot.excluded || 0} | r: ${plot.r === null ? "n.a." : formatNumber(plot.r, 4)} | Exclusion: ${plot.removal || "None"}`;
   const canvas = byId("structured-correlation-chart");
   const residual = plot.unit.includes("residual") ? " (residual)" : "";
@@ -3450,6 +3460,11 @@ function downloadAnalysisWorkbook() {
   }
   if (state.lastStructuredCorrelation) {
     appendSheet(workbook, "Correlation_Structured", structuredCorrelationTable(state.lastStructuredCorrelation));
+    appendSheet(workbook, "Correlation_Removal_History", [
+      ["Y", "X", "Method", "Step", "Removal", "Excluded", "Remaining", "Time"],
+      ...state.lastStructuredCorrelation.results.flatMap(row => (row.trimHistory || []).map((step, index) =>
+        [row.yParameter, row.xParameter, row.method, index + 1, step.description, step.removed, step.remaining, step.savedAt || ""]))
+    ]);
     appendSheet(workbook, "Correlation_Settings", [["Source", state.lastStructuredCorrelation.source], ["Data scope", state.lastStructuredCorrelation.scope],
       ["Method", state.lastStructuredCorrelation.method], ["Coverage", state.lastStructuredCorrelation.coverage], ["Minimum N", state.lastStructuredCorrelation.minN],
       ["Minimum paired Zones", state.lastStructuredCorrelation.minRegions], ["Expected Zones", state.lastStructuredCorrelation.expectedRegions.join(", ")]]);
