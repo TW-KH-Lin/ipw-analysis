@@ -52,7 +52,7 @@ import {
 } from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
-import { buildStructuredCorrelation, structuredParameters, replayStructuredExclusions, structuredConclusions } from "./structured-correlation.js?v=9";
+import { buildStructuredCorrelation, structuredParameters, replayStructuredExclusions, structuredConclusions } from "./structured-correlation.js?v=10";
 
 const state = {
   workbook: null,

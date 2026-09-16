@@ -1,5 +1,6 @@
 export const CORRELATION_METHODS = [
   ["overall-group", "Overall / MR / Lot methods"], ["zone-group", "Zone-specific methods"],
+  ["rawWithin", "Raw data within Lot"],
   ["all", "All methods"], ["raw", "Raw pooled"], ["batch", "MR means"],
   ["within", "MR means within Lot"], ["between", "Between Lots"],
   ["region", "Each Zone raw"], ["regionWithin", "Each Zone within Lot"],
@@ -187,6 +188,7 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
     const raw = capture("Raw pooled"), batch = capture("MR means"), within = capture("MR means within Lot"), between = capture("Between Lots"), overall = capture("Overall within Lot x Zone");
     const regionStats = new Map(ids.map(id => [id, capture(`Zone ${id} raw`)]));
     const adjustedStats = new Map(ids.map(id => [id, capture(`Zone ${id} within Lot`)]));
+    const rawWithin = capture("Raw data within Lot"), rawLotMeans = new Map();
     const lotMeans = new Map(), lotRegionMeans = new Map(), accepted = [];
     let missingIdentity = 0, rejected = 0;
     const signatures = new Set();
@@ -203,6 +205,8 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
       const mean = { n: 0, x: 0, y: 0 }, used = [];
       visitPairs(row, (id, x, y) => {
         add(raw, x, y, lot, [rowIndex], scalar ? [] : [id]);
+        if (!rawLotMeans.has(lot)) rawLotMeans.set(lot, { n: 0, x: 0, y: 0 });
+        meanPair(rawLotMeans.get(lot), x, y);
         if (!scalar) {
           add(regionStats.get(id), x, y, lot, [rowIndex], [id]);
           const key = JSON.stringify([lot, id]);
@@ -232,6 +236,13 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
       if (group.n < 2) continue;
       add(within, entry.x - group.x, entry.y - group.y, entry.lot, [entry.rowIndex], entry.regions, entry.n);
     }
+    rows.forEach((row, rowIndex) => {
+      const lot = identity(row[lotColumn]);
+      if (!lot || !clean(row[batchColumn])) return;
+      const group = rawLotMeans.get(lot);
+      if (!group || group.n < 2) return;
+      visitPairs(row, (id, x, y) => add(rawWithin, x - group.x, y - group.y, lot, [rowIndex], scalar ? [] : [id], 1, lot));
+    });
     if (!scalar) {
       for (const group of lotRegionMeans.values()) if (group.n === 1) singletonGroups++;
       rows.forEach((row, rowIndex) => {
@@ -250,11 +261,12 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
       ["batch", "MR means", batch, "MR occurrences"],
       ["within", "MR means within Lot", within, "MR residual pairs"],
       ["between", "Between Lots", between, "Lots (one point each)"],
+      ["rawWithin", "Raw data within Lot", rawWithin, "Raw residual pairs"],
       ...(!scalar ? ids.map(id => ["region", `Zone ${id} raw`, regionStats.get(id), "Zone pairs"]) : []),
       ...(!scalar ? ids.map(id => ["regionWithin", `Zone ${id} within Lot`, adjustedStats.get(id), "Zone residual pairs"]) : []),
       ...(!scalar ? [["overall", "Overall within Lot x Zone", overall, "Zone residual pairs"]] : [])
     ].filter(([id]) => method === "all" || id === method ||
-      method === "overall-group" && ["raw", "batch", "within", "between"].includes(id) ||
+      method === "overall-group" && ["raw", "batch", "within", "between", "rawWithin"].includes(id) ||
       method === "zone-group" && ["region", "regionWithin", "overall"].includes(id));
     if (!methods.length) {
       output.push({ ...base, method: CORRELATION_METHODS.find(([id]) => id === method)[1], r: null, n: 0, unit: "n.a.", batches: 0, lots: 0, regions: 0, informativeLots: 0, informativeGroups: 0, rawPairs: 0, status: "No Zone identity for this method." });
@@ -272,12 +284,13 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
         if (rejected) status += `; ${rejected} MRs ineligible for MR means`;
       } else status += "; MR-mean coverage does not filter raw/Zone observations";
       if (id === "within") status += `; ${singletonLots} singleton Lots excluded`;
+      if (id === "rawWithin") status += "; each raw pair centered on its Lot's paired raw means; no MR averaging or Zone centering; singleton Lots excluded";
       if (["regionWithin", "overall"].includes(id)) status += `; ${singletonGroups} singleton Lot-Zone groups excluded across pair`;
       if (missingIdentity) status += `; ${missingIdentity} source rows excluded: missing Lot/N`;
       if (scalar) status += "; no Zone identity; coverage not applicable";
       if (id === "between") status += "; each Lot contributes one pair";
       output.push({ ...base, method: name, r, n: stats.n, unit, batches: stats.batches.size, lots: stats.lots.size, regions: stats.regions.size, rawPairs: stats.rawPairs,
-        informativeLots: ["within", "regionWithin", "overall"].includes(id) ? stats.lots.size : 0,
+        informativeLots: ["within", "rawWithin", "regionWithin", "overall"].includes(id) ? stats.lots.size : 0,
         informativeGroups: stats.groups.size, status,
         ...(stats.points ? { points: stats.points, slope: stats.xx > 0 ? stats.xy / stats.xx : null, intercept: stats.xx > 0 ? stats.y - stats.xy / stats.xx * stats.x : null } : {}) });
     }
