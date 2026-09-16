@@ -52,7 +52,7 @@ import {
 } from "./v90-analysis.js?v=6";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
-import { buildStructuredCorrelation, structuredParameters, replayStructuredExclusions, structuredConclusions } from "./structured-correlation.js?v=7";
+import { buildStructuredCorrelation, structuredParameters, replayStructuredExclusions, structuredConclusions } from "./structured-correlation.js?v=8";
 
 const state = {
   workbook: null,
@@ -3277,7 +3277,7 @@ function renderStructuredCorrelationTable(result) {
   return [false, true].map(zoneGroup => {
     const grouped = rows.map((row, resultIndex) => ({ row, resultIndex })).filter(({ row }) => isZone(row[0]) === zoneGroup);
     if (!grouped.length) return "";
-    return `<table><caption>${zoneGroup ? "Zone-specific methods" : "Non-Zone-specific methods"}</caption><thead><tr><th>Plot</th>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+    return `<table><caption>${zoneGroup ? "Zone-specific methods" : "Overall / MR / Lot methods"}</caption><thead><tr><th>Plot</th>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
     <tbody>${grouped.map(({ row, resultIndex }) => `<tr><td><button type="button" class="command" data-structured-plot="${resultIndex}" ${(result.results[resultIndex].originalResult || result.results[resultIndex]).r === null ? "disabled" : ""}>Plot</button></td>${row.map((cell, index) => index === row.length - 1
       ? `<td><details><summary>${row[1] === "n.a." ? "Not available" : "Details"}</summary>${escapeHtml(cell)}</details></td>`
       : `<td>${formatCell(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
@@ -3331,7 +3331,7 @@ function plotStructuredCorrelation(index) {
     byId("structured-trim-count").value = options.count;
     byId("structured-trim-method").dispatchEvent(new Event("change"));
   }
-  requestAnimationFrame(() => { drawStructuredPlot(); byId("structured-plot-result").scrollIntoView({ block: "nearest" }); });
+  requestAnimationFrame(() => { drawStructuredPlot(); byId("structured-plot-result")?.scrollIntoView({ block: "nearest" }); });
 }
 
 function applyStructuredTrim(reset) {

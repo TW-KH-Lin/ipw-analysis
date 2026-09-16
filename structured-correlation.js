@@ -1,4 +1,5 @@
 export const CORRELATION_METHODS = [
+  ["overall-group", "Overall / MR / Lot methods"], ["zone-group", "Zone-specific methods"],
   ["all", "All methods"], ["raw", "Raw pooled"], ["batch", "MR means"],
   ["within", "MR means within Lot"], ["between", "Between Lots"],
   ["region", "Each Zone raw"], ["regionWithin", "Each Zone within Lot"],
@@ -250,7 +251,9 @@ export function buildStructuredCorrelation(headers, rows, yParameter, options = 
       ...(!scalar ? ids.map(id => ["region", `Zone ${id} raw`, regionStats.get(id), "Zone pairs"]) : []),
       ...(!scalar ? ids.map(id => ["regionWithin", `Zone ${id} within Lot`, adjustedStats.get(id), "Zone residual pairs"]) : []),
       ...(!scalar ? [["overall", "Overall within Lot x Zone", overall, "Zone residual pairs"]] : [])
-    ].filter(([id]) => method === "all" || id === method);
+    ].filter(([id]) => method === "all" || id === method ||
+      method === "overall-group" && ["raw", "batch", "within", "between"].includes(id) ||
+      method === "zone-group" && ["region", "regionWithin", "overall"].includes(id));
     if (!methods.length) {
       output.push({ ...base, method: CORRELATION_METHODS.find(([id]) => id === method)[1], r: null, n: 0, unit: "n.a.", batches: 0, lots: 0, regions: 0, informativeLots: 0, informativeGroups: 0, rawPairs: 0, status: "No Zone identity for this method." });
     }
