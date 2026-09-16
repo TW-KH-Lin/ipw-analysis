@@ -554,7 +554,16 @@ tr:last-child td {
 }
 .gaussian-axis-controls label { min-width: 0; }
 .gaussian-axis-controls input[type="range"] { padding: 0; min-width: 0; width: 100%; }
-#gaussian-view-error { color: var(--red, #b42318); font-size: 12px; }
+#gaussian-view-error, #trend-view-error { color: var(--red); font-size: 13px; grid-column: 1 / -1; }
+.gaussian-axis-controls label { display: grid; gap: 5px; color: var(--muted); font-size: 13px; font-weight: 700; }
+.panel details > summary { min-height: 44px; padding-top: 10px; padding-bottom: 10px; cursor: pointer; font-weight: 700; overflow-wrap: anywhere; }
+.panel summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.panel input[aria-invalid="true"] { border-color: var(--red); }
+.table-wrap:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+@media (max-width: 619px) {
+  .panel input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  .panel select, .panel textarea, .source-strip select { font-size: 16px; }
+}
 
 #structured-plot-result > label:not([hidden]) {
   display: grid;
@@ -607,7 +616,7 @@ tr:last-child td {
 .chart-card canvas {
   display: block;
   width: 100%;
-  height: 240px;
+  height: 300px;
 }
 
 .trend-chart-grid {
@@ -624,6 +633,7 @@ tr:last-child td {
 }
 
 .period-chart-card { min-width: 0; }
+.period-chart-card:only-child { grid-column: 1 / -1; }
 
 .period-chart-card details {
   margin-top: 10px;

@@ -164,6 +164,10 @@ function enhanceTables(root) {
       ? table.previousElementSibling.querySelector("h2")?.textContent?.trim()
       : "";
     const title = tableTitles.get(table.id) || heading || tableTitleFromContext(table);
+    table.tabIndex = 0;
+    table.setAttribute("role", "region");
+    table.setAttribute("aria-label", title);
+    if (table.parentElement?.matches("details") && table.parentElement.querySelector(":scope > summary")) return;
     const drawer = createDetails(title, "foldable-table", true);
     table.parentElement.insertBefore(drawer, table);
     drawer.append(table);

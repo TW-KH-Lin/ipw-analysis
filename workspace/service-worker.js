@@ -1,14 +1,14 @@
-const CACHE_NAME = "ipw-workspace-v34";
+const CACHE_NAME = "ipw-workspace-v35";
 const APP_SHELL = [
   "./index.html",
-  "./workspace.css?v=1",
+  "./workspace.css?v=2",
   "./workspace-ui.js?v=4",
   "./manifest.webmanifest",
-  "../iphone.css?v=23",
-  "../iphone-app.js?v=73",
+  "../iphone.css?v=24",
+  "../iphone-app.js?v=74",
   "../structured-correlation.js?v=6",
   "../lot-classification.js?v=2",
-  "../foldable-ui.js?v=5",
+  "../foldable-ui.js?v=6",
   "../local-preferences.js?v=1",
   "../analysis.js?v=17",
   "../v90-analysis.js?v=6",

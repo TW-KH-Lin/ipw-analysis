@@ -2411,14 +2411,18 @@ function drawPeriodChart(canvas, result, plotType) {
   if (!values.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas);
   const yExtent = normalized ? paddedExtent([...values, 1]) : integerChartAxis(values);
+  if (normalized) yExtent.ticks = Array.from({ length: 5 }, (_, index) => yExtent.min + (yExtent.max - yExtent.min) * index / 4);
   const pad = { left: 50, right: 12, top: 14, bottom: 42 };
-  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   if (!normalized) pad.left = Math.max(pad.left, ...yExtent.ticks.map((value) => ctx.measureText(formatInteger(value)).width + 12));
+  else pad.left = Math.max(pad.left, ...yExtent.ticks.map(value => ctx.measureText(formatNumber(value, 3)).width + 12));
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
   const yScale = (value) => pad.top + plotHeight - (value - yExtent.min) / (yExtent.max - yExtent.min) * plotHeight;
   ctx.clearRect(0, 0, width, height);
-  if (normalized) drawTrendGrid(ctx, pad, width, height, colors);
+  if (normalized) {
+    drawTrendGrid(ctx, pad, width, height, colors, yExtent, value => formatNumber(value, 3));
+  }
   else {
     ctx.strokeStyle = colors.line;
     ctx.lineWidth = 1;
@@ -2486,14 +2490,10 @@ function drawPeriodChart(canvas, result, plotType) {
     }));
   }
   ctx.fillStyle = colors.muted;
-  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   ctx.textAlign = "center";
   zoneIndexes.forEach((zoneIndex, index) => ctx.fillText(zoneIndex < 6 ? `Z${zoneIndex + 1}` : "All", pad.left + slot * (index + 0.5), height - 15));
-  if (normalized) {
-    ctx.textAlign = "left";
-    ctx.fillText(formatNumber(yExtent.max, 3), 4, pad.top + 8);
-    ctx.fillText(formatNumber(yExtent.min, 3), 4, height - pad.bottom);
-  } else {
+  if (!normalized) {
     ctx.textAlign = "right";
     yExtent.ticks.forEach((value) => ctx.fillText(formatInteger(value), pad.left - 7, yScale(value) + 4));
   }
@@ -4032,7 +4032,7 @@ function drawScatter(canvas, current) {
   const boundsX = paddedExtent(valuesX), boundsY = paddedExtent(valuesY);
   const extentX = integerChartAxis([boundsX.min, boundsX.max]);
   const extentY = integerChartAxis([boundsY.min, boundsY.max]);
-  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   pad.left = Math.max(pad.left, ...extentY.ticks.map(value => ctx.measureText(formatInteger(value)).width + 30));
   pad.right = Math.max(pad.right, ctx.measureText(formatInteger(extentX.max)).width / 2 + 8);
   const plotWidth = width - pad.left - pad.right;
@@ -4080,7 +4080,7 @@ function drawScatter(canvas, current) {
   }
   ctx.restore();
   ctx.fillStyle = colors.ink;
-  ctx.font = "12px Aptos, Calibri, Arial, sans-serif";
+  ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   ctx.textAlign = "center";
   ctx.fillText(current.xParameter || "X", pad.left + plotWidth / 2, height - 8, plotWidth);
   ctx.save();
@@ -4144,7 +4144,7 @@ function drawTrendLineChart(canvas, series) {
   }
   const pad = { left: 48, right: 14, top: 14, bottom: 38 };
   const yExtent = integerChartAxis(finitePoints.map((point) => point.y));
-  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   pad.left = Math.max(pad.left, ...yExtent.ticks.map(value => ctx.measureText(formatInteger(value)).width + 12));
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
@@ -4196,7 +4196,7 @@ function drawTrendBiasChart(canvas, values) {
   const pad = { left: 48, right: 12, top: 14, bottom: 38 };
   const absoluteMax = Math.max(1e-9, ...values.flatMap((item) => [Math.abs(item.meanBias || 0), Math.abs(item.ciLow || 0), Math.abs(item.ciHigh || 0)]));
   const yExtent = integerChartAxis([-absoluteMax * 1.2, absoluteMax * 1.2]);
-  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   pad.left = Math.max(pad.left, ...yExtent.ticks.map(value => ctx.measureText(formatInteger(value)).width + 12));
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
@@ -4229,7 +4229,7 @@ function drawTrendBiasChart(canvas, values) {
       ctx.stroke();
     }
     ctx.fillStyle = colors.muted;
-    ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+    ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(`Z${item.zone}`, x + barWidth / 2, height - 12);
   });
@@ -4240,14 +4240,14 @@ function drawTrendBiasChart(canvas, values) {
   ctx.lineWidth = 1;
   ctx.stroke();
   ctx.fillStyle = colors.muted;
-  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   ctx.textAlign = "left";
 }
 
-function drawTrendGrid(ctx, pad, width, height, colors, yExtent) {
+function drawTrendGrid(ctx, pad, width, height, colors, yExtent, label = formatInteger) {
   ctx.strokeStyle = colors.line;
   ctx.lineWidth = 1;
-  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   ctx.fillStyle = colors.muted;
   ctx.textAlign = "right";
   for (const value of yExtent.ticks) {
@@ -4256,14 +4256,14 @@ function drawTrendGrid(ctx, pad, width, height, colors, yExtent) {
     ctx.moveTo(pad.left, y);
     ctx.lineTo(width - pad.right, y);
     ctx.stroke();
-    ctx.fillText(formatInteger(value), pad.left - 7, y + 4);
+    ctx.fillText(label(value), pad.left - 7, y + 4);
   }
   drawFrame(ctx, pad, width, height, colors);
 }
 
 function drawTrendAxisLabels(ctx, pad, width, height, colors, xExtent, yExtent) {
   ctx.fillStyle = colors.muted;
-  ctx.font = "11px Aptos, Calibri, Arial, sans-serif";
+  ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   ctx.textAlign = "left";
   ctx.fillText(formatTrendDate(xExtent.min), pad.left, height - 12);
   ctx.textAlign = "right";
@@ -4323,7 +4323,7 @@ function drawFrame(ctx, pad, width, height, colors) {
 
 function drawAxisLabels(ctx, pad, width, height, colors, minX, maxX, maxY) {
   ctx.fillStyle = colors.muted;
-  ctx.font = "12px Aptos, Calibri, Arial, sans-serif";
+  ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   ctx.textAlign = "left";
   ctx.fillText(formatNumber(minX, 2), pad.left, height - 10);
   ctx.textAlign = "right";
