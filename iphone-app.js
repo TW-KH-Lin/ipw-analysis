@@ -3271,6 +3271,20 @@ function structuredCorrelationTable(result) {
     ...result.results.map(item => [item.yParameter, item.xParameter, item.method, item.r === null ? "n.a." : item.r, item.n, item.unit, item.batches, item.lots, item.regions, item.informativeLots, item.informativeGroups, item.status])];
 }
 
+function correlationMethodDescription(method) {
+  const descriptions = {
+    "Raw pooled": "Compare all paired measurements.",
+    "MR means": "Average approximately homogeneous Zones within each MR.",
+    "MR means within Lot": "Center MR averages within each Lot.",
+    "Between Lots": "Compare Lot averages.",
+    "Raw data within Lot": "Center raw measurements within each Lot.",
+    "Overall within Lot x Zone": "Center within each Lot and Zone, then combine Zones."
+  };
+  return descriptions[method] || (/^Zone .* within Lot$/.test(method)
+    ? "Center measurements within each Lot at this Zone."
+    : /^Zone .* raw$/.test(method) ? "Compare paired measurements at the same Zone." : "");
+}
+
 function renderStructuredCorrelationTable(result) {
   const [headers, ...rows] = structuredCorrelationTable(result).map(row => [row[2], row[3], row[4], row[0], row[1], ...row.slice(5)]);
   const isZone = method => /^Zone\s/.test(method) || method === "Overall within Lot x Zone";
@@ -3279,7 +3293,7 @@ function renderStructuredCorrelationTable(result) {
     if (!grouped.length) return "";
     return `<table><caption>${zoneGroup ? "Zone-specific methods" : "Overall / MR / Lot methods"}</caption><thead><tr><th>Plot</th>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
     <tbody>${grouped.map(({ row, resultIndex }) => `<tr><td><button type="button" class="command" data-structured-plot="${resultIndex}" ${(result.results[resultIndex].originalResult || result.results[resultIndex]).r === null ? "disabled" : ""}>Plot</button></td>${row.map((cell, index) => index === row.length - 1
-      ? `<td><details><summary>${row[1] === "n.a." ? "Not available" : "Details"}</summary>${escapeHtml(cell)}</details></td>`
+      ? `<td><details><summary>${row[1] === "n.a." ? "Not available" : "Details"}</summary><p>${escapeHtml(correlationMethodDescription(row[0]))}</p>${escapeHtml(cell)}</details></td>`
       : `<td>${formatCell(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
   }).join("");
 }
@@ -3298,6 +3312,7 @@ function plotStructuredCorrelation(index) {
   current.plotIndex = index;
   current.plot = replayStructuredExclusions(result, tableRow.trimHistory || (tableRow.trimOptions ? [{ options: tableRow.trimOptions }] : []));
   byId("structured-plot-result").innerHTML = `<div class="section-heading"><h2>${escapeHtml(result.method)}</h2><button type="button" class="command" id="save-structured-plot">Save PNG</button></div>
+    <p>${escapeHtml(correlationMethodDescription(result.method))}</p>
     <p>X: ${escapeHtml(result.xParameter)} | Y: ${escapeHtml(result.yParameter)} | ${escapeHtml(result.unit)}</p>
     <label>Exclusion method<select id="structured-trim-method"><option value="count">Largest / smallest pairs</option><option value="ratio">Y/X ratio versus current slope (%)</option><option value="line">Y versus current fitted line (%)</option></select></label>
     <label id="structured-percent-control" hidden>Tolerance (+/- %)<input id="structured-trim-percent" type="number" min="0" step="any" value="90"></label>
