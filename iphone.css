@@ -493,6 +493,9 @@ button:focus {
   border-radius: 8px;
   background: var(--surface);
 }
+.correlation-method-guide { margin: 16px 0; }
+.correlation-method-guide > details { margin: 8px 0; }
+.correlation-method-guide img { display: block; width: 100%; height: auto; }
 #preview-table table { min-width: 100%; table-layout: fixed; }
 #preview-table th, #preview-table td { padding: 8px 4px; white-space: normal; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 @media (max-width: 619px) {

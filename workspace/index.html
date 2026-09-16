@@ -11,7 +11,7 @@
     <title>IPW Analysis Workspace</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="../icons/ipw-180.png">
-    <link rel="stylesheet" href="../iphone.css?v=26">
+    <link rel="stylesheet" href="../iphone.css?v=27">
     <link rel="stylesheet" href="workspace.css?v=2">
     <script defer src="../vendor/xlsx.full.min.js"></script>
     <script type="module" src="../iphone-app.js?v=81"></script>
@@ -22,7 +22,7 @@
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW Workspace v42</p>
+          <p class="eyebrow">IPW Workspace v43</p>
           <h1>Quality Analysis</h1>
         </div>
         <div class="header-actions">
@@ -380,6 +380,14 @@
           <label>Expected Zone IDs<input id="correlation-expected-regions" placeholder="1, 2, 4" autocomplete="off" disabled></label>
         </div>
         <button id="run-correlation" class="command primary" type="button" disabled>Run Correlation</button>
+        <details class="correlation-method-guide"><summary>Method illustrations</summary>
+          <details><summary>Overall / MR / Lot methods</summary>
+            <a href="../images/correlation-overall-guide.png" target="_blank" rel="noopener"><img src="../images/correlation-overall-guide.png" alt="Five methods comparing paired measurements, MR averages, centered values and Lot averages" width="1536" height="1024" loading="lazy"></a>
+          </details>
+          <details><summary>Zone-specific methods</summary>
+            <a href="../images/correlation-zone-guide.png" target="_blank" rel="noopener"><img src="../images/correlation-zone-guide.png" alt="Each Zone raw, each Zone centered within Lot, and all centered Lot-Zone measurements pooled" width="1536" height="1024" loading="lazy"></a>
+          </details>
+        </details>
         <div id="correlation-result" class="result-block"></div>
       </section>
 
