@@ -2410,18 +2410,16 @@ function drawPeriodChart(canvas, result, plotType) {
   })).filter(Number.isFinite);
   if (!values.length) return;
   const { ctx, width, height, colors } = setupCanvas(canvas);
-  const yExtent = normalized ? paddedExtent([...values, 1]) : integerChartAxis(values);
-  if (normalized) yExtent.ticks = Array.from({ length: 5 }, (_, index) => yExtent.min + (yExtent.max - yExtent.min) * index / 4);
+  const yExtent = integerChartAxis(normalized ? [...values, 1] : values);
   const pad = { left: 50, right: 12, top: 14, bottom: 42 };
   ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
-  if (!normalized) pad.left = Math.max(pad.left, ...yExtent.ticks.map((value) => ctx.measureText(formatInteger(value)).width + 12));
-  else pad.left = Math.max(pad.left, ...yExtent.ticks.map(value => ctx.measureText(formatNumber(value, 3)).width + 12));
+  pad.left = Math.max(pad.left, ...yExtent.ticks.map((value) => ctx.measureText(formatInteger(value)).width + 12));
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
   const yScale = (value) => pad.top + plotHeight - (value - yExtent.min) / (yExtent.max - yExtent.min) * plotHeight;
   ctx.clearRect(0, 0, width, height);
   if (normalized) {
-    drawTrendGrid(ctx, pad, width, height, colors, yExtent, value => formatNumber(value, 3));
+    drawTrendGrid(ctx, pad, width, height, colors, yExtent);
   }
   else {
     ctx.strokeStyle = colors.line;
@@ -3256,10 +3254,15 @@ function structuredCorrelationTable(result) {
 
 function renderStructuredCorrelationTable(result) {
   const [headers, ...rows] = structuredCorrelationTable(result).map(row => [row[2], row[3], row[4], row[0], row[1], ...row.slice(5)]);
-  return `<table><thead><tr><th>Plot</th>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
-    <tbody>${rows.map((row, resultIndex) => `<tr><td><button type="button" class="command" data-structured-plot="${resultIndex}" ${(result.results[resultIndex].originalResult || result.results[resultIndex]).r === null ? "disabled" : ""}>Plot</button></td>${row.map((cell, index) => index === row.length - 1
+  const isZone = method => /^Zone\s/.test(method) || method === "Overall within Lot x Zone";
+  return [false, true].map(zoneGroup => {
+    const grouped = rows.map((row, resultIndex) => ({ row, resultIndex })).filter(({ row }) => isZone(row[0]) === zoneGroup);
+    if (!grouped.length) return "";
+    return `<table><caption>${zoneGroup ? "Zone-specific methods" : "Non-Zone-specific methods"}</caption><thead><tr><th>Plot</th>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+    <tbody>${grouped.map(({ row, resultIndex }) => `<tr><td><button type="button" class="command" data-structured-plot="${resultIndex}" ${(result.results[resultIndex].originalResult || result.results[resultIndex]).r === null ? "disabled" : ""}>Plot</button></td>${row.map((cell, index) => index === row.length - 1
       ? `<td><details><summary>${row[1] === "n.a." ? "Not available" : "Details"}</summary>${escapeHtml(cell)}</details></td>`
       : `<td>${formatCell(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  }).join("");
 }
 
 function plotStructuredCorrelation(index) {
@@ -3932,12 +3935,15 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
 
 function drawGaussian(canvas, fit, mode = "combined", dimensions) {
   if (!canvas || !fit?.bins?.length) return;
+  const xAxis = integerChartAxis([fit.start, fit.end]);
+  fit = { ...fit, start: xAxis.min, end: xAxis.max };
   const { ctx, width, height, colors } = setupCanvas(canvas, dimensions);
   const fontSize = dimensions ? 18 : 14;
   const pad = { left: 48, right: 12, top: dimensions ? 136 : 120, bottom: 34 };
   const yAxis = integerChartAxis([0, Math.max(1, ...fit.bins.flatMap(bin => [bin.observed, bin.gaussian]))]);
   ctx.font = `${fontSize}px sans-serif`;
   pad.left = Math.max(pad.left, ...yAxis.ticks.map(value => ctx.measureText(formatInteger(value)).width + 14));
+  pad.right = Math.max(pad.right, ctx.measureText(formatInteger(xAxis.max)).width / 2 + 8);
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
   const maxY = yAxis.max;
@@ -3952,6 +3958,14 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
     const y = pad.top + plotHeight - value / maxY * plotHeight;
     ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke();
     ctx.fillText(formatInteger(value), pad.left - 8, y + 5);
+  });
+  ctx.textAlign = "center";
+  const tickWidth = Math.max(...xAxis.ticks.map(value => ctx.measureText(formatInteger(value)).width)) + 12;
+  const tickStride = Math.max(1, Math.ceil(tickWidth / (plotWidth / (xAxis.ticks.length - 1))));
+  xAxis.ticks.forEach((value, index) => {
+    const x = pad.left + (value - fit.start) / (fit.end - fit.start) * plotWidth;
+    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, height - pad.bottom); ctx.stroke();
+    if (index % tickStride === 0) ctx.fillText(formatInteger(value), x, height - 10);
   });
   drawFrame(ctx, pad, width, height, colors);
   ctx.save();
@@ -4015,12 +4029,6 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
     ctx.fillText(label, labelX, labelY, labelWidth);
   });
   ctx.restore();
-  ctx.font = `${fontSize}px sans-serif`;
-  ctx.fillStyle = colors.muted;
-  ctx.textAlign = "left";
-  ctx.fillText(formatNumber(fit.start, 3), pad.left, height - 10);
-  ctx.textAlign = "right";
-  ctx.fillText(formatNumber(fit.end, 3), width - pad.right, height - 10);
 }
 
 function drawScatter(canvas, current) {

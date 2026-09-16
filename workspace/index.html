@@ -11,10 +11,10 @@
     <title>IPW Analysis Workspace</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="../icons/ipw-180.png">
-    <link rel="stylesheet" href="../iphone.css?v=24">
+    <link rel="stylesheet" href="../iphone.css?v=25">
     <link rel="stylesheet" href="workspace.css?v=2">
     <script defer src="../vendor/xlsx.full.min.js"></script>
-    <script type="module" src="../iphone-app.js?v=74"></script>
+    <script type="module" src="../iphone-app.js?v=75"></script>
     <script type="module" src="workspace-ui.js?v=4"></script>
     <script type="module" src="../foldable-ui.js?v=6"></script>
   </head>
@@ -22,7 +22,7 @@
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">IPW Workspace v35</p>
+          <p class="eyebrow">IPW Workspace v36</p>
           <h1>Quality Analysis</h1>
         </div>
         <div class="header-actions">
@@ -368,7 +368,7 @@
         </div>
         <div id="correlation-structured-settings" class="form-grid" hidden>
           <label>Compare<select id="correlation-compare" disabled><option value="one">One X parameter</option><option value="all">All X parameters</option></select></label>
-          <label>Method<select id="correlation-method" disabled><option value="all">All methods</option><option value="raw">Raw pooled</option><option value="batch">MR means</option><option value="within">MR means within Lot</option><option value="between">Between Lots</option><option value="region">Each Zone raw</option><option value="regionWithin">Each Zone within Lot</option><option value="overall">Overall within Lot x Zone</option></select></label>
+          <label>Method<select id="correlation-method" disabled><option value="all">All methods</option><optgroup label="Non-Zone-specific methods"><option value="raw">Raw pooled</option><option value="batch">MR means</option><option value="within">MR means within Lot</option><option value="between">Between Lots</option></optgroup><optgroup label="Zone-specific methods"><option value="region">Each Zone raw</option><option value="regionWithin">Each Zone within Lot</option><option value="overall">Overall within Lot x Zone</option></optgroup></select></label>
           <label>Minimum N per method<input id="correlation-min-n" type="number" min="3" max="3000000" step="1" value="3" disabled></label>
           <label>Zone coverage<select id="correlation-coverage" disabled><option value="available">Available paired Zones</option><option value="strict">All expected Zones</option></select></label>
           <label>Minimum paired Zones / MR<input id="correlation-min-regions" type="number" min="1" max="16384" step="1" value="1" disabled></label>

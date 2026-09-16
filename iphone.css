@@ -540,6 +540,7 @@ tr:last-child td {
   max-width: 360px;
   white-space: normal;
 }
+.structured-correlation-table caption { padding: 14px 10px; text-align: left; font-weight: 700; color: var(--blue-dark); background: var(--surface-soft); }
 
 .mini-table {
   margin-top: 12px;
