@@ -1,0 +1,66 @@
+const CACHE_NAME = "ipw-workspace2-v1";
+const APP_SHELL = [
+  "../images/correlation-overall-guide.png",
+  "../images/correlation-zone-guide.png",
+  "./index.html",
+  "../workspace/workspace.css?v=2",
+  "../workspace/workspace-ui.js?v=4", "./workspace2.css?v=1", "./workspace2-ui.js?v=1",
+  "./manifest.webmanifest",
+  "../iphone.css?v=27",
+  "../iphone-app.js?v=81",
+  "../structured-correlation.js?v=10",
+  "../lot-classification.js?v=2",
+  "../foldable-ui.js?v=6",
+  "../local-preferences.js?v=1",
+  "../analysis.js?v=17",
+  "../v90-analysis.js?v=6",
+  "../clean-data.js?v=2",
+  "../data-management.js?v=4",
+  "../vendor/xlsx.full.min.js",
+  "../icons/ipw-180.png",
+  "../icons/ipw-192.png",
+  "../icons/ipw-512.png"
+];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("ipw-workspace2-") && key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
+
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin || isWorkbookRequest(url)) return;
+
+  if (request.mode === "navigate") {
+    event.respondWith(fetch(request).catch(async () => (await caches.open(CACHE_NAME)).match("./index.html")));
+    return;
+  }
+
+  event.respondWith(
+    caches.open(CACHE_NAME).then((cache) => cache.match(request)).then((cached) => cached || fetch(request).then((response) => {
+      if (response.ok) {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+      }
+      return response;
+    }))
+  );
+});
+
+function isWorkbookRequest(url) {
+  return /\/data\//i.test(url.pathname) || /\.(?:xlsx|xlsm|xlsb|xls)$/i.test(url.pathname);
+}

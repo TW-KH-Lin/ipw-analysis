@@ -1,0 +1,34 @@
+.app-shell { max-width: 1440px; }
+.workspace-switcher { position: static; }
+.workspace2-sidebar { display: none; }
+.screen-tabs { flex-wrap: wrap; overflow: visible; }
+.screen-tab { white-space: normal; }
+.workspace2-sidebar button { display: block; width: 100%; text-align: left; border: 0; border-radius: 4px; padding: 10px 12px; background: transparent; color: var(--ink); margin: 2px 0; }
+.workspace2-sidebar button[aria-current="page"] { background: #e2f1ed; color: #075c4d; font-weight: 700; }
+.workspace2-sidebar h3 { margin: 20px 12px 8px; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.workspace2-view-tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--line); margin: 0 0 20px; }
+.workspace2-view-tabs button { padding: 12px 0; background: transparent; border: 0; border-radius: 0; border-bottom: 3px solid transparent; color: var(--muted); font-weight: 700; }
+.workspace2-view-tabs button[aria-selected="true"] { color: #075c4d; border-bottom-color: #075c4d; }
+.panel[data-workspace-view="settings"] > .foldable-result,
+.panel[data-workspace-view="settings"] > .correlation-method-guide,
+.panel[data-workspace-view="results"] > .analysis-drawer,
+.panel[data-workspace-view="results"] > .correlation-method-guide,
+.panel[data-workspace-view="guide"] > .analysis-drawer,
+.panel[data-workspace-view="guide"] > .foldable-result { display: none; }
+.metric-grid { gap: 0; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.metric { border: 0; border-radius: 0; border-right: 1px solid var(--line); padding: 12px; background: transparent; }
+.foldable-result { border: 0; background: transparent; }
+.foldable-result > summary { border-bottom: 1px solid var(--line); }
+.panel { padding: 20px; }
+.workspace2-scope { padding: 10px 20px; background: #eef3f4; color: var(--muted); font-size: 13px; border-bottom: 1px solid var(--line); }
+@media (min-width: 960px) {
+  .app-shell { padding-left: 220px; position: relative; }
+  .workspace2-sidebar { display: block; position: absolute; left: 0; top: 0; bottom: 0; width: 220px; padding: 16px 10px; border-right: 1px solid var(--line); background: #f8faf9; }
+  .workspace-navigation { display: none; }
+  .workspace-switcher { display: block; padding: 20px; }
+  .app-header { padding: 16px 20px; }
+}
+@media (max-width: 619px) {
+  .panel { padding: 14px; }
+  .workspace2-view-tabs { gap: 16px; }
+}

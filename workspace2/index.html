@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="IPW Workspace 2">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#123f61">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'">
+    <title>IPW Analysis Workspace 2</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="../icons/ipw-180.png">
+    <link rel="stylesheet" href="../iphone.css?v=27">
+    <link rel="stylesheet" href="../workspace/workspace.css?v=2">
+    <link rel="stylesheet" href="workspace2.css?v=1">
+    <script defer src="../vendor/xlsx.full.min.js"></script>
+    <script type="module" src="../iphone-app.js?v=81"></script>
+    <script type="module" src="../workspace/workspace-ui.js?v=4"></script>
+    <script type="module" src="workspace2-ui.js?v=1"></script>
+    <script type="module" src="../foldable-ui.js?v=6"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">IPW Workspace 2 · Preview</p>
+          <h1>Quality Analysis</h1>
+        </div>
+        <div class="header-actions">
+          <a class="classic-link" href="../workspace/">Original version</a>
+          <label class="file-button">
+            <span>Open</span>
+            <input id="workbook-file" type="file" accept=".xlsx,.xlsm,.xls,.xlsb">
+          </label>
+        </div>
+      </header>
+
+      <details id="dataset-drawer" class="dataset-drawer" open>
+        <summary><span>Dataset</span><strong id="dataset-summary">Open workbook</strong></summary>
+        <div class="dataset-drawer-body">
+      <section class="source-strip" aria-label="Workbook source">
+        <label>
+          Source
+          <select id="source-sheet" disabled></select>
+        </label>
+        <label>
+          Filter by
+          <select id="filter-mode" disabled>
+            <option value="all">All data</option>
+            <option value="lots">Selected lots</option>
+            <option value="classification">Classification</option>
+            <option value="classification-keyword">Classification keyword</option>
+          </select>
+        </label>
+        <label>
+          Type
+          <select id="type-filter" disabled></select>
+        </label>
+      </section>
+
+      <section id="classification-keyword-panel" class="filter-options-panel" hidden>
+        <label>Classification contains<input id="classification-keyword" type="search" autocomplete="off" placeholder="Keyword" disabled></label>
+        <p id="classification-keyword-count" class="classification-status" role="status"></p>
+      </section>
+
+      <section id="filter-options-panel" class="filter-options-panel" hidden>
+        <div class="filter-options-heading">
+          <strong id="filter-options-title">Lots</strong>
+          <div class="compact-actions">
+            <button id="select-all-filters" type="button">All</button>
+            <button id="clear-all-filters" type="button">None</button>
+          </div>
+        </div>
+        <div id="filter-options" class="choice-grid"></div>
+      </section>
+
+      <section class="filter-options-panel" aria-label="Lot period">
+        <label class="choice-row"><input id="limit-lot-period" type="checkbox" disabled>Limit to period</label>
+        <div id="lot-period-fields" class="form-grid" hidden>
+          <label>Start date<input id="lot-period-start" type="date" disabled></label>
+          <label>End date<input id="lot-period-end" type="date" disabled></label>
+        </div>
+        <p id="lot-period-status" class="classification-status" role="status">All selected lots; no date limit.</p>
+      </section>
+
+      <div class="local-workbook-action">
+        <button id="load-local-workbook" class="command" type="button">Load Test.xlsx from Mac</button>
+      </div>
+        </div>
+      </details>
+
+      <p id="status" class="status" role="status">Open an IPW workbook.</p>
+      <button id="app-update" class="command" type="button" hidden>App update ready</button>
+
+      <section class="workspace-switcher" aria-label="Workspace navigation">
+        <div class="workspace-current">
+          <p class="workspace-kicker">Current screen</p>
+          <h2 id="workspace-screen-title">Data overview</h2>
+        </div>
+        <div class="workspace-navigation">
+          <div class="workflow-tabs" role="tablist" aria-label="Workflow">
+            <button class="workflow-tab is-active" type="button" data-workflow="prepare" role="tab" aria-selected="true">Prepare</button>
+            <button class="workflow-tab" type="button" data-workflow="analyze" role="tab" aria-selected="false">Analyze</button>
+            <button class="workflow-tab" type="button" data-workflow="quality" role="tab" aria-selected="false">Quality</button>
+            <button class="workflow-tab" type="button" data-workflow="output" role="tab" aria-selected="false">Output</button>
+          </div>
+          <div id="workspace-screen-tabs" class="screen-tabs" role="tablist" aria-label="Functions"></div>
+        </div>
+      </section>
+
+      <nav class="tabbar workspace-tab-proxy" aria-label="Analysis screens" hidden>
+        <button class="tab is-active" type="button" data-panel="data-panel">Data</button>
+        <button class="tab" type="button" data-panel="clean-panel">Clean</button>
+        <button class="tab" type="button" data-panel="classification-panel">Classifications</button>
+        <button class="tab" type="button" data-panel="merge-panel">Merge</button>
+        <button class="tab" type="button" data-panel="labels-panel">Labels</button>
+        <button class="tab" type="button" data-panel="gaussian-panel">Gaussian</button>
+        <button class="tab" type="button" data-panel="trend-panel">Trend</button>
+        <button class="tab" type="button" data-panel="period-panel">Periods</button>
+        <button class="tab" type="button" data-panel="lot-panel">Lot</button>
+        <button class="tab" type="button" data-panel="release-panel">Release</button>
+        <button class="tab" type="button" data-panel="correlation-panel">Correlation</button>
+        <button class="tab" type="button" data-panel="export-panel">Export</button>
+      </nav>
+
+      <section id="data-panel" class="panel is-active" aria-label="Data overview">
+        <div class="metric-grid" id="data-metrics"></div>
+        <div class="section-heading">
+          <h2>Summary</h2>
+          <label>Parameter<select id="summary-parameter" disabled></select></label>
+        </div>
+        <div id="summary-table" class="table-wrap"></div>
+        <div class="section-heading">
+          <h2>Lot parameter viewer</h2>
+        </div>
+        <div class="form-grid">
+          <label>Lot<select id="preview-lot" disabled></select></label>
+          <label>Parameter<select id="preview-parameter" disabled></select></label>
+        </div>
+        <p id="preview-status" role="status"></p>
+        <div id="preview-table" class="table-wrap"></div>
+      </section>
+
+      <section id="clean-panel" class="panel" aria-label="Build clean data">
+        <div class="section-heading"><h2>Build Clean Data</h2></div>
+        <div class="form-grid">
+          <label>Create<select id="clean-output" disabled><option value="clean">Clean_Data</option><option value="corrected">Clean_Data_Cor</option></select></label>
+          <label>Reference temperature (C)<input id="reference-temperature" inputmode="decimal" value="21" disabled></label>
+          <label>Reference humidity (%)<input id="reference-humidity" inputmode="decimal" value="55" disabled></label>
+        </div>
+        <button id="build-clean-data" class="command primary section-command" type="button" disabled>Build Data and Summary</button>
+        <div id="build-result" class="result-block"></div>
+
+        <div class="section-heading">
+          <h2>Generated Summary</h2>
+          <label>Parameter<select id="generated-summary-parameter" disabled></select></label>
+        </div>
+        <div id="generated-summary-table" class="table-wrap"></div>
+
+      </section>
+
+      <section id="classification-panel" class="panel" aria-label="Lots and classification">
+        <div class="section-heading"><h2>Lots &amp; Classification</h2></div>
+        <label>Search lots or classifications<input id="classification-search" type="search" autocomplete="off"></label>
+        <p id="classification-count" class="classification-status"></p>
+        <div id="classification-table" class="table-wrap compact-table"></div>
+        <p id="classification-save-status" class="classification-status" role="status">No pending classification changes</p>
+        <button id="save-classifications" class="command primary section-command" type="button" disabled>Save Classifications to Workbook</button>
+        <div class="section-heading"><h2>Selected Lot</h2></div>
+        <div class="form-grid classification-editor">
+          <label>Lot<select id="classification-lot" disabled></select></label>
+          <label>Classification<input id="classification-value" autocomplete="off" placeholder="Enter classification" disabled></label>
+        </div>
+        <button id="apply-classification" class="command section-command" type="button" disabled>Apply to Lot</button>
+      </section>
+
+      <section id="merge-panel" class="panel" aria-label="Merge new lot workbook">
+        <div class="section-heading"><h2>New Lot Workbook</h2></div>
+        <label class="upload-button">
+          <span>Choose New Lot Excel File</span>
+          <input id="new-lot-file" type="file" accept=".xlsx,.xlsm,.xls,.xlsb" disabled>
+        </label>
+        <div id="merge-preview" class="result-block"><p class="empty-state">No new-lot workbook selected.</p></div>
+        <button id="merge-new-lots" class="command primary section-command" type="button" disabled>Merge New Lots</button>
+      </section>
+
+      <section id="labels-panel" class="panel" aria-label="Data labels">
+        <div class="form-grid">
+          <label>Lot<select id="label-lot" disabled></select></label>
+          <label>MR N<select id="label-batch" disabled></select></label>
+          <label>Machine<select id="label-machine" disabled><option value="">Manual Zone</option><option value="9">Machine 9</option><option value="10">Machine 10</option><option value="17">Machine 17</option></select></label>
+          <label>Roll width<select id="label-roll-width" disabled></select></label>
+          <label>Master roll number<input id="label-roll-number" type="number" min="1" step="1" inputmode="numeric" disabled></label>
+          <label>Zone<select id="label-zone" disabled><option value="1">Zone 1</option><option value="2">Zone 2</option><option value="3">Zone 3</option><option value="4">Zone 4</option><option value="5">Zone 5</option><option value="6">Zone 6</option></select></label>
+        </div>
+        <p id="master-roll-result" class="mapping-result" hidden></p>
+        <fieldset class="zone-fieldset">
+          <legend>Parameters to Save</legend>
+          <div id="label-parameters" class="choice-grid parameter-choice-grid"></div>
+        </fieldset>
+        <div class="form-grid label-text-grid">
+          <label>Label<input id="label-text" autocomplete="off" disabled></label>
+          <label>Comment<textarea id="label-comment" rows="3" disabled></textarea></label>
+          <label>Notes<textarea id="label-notes" rows="3" disabled></textarea></label>
+        </div>
+        <div id="label-selection-preview" class="result-block"></div>
+        <div class="analysis-actions">
+          <button id="save-data-label" class="command primary" type="button" disabled>Save Label to Workbook</button>
+          <button id="remove-data-label" class="command" type="button" disabled>Remove Label</button>
+        </div>
+        <div class="section-heading"><h2>Saved Labels</h2></div>
+        <div id="data-labels-table" class="table-wrap"></div>
+      </section>
+
+      <section id="gaussian-panel" class="panel" aria-label="Gaussian fit">
+        <div class="form-grid">
+          <label>Data scope<select id="gaussian-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
+          <label>Parameter<select id="gaussian-parameter" disabled></select></label>
+          <label>Fit method<select id="gaussian-method" disabled><option value="standard">Standard Gaussian</option><option value="robust-huber">Robust Gaussian (Huber)</option><option value="nacl-truncated">NaCl truncated (legacy), limit 1.0</option></select></label>
+          <label>Bin width<input id="gaussian-bin-width" inputmode="decimal" placeholder="Auto" disabled></label>
+          <label>Start<input id="gaussian-start" inputmode="decimal" placeholder="Auto" disabled></label>
+          <label>End<input id="gaussian-end" inputmode="decimal" placeholder="Auto" disabled></label>
+          <label>Extreme boundary (sigma)<input id="gaussian-extreme-sigma" type="number" min="0.001" step="any" value="3" disabled></label>
+          <label>Extreme side<select id="gaussian-extreme-side" disabled><option>Both</option><option>High</option><option>Low</option></select></label>
+          <label class="choice-row"><input id="gaussian-visible-rows" type="checkbox" disabled>Visible Excel rows only</label>
+        </div>
+        <fieldset class="zone-fieldset">
+          <legend>Zones</legend>
+          <div id="gaussian-zones" class="zone-grid"></div>
+        </fieldset>
+        <div class="analysis-actions">
+          <button id="recommend-gaussian" class="command" type="button" disabled>Recommend Settings</button>
+          <button id="gaussian-full-range" class="command" type="button" disabled>Use Full Range</button>
+          <button id="run-gaussian" class="command primary" type="button" disabled>Run Gaussian Fit</button>
+          <button id="save-gaussian-snapshot" class="command" type="button" disabled>Save Chart Snapshot</button>
+          <button id="export-gaussian-extremes" class="command" type="button" disabled>Export Extreme Cases</button>
+        </div>
+        <div id="gaussian-result" class="result-block"></div>
+        <div id="gaussian-extremes" class="result-block"></div>
+        <div id="gaussian-snapshots" class="result-block"></div>
+      </section>
+
+      <section id="trend-panel" class="panel" aria-label="Parameter trend">
+        <div class="form-grid">
+          <label>Data scope<select id="trend-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
+          <label>Parameter<select id="trend-parameter" disabled></select></label>
+          <label>Start date<input id="trend-start" type="date" disabled></label>
+          <label>End date<input id="trend-end" type="date" disabled></label>
+          <label>Rolling MRs<input id="trend-window" inputmode="numeric" value="5" disabled></label>
+        </div>
+        <button id="run-trend" class="command primary section-command" type="button" disabled>Build Parameter Trend</button>
+        <div id="trend-result" class="result-block"></div>
+      </section>
+
+      <section id="period-panel" class="panel" aria-label="Period and lot comparison">
+        <div class="form-grid">
+          <label>Data scope<select id="period-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
+          <label>Comparison mode<select id="period-mode" disabled><option value="two-periods">2 time periods</option><option value="three-periods">3 time periods</option><option value="lot-vs-period">Lot vs 1 period</option><option value="lot-vs-lot">Lot vs Lot</option></select></label>
+          <label>Parameter<select id="period-parameter" disabled></select></label>
+          <label>Plot<select id="period-plot" disabled><option value="mean">Mean +/- SD</option><option value="normalized">Normalized Zone / All</option></select></label>
+        </div>
+        <fieldset id="period-a-period" class="zone-fieldset">
+          <legend>Dataset A</legend>
+          <div class="form-grid">
+            <label>Start date<input id="period-a-start" type="date" disabled></label>
+            <label>End date<input id="period-a-end" type="date" disabled></label>
+          </div>
+        </fieldset>
+        <fieldset id="period-a-lot" class="zone-fieldset" hidden>
+          <legend>Dataset A</legend>
+          <label>Lot<select id="period-lot" disabled></select></label>
+        </fieldset>
+        <fieldset id="period-b-period" class="zone-fieldset">
+          <legend>Dataset B</legend>
+          <div class="form-grid">
+            <label>Start date<input id="period-b-start" type="date" disabled></label>
+            <label>End date<input id="period-b-end" type="date" disabled></label>
+          </div>
+        </fieldset>
+        <fieldset id="period-b-lot" class="zone-fieldset" hidden>
+          <legend>Dataset B</legend>
+          <label>Lot<select id="period-lot-b" disabled></select></label>
+        </fieldset>
+        <fieldset id="period-c-period" class="zone-fieldset" hidden>
+          <legend>Dataset C</legend>
+          <div class="form-grid">
+            <label>Start date<input id="period-c-start" type="date" disabled></label>
+            <label>End date<input id="period-c-end" type="date" disabled></label>
+          </div>
+        </fieldset>
+        <div class="analysis-actions">
+          <button id="run-period" class="command primary" type="button" disabled>Create Comparison</button>
+          <button id="save-period-plot" class="command" type="button" disabled>Save Plot PNG</button>
+        </div>
+        <div id="period-result" class="result-block"></div>
+      </section>
+
+      <section id="lot-panel" class="panel" aria-label="New lot assessment">
+        <div class="form-grid">
+          <label>Parameter<select id="assessment-parameter" disabled></select></label>
+          <label>Lot<select id="assessment-lot" disabled></select></label>
+          <label>Reference method<select id="assessment-reference" disabled><option value="history">Historical Zone Values</option><option value="filtered">Filtered Lots</option><option value="manual">Manual Mu / Sigma</option><option value="reference-lot">Reference Lot</option><option value="equal-lots">Selected Lots - Equal weight</option></select></label>
+          <label id="assessment-reference-lot-field" hidden>Reference Lot<select id="assessment-reference-lot" disabled></select></label>
+          <label>Historical matching<select id="assessment-granularity" disabled><option value="zone">Zone only</option><option value="batch-zone">MR + Zone</option></select></label>
+          <label>Monitor limit<input id="assessment-monitor" inputmode="decimal" value="2" disabled></label>
+          <label>Out-of-range limit<input id="assessment-outlier" inputmode="decimal" value="3" disabled></label>
+          <label>Manual mu<input id="assessment-mu" inputmode="decimal" placeholder="Manual only" disabled></label>
+          <label>Manual sigma<input id="assessment-sigma" inputmode="decimal" placeholder="Manual only" disabled></label>
+        </div>
+        <details id="assessment-equal-lots-field" class="foldable-section" open hidden>
+          <summary>Reference Lots - Equal weight</summary>
+          <div class="foldable-section-body">
+            <label>Find Lot<input id="assessment-equal-search" type="search" autocomplete="off"></label>
+            <div class="filter-options-heading">
+              <output id="assessment-equal-count" aria-live="polite">0 selected</output>
+              <div class="compact-actions"><button id="assessment-equal-all" type="button">Select all</button><button id="assessment-equal-clear" type="button">Clear</button></div>
+            </div>
+            <div id="assessment-equal-options" class="choice-grid"></div>
+          </div>
+        </details>
+        <div class="analysis-actions">
+          <button id="run-assessment" class="command primary" type="button" disabled>Run Lot Assessment</button>
+        </div>
+        <div id="assessment-result" class="result-block"></div>
+        <details class="foldable-section zm-label-controls" open>
+          <summary>ZM Plan &amp; Labels</summary>
+          <div class="foldable-section-body">
+            <fieldset class="zone-fieldset">
+              <legend>Layout and M/R labels</legend>
+              <div class="form-grid">
+                <label>Layout<select id="zm-layout" disabled><option>ZM17_20mm</option><option>ZM17_25mm</option><option>ZM9_18mm</option><option selected>ZM9_20mm</option><option>ZM9_25mm</option><option>ZM10_20mm</option><option>ZM10_25mm</option></select></label>
+                <label>M/R label<input id="zm-mark-label" autocomplete="off" value="X" maxlength="8" disabled></label>
+                <label>Measurement M<input id="zm-label-measurement" type="number" min="1" max="50" step="1" inputmode="numeric" value="1" disabled></label>
+                <label>Roll R<input id="zm-label-roll" type="number" min="1" step="1" inputmode="numeric" value="1" disabled></label>
+                <label>Coordinates to mark<input id="zm-coordinates" autocomplete="off" placeholder="4/5-20, 31/5" disabled></label>
+              </div>
+              <div class="analysis-actions compact-plan-actions">
+                <button id="apply-zm-label" class="command" type="button" disabled>Apply M/R Label</button>
+                <button id="remove-zm-label" class="command" type="button" disabled>Remove M/R Label</button>
+              </div>
+            </fieldset>
+            <div class="analysis-actions">
+              <button id="show-zm-plan" class="command primary" type="button" disabled>Show ZM Plan</button>
+              <button id="save-zm-plan-png" class="command" type="button" disabled>Save Full ZM Plan PNG</button>
+            </div>
+          </div>
+        </details>
+        <div id="zm-plan-result" class="result-block"></div>
+      </section>
+
+      <section id="release-panel" class="panel" aria-label="Lot release summary">
+        <div class="form-grid">
+          <label>Lot to release<select id="release-lot" disabled></select></label>
+          <label>Reference population<select id="release-reference" disabled><option value="all">All historical rows</option><option value="filtered">Filtered rows</option></select></label>
+          <label>Monitor limit (SD)<input id="release-monitor" inputmode="decimal" value="2" disabled></label>
+          <label>Not OK limit (SD)<input id="release-not-ok" inputmode="decimal" value="3" disabled></label>
+        </div>
+        <div class="analysis-actions">
+          <button id="run-release" class="command primary" type="button" disabled>Create Release Summary</button>
+          <button id="download-release" class="command" type="button" disabled>Release Summary CSV</button>
+        </div>
+        <div id="release-result" class="result-block"></div>
+      </section>
+
+      <section id="correlation-panel" class="panel" aria-label="Correlation plot">
+        <div class="form-grid">
+          <label>Analysis<select id="correlation-analysis" disabled><option value="legacy">Pair plot / pair removal</option><option value="structured">Structured correlation (V93)</option></select></label>
+          <label>Data scope<select id="correlation-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option></select></label>
+          <label>Y parameter<select id="correlation-y" disabled></select></label>
+          <label>X parameter<select id="correlation-x" disabled></select></label>
+          <label>Zone scope<select id="correlation-scope" disabled><option value="all">All matched Zones</option><option value="1">Zone 1</option><option value="2">Zone 2</option><option value="3">Zone 3</option><option value="4">Zone 4</option><option value="5">Zone 5</option><option value="6">Zone 6</option></select></label>
+          <label>Pair removal<select id="correlation-outliers" disabled><option value="keep">Keep all pairs</option><option value="ratio">Remove ratio extremes</option><option value="x-largest">Remove largest X</option><option value="x-smallest">Remove smallest X</option><option value="y-largest">Remove largest Y</option><option value="y-smallest">Remove smallest Y</option></select></label>
+          <label><span id="correlation-removal-label">Maximum removal %</span><input id="correlation-removal" type="number" inputmode="decimal" min="0" max="50" step="0.1" value="0.5" disabled></label>
+        </div>
+        <div id="correlation-structured-settings" class="form-grid" hidden>
+          <label>Compare<select id="correlation-compare" disabled><option value="one">One X parameter</option><option value="all">All X parameters</option></select></label>
+          <label>Method<select id="correlation-method" disabled><optgroup label="Method groups"><option value="all">All methods</option><option value="overall-group">Overall / MR / Lot methods</option><option value="zone-group">Zone-specific methods</option></optgroup><optgroup label="Overall / MR / Lot methods"><option value="raw">Raw pooled</option><option value="batch">MR means</option><option value="within">MR means within Lot</option><option value="between">Between Lots</option><option value="rawWithin">Raw data within Lot</option></optgroup><optgroup label="Zone-specific methods"><option value="region">Each Zone raw</option><option value="regionWithin">Each Zone within Lot</option><option value="overall">Overall within Lot x Zone</option></optgroup></select></label>
+          <label>Minimum N per method<input id="correlation-min-n" type="number" min="3" max="3000000" step="1" value="3" disabled></label>
+          <label>Zone coverage<select id="correlation-coverage" disabled><option value="available">Available paired Zones</option><option value="strict">All expected Zones</option></select></label>
+          <label>Minimum paired Zones / MR<input id="correlation-min-regions" type="number" min="1" max="16384" step="1" value="1" disabled></label>
+          <label>Expected Zone IDs<input id="correlation-expected-regions" placeholder="1, 2, 4" autocomplete="off" disabled></label>
+        </div>
+        <button id="run-correlation" class="command primary" type="button" disabled>Run Correlation</button>
+        <details class="correlation-method-guide"><summary>Method illustrations</summary>
+          <details><summary>Overall / MR / Lot methods</summary>
+            <a href="../images/correlation-overall-guide.png" target="_blank" rel="noopener"><img src="../images/correlation-overall-guide.png" alt="Five methods comparing paired measurements, MR averages, centered values and Lot averages" width="1536" height="1024" loading="lazy"></a>
+          </details>
+          <details><summary>Zone-specific methods</summary>
+            <a href="../images/correlation-zone-guide.png" target="_blank" rel="noopener"><img src="../images/correlation-zone-guide.png" alt="Each Zone raw, each Zone centered within Lot, and all centered Lot-Zone measurements pooled" width="1536" height="1024" loading="lazy"></a>
+          </details>
+        </details>
+        <div id="correlation-result" class="result-block"></div>
+      </section>
+
+      <section id="export-panel" class="panel" aria-label="Export">
+        <div class="form-grid">
+          <label>Parameter<select id="export-parameter" disabled></select></label>
+        </div>
+        <fieldset class="zone-fieldset">
+          <legend>Zones</legend>
+          <div id="export-zones" class="zone-grid"></div>
+        </fieldset>
+        <div class="button-grid">
+          <button id="download-summary" class="command" type="button" disabled>Summary CSV</button>
+          <button id="download-origin" class="command" type="button" disabled>Origin CSV</button>
+          <button id="download-workbook" class="command primary" type="button" disabled>Analysis XLSX</button>
+        </div>
+        <div id="export-result" class="result-block"></div>
+        <details id="device-settings" class="foldable-section">
+          <summary>Device settings</summary>
+          <div class="foldable-section-body">
+            <label class="remember-settings-choice"><input id="remember-settings" type="checkbox" checked>Remember settings on this device</label>
+            <button id="clear-saved-settings" class="command" type="button">Clear saved settings</button>
+          </div>
+        </details>
+      </section>
+    </main>
+    <dialog id="equal-lot-dialog" aria-labelledby="equal-lot-title">
+      <header class="equal-lot-dialog-header"><h2 id="equal-lot-title">Equal Lot reference</h2><form method="dialog"><button class="command" type="submit">Close</button></form></header>
+      <div id="equal-lot-details"></div>
+    </dialog>
+  </body>
+</html>
