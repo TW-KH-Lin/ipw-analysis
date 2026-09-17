@@ -17,6 +17,12 @@
 .panel[data-workspace-view="guide"] > .foldable-result { display: none; }
 .metric-grid { gap: 0; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
 .metric { border: 0; border-radius: 0; border-right: 1px solid var(--line); padding: 12px; background: transparent; }
+.metric { min-width: 0; }
+.metric strong { overflow-wrap: anywhere; }
+#data-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#data-metrics > .metric:first-child { grid-column: 1 / -1; border-right: 0; border-bottom: 1px solid var(--line); }
+#data-metrics > .metric:first-child strong { font-size: 18px; line-height: 1.45; }
+#data-metrics > .metric:last-child { border-right: 0; }
 .foldable-result { border: 0; background: transparent; }
 .foldable-result > summary { border-bottom: 1px solid var(--line); }
 .panel { padding: 20px; }
