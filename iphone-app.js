@@ -3330,7 +3330,8 @@ function plotStructuredCorrelation(index) {
   byId("structured-trim-undo").addEventListener("click", () => runAction(() => {
     current.plot = replayStructuredExclusions(current.originalPlot, current.plot.trimHistory.slice(0, -1));
     drawStructuredPlot();
-    setStatus("Last removal undone. Update table to save this revision.", false, true);
+    updateStructuredTable();
+    setStatus(`Last removal undone. ${current.plot.n} pairs remain; table and plot updated.`, false, true);
   }));
   byId("structured-trim-method").addEventListener("change", () => {
     const count = byId("structured-trim-method").value === "count";
@@ -3362,7 +3363,10 @@ function applyStructuredTrim(reset) {
   current.plot = replayStructuredExclusions(current.originalPlot, steps);
   if (reset) byId("structured-trim-count").value = "0";
   drawStructuredPlot();
-  setStatus("Plot statistics updated. The original correlation table and source data are unchanged.", false, true);
+  updateStructuredTable();
+  const removed = current.plot.trimHistory.at(-1)?.removed || 0;
+  setStatus(reset ? "Exclusions reset. Table and plot restored."
+    : `${removed} pairs removed in this step; ${current.plot.n} remain (${current.plot.excluded} excluded in total). Table and plot updated.`, false, true);
 }
 
 function updateStructuredTable() {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-workspace2-v2";
+const CACHE_NAME = "ipw-workspace2-v3";
 const APP_SHELL = [
   "../images/correlation-overall-guide.png",
   "../images/correlation-zone-guide.png",
@@ -7,7 +7,7 @@ const APP_SHELL = [
   "../workspace/workspace-ui.js?v=4", "./workspace2.css?v=2", "./workspace2-ui.js?v=1",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=81",
+  "../iphone-app.js?v=82",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",
   "../foldable-ui.js?v=6",
