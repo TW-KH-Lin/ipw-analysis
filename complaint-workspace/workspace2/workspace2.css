@@ -1,0 +1,81 @@
+.app-shell { max-width: 1440px; }
+.workspace-switcher { position: static; }
+.workspace2-sidebar { display: none; }
+.screen-tabs { flex-wrap: wrap; overflow: visible; }
+.screen-tab { white-space: normal; }
+.workspace2-sidebar button { display: block; width: 100%; text-align: left; border: 0; border-radius: 4px; padding: 10px 12px; background: transparent; color: var(--ink); margin: 2px 0; }
+.workspace2-sidebar button[aria-current="page"] { background: #e2f1ed; color: #075c4d; font-weight: 700; }
+.workspace2-sidebar h3 { margin: 20px 12px 8px; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.workspace2-view-tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--line); margin: 0 0 20px; }
+.workspace2-view-tabs button { padding: 12px 0; background: transparent; border: 0; border-radius: 0; border-bottom: 3px solid transparent; color: var(--muted); font-weight: 700; }
+.workspace2-view-tabs button[aria-selected="true"] { color: #075c4d; border-bottom-color: #075c4d; }
+.panel[data-workspace-view="settings"] > .foldable-result,
+.panel[data-workspace-view="settings"] > .correlation-method-guide,
+.panel[data-workspace-view="results"] > .analysis-drawer,
+.panel[data-workspace-view="results"] > .correlation-method-guide,
+.panel[data-workspace-view="guide"] > .analysis-drawer,
+.panel[data-workspace-view="guide"] > .foldable-result { display: none; }
+.metric-grid { gap: 0; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.metric { border: 0; border-radius: 0; border-right: 1px solid var(--line); padding: 12px; background: transparent; }
+.metric { min-width: 0; }
+.metric strong { overflow-wrap: anywhere; }
+#data-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#data-metrics > .metric:first-child { grid-column: 1 / -1; border-right: 0; border-bottom: 1px solid var(--line); }
+#data-metrics > .metric:first-child strong { font-size: 18px; line-height: 1.45; }
+#data-metrics > .metric:last-child { border-right: 0; }
+.foldable-result { border: 0; background: transparent; }
+.foldable-result > summary { border-bottom: 1px solid var(--line); }
+.panel { padding: 20px; }
+.workspace2-scope { padding: 10px 20px; background: #eef3f4; color: var(--muted); font-size: 13px; border-bottom: 1px solid var(--line); }
+@media (min-width: 960px) {
+  .app-shell { padding-left: 220px; position: relative; }
+  .workspace2-sidebar { display: block; position: absolute; left: 0; top: 0; bottom: 0; width: 220px; padding: 16px 10px; border-right: 1px solid var(--line); background: #f8faf9; }
+  .workspace-navigation { display: none; }
+  .workspace-switcher { display: block; padding: 20px; }
+  .app-header { padding: 16px 20px; }
+}
+@media (max-width: 619px) {
+  .panel { padding: 14px; }
+  .workspace2-view-tabs { gap: 16px; }
+}
+
+.complaint-context { grid-column: 1 / -1; padding: 1rem; background: #eef5fa; border: 1px solid #bacddd; border-radius: 12px; overflow-wrap: anywhere; }
+.complaint-context[hidden] { display: none; }
+.complaint-context textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 1rem; }
+.complaint-context textarea[hidden] { display: none; }
+.complaint-context details > label { display: block; margin: .7rem 0; }
+.complaint-context details { margin: 1rem 0; }
+.complaint-context details > label > input, .complaint-context details > label > select { display: block; width: 100%; }
+.complaint-reference-lots { max-height: 12rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .3rem; border: 1px solid #bacddd; padding: .5rem; }
+.complaint-reference-lots label, .complaint-context fieldset label { display: flex; align-items: center; gap: .4rem; }
+.complaint-context fieldset { display: flex; flex-wrap: wrap; gap: .8rem; }
+.complaint-comparison-result { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 25rem; overflow: auto; }
+
+#complaint-label-import > label { display:block; margin: .8rem 0; font-weight:600; }
+#complaint-label-import > label > input { display:block; margin-top:.35rem; max-width:100%; }
+#complaint-label-import > button { margin: .25rem .4rem .6rem 0; }
+.complaint-import-review-list { max-height: 26rem; overflow:auto; margin-top:.8rem; }
+.complaint-import-review-list details { background:#fff; padding:.65rem; border:1px solid #bacddd; border-radius:6px; }
+#complaint-label-import details label input[type=checkbox] { display:inline-block; width:auto; margin-right:.5rem; }
+
+#data-labels-table.label-browser { overflow:visible; }
+.label-view-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:1rem; margin:.6rem 0; }
+.label-view-toolbar input { width:min(100%,350px); }
+.label-view-toolbar span { font-size:.85rem; color:#526579; }
+.label-column-picker { padding:.7rem 1rem; margin:.6rem 0 1rem; border:1px solid #ccdae4; border-radius:10px; background:#f6f9fc; }
+.label-column-picker summary { cursor:pointer; font-weight:600; }
+.label-column-picker p { color:#526579; font-size:.85rem; }
+.label-column-picker button { margin:0 .5rem .5rem 0; }
+.label-column-choices { display:flex; flex-wrap:wrap; gap:.55rem; }
+.label-column-choices label { display:flex; align-items:center; gap:.4rem; padding:.4rem .65rem; border:1px solid #d6e0e8; border-radius:7px; background:white; }
+.label-column-choices input[type=checkbox] { width:auto; min-height:0; margin:0; }
+.label-result-scroll { max-height:65vh; overflow:auto; border:1px solid #dae3eb; border-radius:8px; }
+.label-result-scroll table { width:100%; border-collapse:collapse; }
+.label-result-scroll th { position:sticky; top:0; background:#eaf1f7; z-index:1; white-space:nowrap; }
+.label-result-scroll td,.label-result-scroll th { padding:.7rem .8rem; text-align:left; vertical-align:top; }
+.label-result-scroll td:nth-child(4) { min-width:220px; max-width:350px; white-space:pre-line; }
+.label-result-scroll tbody tr:nth-child(even) { background:#f5f8fb; }
+.label-result-scroll td details { min-width:65px; }
+.label-result-scroll td details[open] { min-width:260px; max-width:420px; }
+.label-result-scroll td details summary { cursor:pointer; color:#145a88; }
+.label-result-scroll td details p { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.8rem; }
