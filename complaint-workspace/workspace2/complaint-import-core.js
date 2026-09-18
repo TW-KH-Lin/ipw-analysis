@@ -97,3 +97,14 @@ export function mergeProblemLabels(existing, incoming) {
   }
   return {labels:next,added};
 }
+
+export function resolveComplaintWorkbook(item, library) {
+  const matches=[...library].filter(([,entry])=>{
+    const d=entry.index;if(!d)return false;
+    const lot=d.headers.indexOf('Lot'),mr=d.headers.indexOf('N');
+    return d.rows.some(row=>text(row[lot])===text(item.lot) && Number(row[mr])===Number(item.masterRoll));
+  });
+  if(!matches.length)throw new Error('No Lot/MR match in any loaded workbook.');
+  if(matches.length>1)throw new Error(`Multiple workbooks match this Lot/MR: ${matches.map(([id,e])=>`${e.file.name} [${id}]`).join(', ')}. Remove duplicate or overlapping workbooks before matching.`);
+  const [id,entry]=matches[0];return {id,entry,label:candidateLabel(item,entry.index)};
+}

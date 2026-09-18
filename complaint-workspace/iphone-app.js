@@ -1,5 +1,7 @@
+import { productFamily } from './workspace2/report-import/report-parser.js?v=3';
+import { machineForRegion } from './workspace2/complaint-region.js?v=4';
 import { renderLabelTableView } from './workspace2/label-table-view.js?v=1';
-import { mergeProblemLabels, problemValuesTable } from "./workspace2/complaint-import-core.js?v=7";
+import { mergeProblemLabels, problemValuesTable, candidateLabel, resolveComplaintWorkbook } from "./workspace2/complaint-import-core.js?v=8";
 import { readPreference, writePreference, clearPreferences, setRememberSettings, rememberSettingsEnabled, datasetPreferenceKey } from "./local-preferences.js?v=1";
 import {
   buildCorrelation,
@@ -232,7 +234,20 @@ function restoreAnalysisSettings() {
 }
 
 function bindEvents() {
-  byId("workbook-file").addEventListener("change", (event) => runAction(() => openWorkbook(event.target.files[0])));
+  byId("workbook-file").addEventListener("change", (event) => {
+    const files=[...event.target.files];
+    runAction(()=>byId("active-workbook") ? addWorkbooks(files) : openWorkbook(files[0]));
+  });
+  byId('library-lot-find')?.addEventListener('click',lookupLibraryLot);
+  byId('library-lot-query')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();lookupLibraryLot();}});
+  byId("active-workbook")?.addEventListener("change",event=>runAction(()=>activateWorkbook(event.target.value)));
+  byId('remove-active-workbook')?.addEventListener('click',()=>runAction(async()=>{
+    if(switchingWorkbook || !activeWorkbookId || workbookLibrary.size<2)return;
+    if(!window.confirm('Remove this workbook from this session? Download its changes first. Its complaint matches will need to be checked again.'))return;
+    const removed=activeWorkbookId;const next=[...workbookLibrary.keys()].find(id=>id!==removed);
+    await activateWorkbook(next);workbookLibrary.delete(removed);libraryUndo=null;libraryControls();
+    window.dispatchEvent(new CustomEvent('ipw-complaint-session',{detail:{action:'removed',id:removed}}));
+  }));
   byId("load-local-workbook").addEventListener("click", () => runAction(loadLocalWorkbook));
   byId("new-lot-file").addEventListener("change", (event) => runAction(() => openNewLotWorkbook(event.target.files[0])));
   byId("merge-new-lots").addEventListener("click", () => runAction(mergeNewLots));
@@ -423,6 +438,131 @@ function bindEvents() {
   window.addEventListener("resize", debounce(redrawCharts, 120));
 }
 
+const workbookLibrary=new Map();
+let activeWorkbookId=null, switchingWorkbook=false, workbookSequence=0;
+let libraryUndo=null;
+const sessionFields=['originalData','workbookName','dataLabels','generatedSources','lotClassifications','classificationEdits','classificationsUnsaved','source'];
+function libraryControls() {
+  const select=byId('active-workbook');if(!select)return;
+  select.replaceChildren();
+  for(const [id,entry] of workbookLibrary) select.add(new Option(`${entry.file.name} · ${id}`,id));
+  select.value=activeWorkbookId || '';select.disabled=switchingWorkbook || !workbookLibrary.size;
+  byId('workbook-file').disabled=switchingWorkbook;
+  byId('remove-active-workbook').disabled=switchingWorkbook || workbookLibrary.size<2;
+  byId('workbook-library-status').textContent=`${workbookLibrary.size} workbook(s) available locally. Complaint matching searches all files. Gaussian, Correlation and QC use only the active workbook. Download changes before closing or reloading this tab. Charts are recalculated after switching.`;
+}
+function captureWorkbookSession() {
+  if(!activeWorkbookId || !state.workbook)return;
+  indexActiveWorkbook();
+  workbookLibrary.get(activeWorkbookId).saved={state:structuredClone(Object.fromEntries(sessionFields.map(key=>[key,state[key]])))};
+}
+async function activateWorkbook(id) {
+  if(switchingWorkbook || id===activeWorkbookId)return;
+  const target=workbookLibrary.get(id);if(!target)return;
+  const guard={action:'can-switch',busy:false};window.dispatchEvent(new CustomEvent('ipw-complaint-session',{detail:guard}));
+  if(guard.busy){libraryControls();throw new Error('Wait for complaint processing to finish before switching workbooks.');}
+  captureWorkbookSession();const previous=activeWorkbookId;
+  switchingWorkbook=true;libraryControls();
+  async function load(entry) {
+    const saved=entry.saved;
+    await parseWorkbook(saved?.state.originalData || await entry.file.arrayBuffer(),saved?.state.workbookName || entry.file.name);
+    if(saved){
+      for(const key of sessionFields) if(key!=='source')state[key]=structuredClone(saved.state[key]);
+      refreshSourceSelect(saved.state.source);await selectSource(saved.state.source);
+      
+    }
+  }
+  try {await load(target);activeWorkbookId=id;indexActiveWorkbook();}
+  catch(error){if(previous)await load(workbookLibrary.get(previous));throw error;}
+  finally {switchingWorkbook=false;libraryControls();}
+}
+async function addWorkbooks(files) {
+  if(switchingWorkbook)return;
+  const guard={action:'can-switch',busy:false};window.dispatchEvent(new CustomEvent('ipw-complaint-session',{detail:guard}));
+  if(guard.busy)throw new Error('Wait for complaint processing to finish before adding workbooks.');
+  const added=[];
+  for(const file of files){const id=String(++workbookSequence);workbookLibrary.set(id,{file,saved:null});added.push(id);}
+  byId('workbook-file').value='';libraryControls();
+  const selected=activeWorkbookId || added[0];
+  const failures=[];
+  for(const id of added) {try {await activateWorkbook(id);captureWorkbookSession();} catch(error){failures.push(workbookLibrary.get(id).file.name+': '+error.message);workbookLibrary.delete(id);}}
+  if(selected && workbookLibrary.get(selected)?.index) await activateWorkbook(selected);
+  libraryControls();
+  if(failures.length) setStatus(`Could not read ${failures.join(', ')}. These files were not added; matching can only use successfully loaded workbooks.`,true);
+}
+
+function lookupLibraryLot() {
+  const query=byId('library-lot-query').value.trim(),host=byId('library-lot-results');host.replaceChildren();
+  if(!query){host.textContent='Enter an exact Lot number.';return;}
+  indexActiveWorkbook();let found=0;
+  for(const [id,entry] of workbookLibrary) {
+    const d=entry.index;if(!d)continue;
+    const lot=d.headers.indexOf('Lot'),mr=d.headers.indexOf('N');
+    const rows=d.rows.filter(row=>String(row[lot]).trim()===query);if(!rows.length)continue;found++;
+    const machines=[...new Set(rows.flatMap(row=>machineForRegion(d.rawMachineTable,query,row[mr])))];
+    const membrane=entry.file.name.match(/(?:^|[^a-z])CN[ _-]?(95|110|140|180)(ub)?(?=[^0-9]|$)/i);
+    const rawHeader=d.rawMachineTable.findIndex(row=>row.includes('ChargenNr') && row.includes('FiltertypNr'));
+    const rawTypes=rawHeader<0?[]:[...new Set(d.rawMachineTable.slice(rawHeader+1).filter(row=>String(row[d.rawMachineTable[rawHeader].indexOf('ChargenNr')]).trim()===query).map(row=>row[d.rawMachineTable[rawHeader].indexOf('FiltertypNr')]).filter(Boolean))];
+    const evidence={action:'lot-products',lot:query,products:[]};window.dispatchEvent(new CustomEvent('ipw-complaint-session',{detail:evidence}));
+    const families=[...new Set(evidence.products.map(productFamily).filter(Boolean))];
+    const membraneName=families.length?families.join(', '):membrane?'CN'+membrane[1]+(membrane[2] || ''):rawTypes.length?'Filter type '+rawTypes.join(', '):'Membrane unconfirmed';
+    const card=document.createElement('div');card.className='lot-lookup-card';
+    const title=document.createElement('strong');title.textContent=`Lot ${query} · ${membraneName}`;
+    const info=document.createElement('p');info.textContent=`Machine: ${machines.join(', ') || 'Not found in IPW raw data'} · ${rows.length} IPW row(s)`;
+    const source=document.createElement('p');source.textContent=`Workbook: ${entry.file.name} [${id}]${families.length?' · Membrane from complaint product code.':membrane?' · Membrane inferred from filename; verify product identity.':rawTypes.length?' · Internal filter code from IPW; commercial membrane name not confirmed.':''}`;
+    const open=document.createElement('button');open.type='button';open.textContent='Use this workbook for analysis';open.addEventListener('click',()=>runAction(()=>activateWorkbook(id)));
+    card.append(title,info,source,open);host.append(card);
+  }
+  if(!found)host.textContent='No exact Lot match in the loaded workbooks.';
+}
+
+function indexActiveWorkbook() {
+  if(!activeWorkbookId)return;
+  const headers=state.headers, rows=dataRows(), source=state.source, locations=new Map(state.sourceLocations), columns=[...state.sourceColumns], workbook=state.workbook;
+  workbookLibrary.get(activeWorkbookId).index={headers,rows,source,rawMachineTable:complaintMachines(),
+    locate:row=>({row:locations.get(row)?.row}),
+    isError:(row,column)=>{const address=locations.get(row),c=columns[column];return address && c!=null && workbook.Sheets[source]?.[getXlsx().utils.encode_cell({r:address.row-1,c})]?.t==='e';}};
+}
+function matchLibraryComplaints(items) {
+  indexActiveWorkbook();
+  const unreadable=[...workbookLibrary.values()].filter(entry=>!entry.index);
+  if(unreadable.length)throw new Error('Some Excel files could not be read. Remove them from the workbook list before matching.');
+  const before=new Map([...workbookLibrary].map(([id,entry])=>[id,structuredClone(id===activeWorkbookId?state.dataLabels:entry.saved.state.dataLabels)]));
+  let added=0;
+  for(const item of items.filter(item=>!item.done)) {
+    try {
+      const {id,entry,label}=resolveComplaintWorkbook(item,workbookLibrary);
+      const labels=id===activeWorkbookId?state.dataLabels:entry.saved.state.dataLabels;
+      const merged=mergeProblemLabels(labels,[label]);
+      if(id===activeWorkbookId)state.dataLabels=merged.labels;else entry.saved.state.dataLabels=merged.labels;
+      added+=merged.added;item.workbookId=id;item.sourceWorkbook=entry.file.name;item.sourceSheet=entry.index.source;
+      item.done=true;item.result='Marked or already present in Data labels';
+    } catch(error){item.result=error.message;}
+  }
+  if(added>0)libraryUndo={before,after:new Map([...workbookLibrary].map(([id,entry])=>[id,JSON.stringify(id===activeWorkbookId?state.dataLabels:entry.saved.state.dataLabels)]))};
+  refreshProblemLabels();return added;
+}
+function undoLibraryComplaints() {
+  if(!libraryUndo)throw new Error('No import batch is available to undo.');
+  for(const [id,after] of libraryUndo.after) {
+    const entry=workbookLibrary.get(id);
+    if(!entry || JSON.stringify(id===activeWorkbookId?state.dataLabels:entry.saved.state.dataLabels)!==after)throw new Error('Labels changed after import. Review those changes before undoing.');
+  }
+  for(const [id,labels] of libraryUndo.before){if(id===activeWorkbookId)state.dataLabels=labels;else workbookLibrary.get(id).saved.state.dataLabels=labels;}
+  libraryUndo=null;refreshProblemLabels();
+}
+function libraryProblemValues(review) {
+  indexActiveWorkbook();const tables=[];
+  for(const [id,entry] of workbookLibrary) {
+    const items=review.filter(item=>item.workbookId===id && item.done);
+    if(!items.length || !entry.index)continue;
+    const table=problemValuesTable(items,entry.index);table[0].push('Source workbook');table.slice(1).forEach(row=>row.push(entry.file.name));tables.push(table);
+  }
+  if(!tables.length)return [['Complaint','Lot','MR','FR','Zone','Complaint reason','Source workbook']];
+  const headers=[...new Set(tables.flatMap(table=>table[0]))];
+  return [headers,...tables.flatMap(table=>table.slice(1).map(row=>headers.map(h=>row[table[0].indexOf(h)] ?? '')))];
+}
+
 async function openWorkbook(file) {
   if (!file) return;
   setStatus(`Checking ${file.name}...`);
@@ -438,7 +578,7 @@ async function loadLocalWorkbook() {
 }
 
 async function parseWorkbook(data, fileName) {
-  if (document.querySelector('.complaint-context')) window.dispatchEvent(new CustomEvent('ipw-investigation-dataset', { detail: { workbook: '', source: '', lots: [], parameters: [], headers: [], rows: [] } }));
+  if (document.querySelector('.complaint-context')) window.dispatchEvent(new CustomEvent('ipw-investigation-dataset', { detail: { preserveComplaintReview: Boolean(byId('active-workbook')), workbook: '', source: '', lots: [], parameters: [], headers: [], rows: [] } }));
   const XLSX = getXlsx();
   invalidateGaussian();
   state.sourceLocations.clear();
@@ -1238,9 +1378,9 @@ async function exportComplaintResults(review,retainChecks=[]) {
   const XLSX=getXlsx();
   if(!window.ExcelJS) throw new Error("Excel export library is unavailable. Reload the app and try again.");
   const {buildComplaintWorkbook}=await import('./workspace2/complaint-export.js?v=1');
-  const workbook=buildComplaintWorkbook(window.ExcelJS,problemValuesTable(review,{headers:state.headers,rows:dataRows(),rawMachineTable:complaintMachines(),source:state.source,locate:(row)=>({row:state.sourceLocations.get(row)?.row}),isError:(row,column)=>{const address=state.sourceLocations.get(row),c=state.sourceColumns[column];return Boolean(address && c!==null && c!==undefined && state.workbook?.Sheets[state.source]?.[XLSX.utils.encode_cell({r:address.row-1,c})]?.t==='e');}}),[
+  const workbook=buildComplaintWorkbook(window.ExcelJS,byId("active-workbook") ? libraryProblemValues(review) : problemValuesTable(review,{headers:state.headers,rows:dataRows(),rawMachineTable:complaintMachines(),source:state.source,locate:(row)=>({row:state.sourceLocations.get(row)?.row}),isError:(row,column)=>{const address=state.sourceLocations.get(row),c=state.sourceColumns[column];return Boolean(address && c!==null && c!==undefined && state.workbook?.Sheets[state.source]?.[XLSX.utils.encode_cell({r:address.row-1,c})]?.t==='e');}}),[
     ["Source file","Complaint","Lot","Product","MR","FR","Problem","Result","Reviewed","Source workbook","Source sheet"],
-    ...review.map(item=>[item.sourceFile,item.complaintNo,item.lot,item.materialNo,item.masterRoll,item.finalRoll,item.problem,item.result,item.reviewed ? "Yes" : "No",state.workbookName,state.source])
+    ...review.map(item=>[item.sourceFile,item.complaintNo,item.lot,item.materialNo,item.masterRoll,item.finalRoll,item.problem,item.result,item.reviewed ? "Yes" : "No",item.sourceWorkbook || state.workbookName,item.sourceSheet || state.source])
   ],[["Source file","Complaint","Lot","MR","Report retain Zones","Marked Zones","Result","Evidence"],...retainChecks.map(item=>[item.sourceFile,item.complaintNo,item.lot,item.masterRoll,item.zones.join('/'),item.markedZones.join('/'),item.result,item.evidence])]);
   const bytes=await workbook.xlsx.writeBuffer();
   downloadBlob("IPW_Complaint_Label_Results.xlsx",new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
@@ -1586,7 +1726,7 @@ function renderCurrentData() {
   if (document.querySelector('.complaint-context')) {
     window.dispatchEvent(new CustomEvent('ipw-investigation-dataset', { detail: {
       workbook: state.workbookName, source: state.source,
-      applyComplaintLabels, undoComplaintLabels, saveComplaintLabels, exportComplaintResults, getComplaintLabels:()=>state.dataLabels,
+      applyComplaintLabels, matchLibraryComplaints:byId('active-workbook') ? matchLibraryComplaints : null, undoComplaintLabels:byId('active-workbook') ? undoLibraryComplaints : undoComplaintLabels, saveComplaintLabels, exportComplaintResults, getComplaintLabels:()=>byId('active-workbook') ? [...workbookLibrary].flatMap(([id,entry])=>id===activeWorkbookId ? state.dataLabels : entry.saved?.state.dataLabels || []) : state.dataLabels,
       lots: state.lots.map(String), parameters: [...state.parameters],
       headers: state.headers, rows: dataRows(), rawMachineTable: complaintMachines(),
       locate: (row, column) => {

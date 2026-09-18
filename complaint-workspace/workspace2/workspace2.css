@@ -79,3 +79,12 @@
 .label-result-scroll td details[open] { min-width:260px; max-width:420px; }
 .label-result-scroll td details summary { cursor:pointer; color:#145a88; }
 .label-result-scroll td details p { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.8rem; }
+.workbook-library { padding:.8rem 1.2rem; border-bottom:1px solid #d9e2e9; background:#f3f7fa; }
+.workbook-library label { display:flex; align-items:center; gap:1rem; font-weight:600; }
+.workbook-library select { flex:1; min-width:0; max-width:700px; }
+.workbook-library p { margin:.4rem 0 0; color:#526579; font-size:.8rem; }
+.lot-library-lookup { margin:.7rem 1.2rem; padding:.8rem; border:1px solid #d9e2e9; border-radius:8px; background:white; }
+.lot-library-lookup summary { cursor:pointer; font-weight:600; }
+.lot-library-lookup label { display:inline-flex; align-items:center; gap:.6rem; margin:.8rem; }
+.lot-lookup-card { padding:.8rem; margin:.6rem 0; background:#edf4fa; border-radius:8px; }
+.lot-lookup-card p { margin:.4rem 0; }

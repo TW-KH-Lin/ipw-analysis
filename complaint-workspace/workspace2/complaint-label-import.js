@@ -1,5 +1,5 @@
 import { extractMany } from './report-import/report-parser.js?v=3';
-import { importCandidates, candidateLabel, retainZoneEvidence, checkRetainZones } from './complaint-import-core.js?v=7';
+import { importCandidates, candidateLabel, retainZoneEvidence, checkRetainZones } from './complaint-import-core.js?v=8';
 const host=document.getElementById('complaint-label-import');
 let retainEvidence=[];
 const importedFiles=new Set();
@@ -37,7 +37,7 @@ function render() {
   renderRetain(); list.replaceChildren();
   for(const item of candidates.filter(item=>[item.sourceFile,item.complaintNo,item.lot,item.result].join(' ').toLowerCase().includes(search.value.trim().toLowerCase()))) {
     const card=document.createElement('details'); card.open=false;
-    const heading=document.createElement('summary'); heading.textContent=`${item.sourceFile} · ${item.complaintNo || 'Unidentified case'} · ${item.result || 'Needs review'}`; card.append(heading);
+    const heading=document.createElement('summary'); heading.textContent=`${item.sourceFile} · ${item.complaintNo || 'Unidentified case'} · ${item.sourceWorkbook ? 'IPW: '+item.sourceWorkbook+' · ' : ''} ${item.result || 'Needs review'}`; card.append(heading);
     for(const [key,label] of [['complaintNo','Complaint number'],['lot','Reported Lot'],['materialNo','Product number'],['masterRoll','Master Roll N'],['finalRoll','Final Roll number'],['reason','Complaint reason'],['problem','Reported problem']]) {
       const wrap=document.createElement('label'); wrap.textContent=label;
       const input=document.createElement('input'); input.value=item[key] || ''; input.disabled=item.done; input.setAttribute('aria-label',label);
@@ -51,6 +51,11 @@ function render() {
 }
 function mark() {
   let added=0;
+  if(dataset.matchLibraryComplaints){
+    added=dataset.matchLibraryComplaints(candidates);
+    status.textContent=`${added} problem mark(s) added across loaded workbooks. ${candidates.filter(item=>!item.done).length} item(s) need review. Select each matched workbook to download its labeled copy.`;
+    render();return added;
+  }
   const ready=[], items=[];
   for(const item of candidates.filter(item=>!item.done)) {
     try {ready.push(candidateLabel(item,dataset)); items.push(item);} catch(error) {item.result=error.message;}
@@ -108,7 +113,15 @@ undo.addEventListener('click',()=>{
   catch(error) {status.textContent=error.message;}
 });
 window.addEventListener('ipw-investigation-dataset',event=>{
-  if(!event.detail.workbook) {generation++; undoSnapshot=null; candidates=[]; importedFiles.clear(); retainEvidence=[]; retainView.replaceChildren(); list.replaceChildren(); status.textContent='Open an IPW workbook first.';}
+  if(!event.detail.workbook && !event.detail.preserveComplaintReview) {generation++; undoSnapshot=null; candidates=[]; importedFiles.clear(); retainEvidence=[]; retainView.replaceChildren(); list.replaceChildren(); status.textContent='Open an IPW workbook first.';}
   dataset=event.detail; if(dataset.workbook && !candidates.length) status.textContent="Ready. Open complaint files to mark reported problems."; controls();
 });
 status.textContent='Open an IPW workbook first.'; controls();
+
+window.addEventListener('ipw-complaint-session',event=>{
+  const detail=event.detail;
+  if(detail.action==='lot-products'){detail.products=candidates.filter(item=>String(item.lot)===detail.lot).map(item=>item.materialNo);return;}
+  if(detail.action==='removed'){for(const item of candidates.filter(item=>item.workbookId===detail.id)){item.done=false;item.result='Source workbook removed. Match again after adding the correct file.';delete item.workbookId;delete item.sourceWorkbook;}undoSnapshot=null;render();return;}
+  if(detail.action==='can-switch'){detail.busy=busy;return;}
+
+});
