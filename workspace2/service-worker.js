@@ -1,5 +1,6 @@
-const CACHE_NAME = "ipw-workspace2-v3";
+const CACHE_NAME = "ipw-workspace2-v19-three-source-options";
 const APP_SHELL = [
+  "./source-outliers.js?v=2", "./source-outliers-ui.js?v=2",
   "../images/correlation-overall-guide.png",
   "../images/correlation-zone-guide.png",
   "./index.html",
@@ -7,7 +8,7 @@ const APP_SHELL = [
   "../workspace/workspace-ui.js?v=4", "./workspace2.css?v=2", "./workspace2-ui.js?v=1",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=82",
+  "../workspace2-app.js?v=1",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",
   "../foldable-ui.js?v=6",
