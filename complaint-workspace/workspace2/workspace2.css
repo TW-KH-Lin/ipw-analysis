@@ -97,6 +97,10 @@
 .assessment-plot-toolbar h3 { min-width:0; margin:0; font-size:15px; overflow-wrap:anywhere; }
 .assessment-plot-toolbar .command { flex:0 0 auto; width:auto; min-width:0; min-height:30px; margin-left:auto; padding:4px 10px; font-size:12px; line-height:1.2; white-space:nowrap; }
 #export-gaussian-plot-png { display:inline-block; width:auto; min-width:0; min-height:30px; margin:0 0 8px; padding:4px 10px; font-size:12px; line-height:1.2; }
+.assessment-secondary-manual { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 8px; }
+.assessment-secondary-manual label { display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:700; }
+.assessment-secondary-manual input { width:84px; min-height:30px; padding:4px 6px; font-size:12px; }
+.assessment-primary-manual { display:flex; flex-wrap:wrap; align-items:center; gap:8px; min-height:30px; margin:0 0 8px; color:var(--muted); font-size:12px; font-weight:700; }
 .assessment-range-controls { display:flex; flex-wrap:wrap; align-items:center; gap:5px 8px; margin:0 0 8px; font-size:12px; }
 .assessment-range-controls strong { color:var(--blue-dark); white-space:nowrap; }
 .assessment-range-controls label { display:inline-flex; align-items:center; gap:4px; font-size:12px; }

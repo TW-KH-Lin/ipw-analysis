@@ -340,6 +340,10 @@ function bindEvents() {
     updateSecondaryAssessment(event.target.value);
   });
   byId("assessment-result").addEventListener("input", (event) => {
+    if (event.target.classList.contains("assessment-secondary-manual-input")) {
+      updateSecondaryManualReference(event.target);
+      return;
+    }
     if (event.target.classList.contains("assessment-range-input")) {
       updateAssessmentHighlight(event.target);
       return;
@@ -3224,6 +3228,7 @@ function createAssessment() {
     secondaryParameter: "",
     secondaryAssessment: null,
     secondaryError: "",
+    secondaryManual: { mu: "", sigma: "" },
     highlightRanges: { primary: { min: "", max: "" }, secondary: { min: "", max: "" } }
   };
   renderAssessmentResult();
@@ -3237,10 +3242,26 @@ function buildSecondaryAssessment() {
   current.secondaryAssessment = null;
   current.secondaryError = "";
   if (!current.secondaryParameter) return;
+  const options = { ...current.options, parameter: current.secondaryParameter };
+  if (current.mode === "manual") {
+    const muText = current.secondaryManual.mu.trim();
+    const sigmaText = current.secondaryManual.sigma.trim();
+    if (!muText || !sigmaText) {
+      current.secondaryError = "Enter Manual Mu and Sigma for the second parameter.";
+      return;
+    }
+    const mu = Number(muText), sigma = Number(sigmaText);
+    if (!Number.isFinite(mu) || !Number.isFinite(sigma) || sigma <= 0) {
+      current.secondaryError = "Use a numeric Mu and positive Sigma for the second parameter.";
+      return;
+    }
+    options.manualMu = mu;
+    options.manualSigma = sigma;
+  }
   try {
     current.secondaryAssessment = buildV90LotAssessment(
       state.headers, dataRows(), current.mode === "filtered" ? filteredRows() : dataRows(),
-      { ...current.options, parameter: current.secondaryParameter }
+      options
     );
   } catch (error) {
     current.secondaryError = error.message || "This parameter could not be assessed.";
@@ -3251,13 +3272,26 @@ function updateSecondaryAssessment(parameter) {
   const current = state.lastAssessment;
   if (!current || (parameter && !current.secondaryParameters.includes(parameter))) return;
   current.secondaryParameter = parameter;
+  current.secondaryManual = { mu: "", sigma: "" };
   current.highlightRanges.secondary = { min: "", max: "" };
   buildSecondaryAssessment();
   byId("assessment-plot-grid").classList.toggle("has-secondary", Boolean(parameter));
   byId("assessment-secondary-pane").hidden = !parameter;
   byId("assessment-secondary-title").textContent = parameter;
+  if (current.mode === "manual") {
+    byId("assessment-secondary-manual-mu").value = "";
+    byId("assessment-secondary-manual-sigma").value = "";
+  }
   byId("assessment-range-secondary-min").value = "";
   byId("assessment-range-secondary-max").value = "";
+  renderAssessmentBatchTables();
+}
+
+function updateSecondaryManualReference(input) {
+  const current = state.lastAssessment;
+  if (!current || current.mode !== "manual" || !current.secondaryParameter) return;
+  current.secondaryManual[input.dataset.field] = input.value;
+  buildSecondaryAssessment();
   renderAssessmentBatchTables();
 }
 
@@ -3319,11 +3353,13 @@ function renderAssessmentResult() {
     <div id="assessment-plot-grid" class="assessment-plot-grid ${result.secondaryParameter ? "has-secondary" : ""}">
       <section class="assessment-plot-pane" aria-label="Primary parameter plot">
         <div class="assessment-plot-toolbar"><h3>${escapeHtml(result.parameter)}</h3><button id="export-assessment-png" class="command" type="button">Export PNG</button></div>
+        ${result.mode === "manual" ? `<div class="assessment-primary-manual"><span>Manual Mu: ${formatCell(result.options.manualMu)}</span><span>Manual Sigma: ${formatCell(result.options.manualSigma)}</span></div>` : ""}
         ${assessmentRangeControls("primary", result.highlightRanges.primary)}
         <div id="assessment-batch-table" class="table-wrap"></div>
       </section>
       <section id="assessment-secondary-pane" class="assessment-plot-pane" aria-label="Second parameter plot" ${result.secondaryParameter ? "" : "hidden"}>
         <div class="assessment-plot-toolbar"><h3 id="assessment-secondary-title">${escapeHtml(result.secondaryParameter)}</h3><button id="export-assessment-secondary-png" class="command" type="button" ${result.secondaryAssessment ? "" : "disabled"}>Export PNG</button></div>
+        ${result.mode === "manual" ? `<div class="assessment-secondary-manual"><label>Manual Mu<input id="assessment-secondary-manual-mu" class="assessment-secondary-manual-input" data-field="mu" type="number" step="any" value="${escapeHtml(result.secondaryManual.mu)}"></label><label>Manual Sigma<input id="assessment-secondary-manual-sigma" class="assessment-secondary-manual-input" data-field="sigma" type="number" step="any" value="${escapeHtml(result.secondaryManual.sigma)}"></label></div>` : ""}
         ${assessmentRangeControls("secondary", result.highlightRanges.secondary)}
         <div id="assessment-secondary-table" class="table-wrap"></div>
       </section>
