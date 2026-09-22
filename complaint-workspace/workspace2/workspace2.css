@@ -111,6 +111,6 @@
 #assessment-batch-table th:first-child, #assessment-batch-table td:first-child, #assessment-secondary-table th:first-child, #assessment-secondary-table td:first-child { min-width:48px; }
 .assessment-plot-grid.has-secondary #assessment-batch-table th, .assessment-plot-grid.has-secondary #assessment-batch-table td, .assessment-plot-grid.has-secondary #assessment-secondary-table th, .assessment-plot-grid.has-secondary #assessment-secondary-table td { min-width:0; padding:3px 4px; overflow:hidden; font-size:12px; text-overflow:ellipsis; }
 #assessment-batch-table .assessment-value-button, #assessment-secondary-table .assessment-value-button { padding:0; min-height:0; width:auto; font:inherit; }
-#assessment-batch-table td.assessment-range-match, #assessment-secondary-table td.assessment-range-match { box-shadow:inset 0 0 0 3px #2057c7; font-weight:700; }
+#assessment-batch-table td.assessment-range-match, #assessment-secondary-table td.assessment-range-match { background-image:repeating-linear-gradient(135deg,rgba(214,220,226,.82) 0 2px,transparent 2px 8px); font-weight:700; }
 @media (max-width:1100px) { .assessment-plot-grid.has-secondary { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:650px) { .assessment-plot-grid.has-secondary #assessment-batch-table table, .assessment-plot-grid.has-secondary #assessment-secondary-table table { min-width:520px; } }

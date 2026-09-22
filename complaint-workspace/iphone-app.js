@@ -3361,15 +3361,21 @@ async function exportAssessmentPng(secondary = false) {
   ctx.font='13px sans-serif';
   ctx.fillText(`Lot: ${current.lot} | Parameter: ${parameter} | Source: ${state.source}`,16,48,width-32);
   ctx.fillText(`Reference: ${current.mode} | Matching: ${current.granularity} | ${byId('assessment-batch-status').textContent}`,16,68,width-32);
-  ctx.fillText('Red: above Mu · Green: below Mu · Blue border: selected value range',16,90,width-32);
+  ctx.fillText('Red: above Mu · Green: below Mu · Gray stripes: selected value range',16,90,width-32);
   rows.forEach((row,r)=>{let x=16;row.forEach((cell,c)=>{
-    const style=getComputedStyle(cell), y=top+r*rowHeight;
+    const style=getComputedStyle(cell), y=top+r*rowHeight, cellX=x, cellWidth=widths[c];
     const background=style.backgroundColor;
     ctx.fillStyle=background && background!=='rgba(0, 0, 0, 0)' && background!=='transparent'?background:r===0?'#edf3f6':'#fff';
-    ctx.fillRect(x,y,widths[c],rowHeight);ctx.strokeStyle='#ccd7df';ctx.strokeRect(x,y,widths[c],rowHeight);
+    ctx.fillRect(cellX,y,cellWidth,rowHeight);
+    if(cell.classList.contains('assessment-range-match')){
+      ctx.save();ctx.beginPath();ctx.rect(cellX,y,cellWidth,rowHeight);ctx.clip();
+      ctx.strokeStyle='rgba(214,220,226,0.82)';ctx.lineWidth=2;
+      for(let offset=-rowHeight;offset<cellWidth;offset+=8){ctx.beginPath();ctx.moveTo(cellX+offset,y+rowHeight);ctx.lineTo(cellX+offset+rowHeight,y);ctx.stroke();}
+      ctx.restore();
+    }
+    ctx.strokeStyle='#ccd7df';ctx.strokeRect(cellX,y,cellWidth,rowHeight);
     ctx.fillStyle=style.color || '#172231';ctx.font=r===0?'bold 13px sans-serif':'13px sans-serif';
-    ctx.fillText(cell.textContent.trim(),x+9,y+18,widths[c]-18);x+=widths[c];
-    if(cell.classList.contains('assessment-range-match')){ctx.strokeStyle='#2057c7';ctx.lineWidth=3;ctx.strokeRect(x-widths[c]+2,y+2,widths[c]-4,rowHeight-4);ctx.lineWidth=1;}
+    ctx.fillText(cell.textContent.trim(),cellX+9,y+18,cellWidth-18);x+=cellWidth;
   });});
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
   if(!blob)throw new Error('The browser could not create the PNG. Select fewer MRs and try again.');
