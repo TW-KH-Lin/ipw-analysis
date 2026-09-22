@@ -107,6 +107,10 @@
 .assessment-range-controls input { width:80px; min-height:30px; padding:4px 6px; font-size:12px; }
 .assessment-range-clear { width:auto; min-height:30px; padding:3px 8px; border:1px solid var(--line); border-radius:5px; background:#fff; color:var(--blue-dark); cursor:pointer; font-size:12px; }
 .assessment-range-status { color:var(--muted); font-size:11px; }
+.assessment-shared-control { display:flex; flex-wrap:wrap; align-items:center; gap:5px 12px; margin:0 0 10px; }
+.assessment-shared-control label { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700; }
+.assessment-shared-control input[type="checkbox"] { flex:0 0 18px; width:18px; min-height:18px; margin:0; padding:0; }
+.assessment-shared-control span { color:var(--muted); font-size:11px; }
 #assessment-batch-table, #assessment-secondary-table { width:100%; }
 #assessment-batch-table table, #assessment-secondary-table table { width:max-content; min-width:0; table-layout:auto; }
 .assessment-plot-grid.has-secondary #assessment-batch-table table, .assessment-plot-grid.has-secondary #assessment-secondary-table table { width:100%; min-width:0; table-layout:fixed; }

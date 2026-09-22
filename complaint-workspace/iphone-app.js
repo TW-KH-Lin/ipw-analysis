@@ -336,6 +336,11 @@ function bindEvents() {
     if (clear) clearAssessmentHighlight(clear.dataset.plot);
   });
   byId("assessment-result").addEventListener("change", (event) => {
+    if (event.target.id === "assessment-shared-highlight") {
+      state.lastAssessment.sharedHighlightOnly = event.target.checked;
+      renderAssessmentBatchTables();
+      return;
+    }
     if (event.target.id !== "assessment-secondary-parameter") return;
     updateSecondaryAssessment(event.target.value);
   });
@@ -3229,6 +3234,7 @@ function createAssessment() {
     secondaryAssessment: null,
     secondaryError: "",
     secondaryManual: { mu: "", sigma: "" },
+    sharedHighlightOnly: false,
     highlightRanges: { primary: { min: "", max: "" }, secondary: { min: "", max: "" } }
   };
   renderAssessmentResult();
@@ -3273,6 +3279,7 @@ function updateSecondaryAssessment(parameter) {
   if (!current || (parameter && !current.secondaryParameters.includes(parameter))) return;
   current.secondaryParameter = parameter;
   current.secondaryManual = { mu: "", sigma: "" };
+  current.sharedHighlightOnly = false;
   current.highlightRanges.secondary = { min: "", max: "" };
   buildSecondaryAssessment();
   byId("assessment-plot-grid").classList.toggle("has-secondary", Boolean(parameter));
@@ -3350,6 +3357,7 @@ function renderAssessmentResult() {
     <label>MR N<input id="assessment-batch-filter" type="search" autocomplete="off" placeholder="All MRs" value="${escapeHtml(state.assessmentBatchQuery)}" aria-describedby="assessment-batch-status"></label>
     <p id="assessment-batch-status" class="result-note" role="status"></p>
     <p class="result-note">Higher-than-Mu values shade toward red; lower-than-Mu values shade toward green.</p>
+    <div class="assessment-shared-control"><label><input id="assessment-shared-highlight" type="checkbox" ${result.sharedHighlightOnly ? "checked" : ""} ${result.secondaryAssessment ? "" : "disabled"} aria-describedby="assessment-shared-status">Highlight only matching MR × Zone cells in both parameter ranges</label><span id="assessment-shared-status" role="status"></span></div>
     <div id="assessment-plot-grid" class="assessment-plot-grid ${result.secondaryParameter ? "has-secondary" : ""}">
       <section class="assessment-plot-pane" aria-label="Primary parameter plot">
         <div class="assessment-plot-toolbar"><h3>${escapeHtml(result.parameter)}</h3><button id="export-assessment-png" class="command" type="button">Export PNG</button></div>
@@ -3397,7 +3405,7 @@ async function exportAssessmentPng(secondary = false) {
   ctx.font='13px sans-serif';
   ctx.fillText(`Lot: ${current.lot} | Parameter: ${parameter} | Source: ${state.source}`,16,48,width-32);
   ctx.fillText(`Reference: ${current.mode} | Matching: ${current.granularity} | ${byId('assessment-batch-status').textContent}`,16,68,width-32);
-  ctx.fillText('Red: above Mu · Green: below Mu · Gray stripes: selected value range',16,90,width-32);
+  ctx.fillText(`Red: above Mu · Green: below Mu · Gray stripes: ${current.sharedHighlightOnly ? 'both parameters in range' : 'selected value range'}`,16,90,width-32);
   rows.forEach((row,r)=>{let x=16;row.forEach((cell,c)=>{
     const style=getComputedStyle(cell), y=top+r*rowHeight, cellX=x, cellWidth=widths[c];
     const background=style.backgroundColor;
@@ -3433,23 +3441,36 @@ function renderAssessmentBatchTables() {
   byId("assessment-batch-filter").setAttribute("aria-invalid", String(Boolean(error)));
   byId("assessment-batch-status").textContent = error || `${indexes.length} of ${assessment.grid.length} MR rows shown`;
   const primaryRange = parseAssessmentHighlight(current.highlightRanges.primary);
+  const second = current.secondaryAssessment;
+  const secondaryIndexes = second && !error ? assessmentBatchIndexes(second.grid, state.assessmentBatchQuery) : [];
+  const secondaryRange = parseAssessmentHighlight(current.highlightRanges.secondary);
+  const sharedCheckbox = byId("assessment-shared-highlight");
+  const sharedAvailable = Boolean(second && hasSixAssessmentZones(assessment) && hasSixAssessmentZones(second));
+  sharedCheckbox.disabled = !sharedAvailable;
+  if (!sharedAvailable) current.sharedHighlightOnly = false;
+  sharedCheckbox.checked = current.sharedHighlightOnly;
+  const sharedMode = current.sharedHighlightOnly && sharedAvailable;
+  const shared = sharedMode && primaryRange.range && secondaryRange.range
+    ? findSharedAssessmentMatches(assessment, second, primaryRange.range, secondaryRange.range, indexes, secondaryIndexes)
+    : { primary: new Set(), secondary: new Set(), count: 0 };
+  byId("assessment-shared-status").textContent = !sharedAvailable
+    ? second ? "Both parameters must have Zone 1-6 values." : "Select a second Zone parameter to compare."
+    : sharedMode
+      ? primaryRange.range && secondaryRange.range ? `${shared.count} shared MR × Zone matches shown` : "Set valid From/To ranges for both parameters."
+      : "";
   byId("assessment-range-primary-status").textContent = primaryRange.error || (primaryRange.range
     ? `${countAssessmentHighlights(assessment, indexes, primaryRange.range)} matching cells` : "");
   byId("assessment-batch-table").innerHTML = indexes.length
-    ? renderAssessmentPlotTable(assessment, indexes, primaryRange.range)
+    ? renderAssessmentPlotTable(assessment, indexes, primaryRange.range, sharedMode ? shared.primary : null)
     : '<p class="empty-state">No matching MRs.</p>';
   const secondaryTable = byId("assessment-secondary-table");
   if (secondaryTable) {
-    const second = current.secondaryAssessment;
-    let secondaryIndexes = [];
-    if (second && !error) secondaryIndexes = assessmentBatchIndexes(second.grid, state.assessmentBatchQuery);
-    const secondaryRange = parseAssessmentHighlight(current.highlightRanges.secondary);
     byId("assessment-range-secondary-status").textContent = secondaryRange.error || (second && secondaryRange.range
       ? `${countAssessmentHighlights(second, secondaryIndexes, secondaryRange.range)} matching cells` : "");
     secondaryTable.innerHTML = current.secondaryError
       ? `<p class="empty-state">${escapeHtml(current.secondaryError)}</p>`
       : !second ? '<p class="empty-state">Select a second Zone parameter.</p>'
-        : secondaryIndexes.length ? renderAssessmentPlotTable(second, secondaryIndexes, secondaryRange.range)
+        : secondaryIndexes.length ? renderAssessmentPlotTable(second, secondaryIndexes, secondaryRange.range, sharedMode ? shared.secondary : null)
           : '<p class="empty-state">No matching MRs.</p>';
     byId("export-assessment-secondary-png").disabled = !secondaryIndexes.length || Boolean(error);
   }
@@ -3484,14 +3505,53 @@ function countAssessmentHighlights(assessment, indexes, range) {
   return indexes.reduce((count, index) => count + assessment.grid[index].values.filter((value) => assessmentValueInRange(value, range)).length, 0);
 }
 
-function renderAssessmentPlotTable(assessment, indexes, range) {
+function hasSixAssessmentZones(assessment) {
+  return assessment.columns.length === 6 && ZONES.every((zone) => assessment.columns.some((column) => column.zone === zone));
+}
+
+function assessmentBatchIdentity(value) {
+  return isNumeric(value) ? `n:${number(value)}` : `t:${text(value).toUpperCase()}`;
+}
+
+function findSharedAssessmentMatches(primary, secondary, primaryRange, secondaryRange, primaryIndexes, secondaryIndexes) {
+  const matches = { primary: new Set(), secondary: new Set(), count: 0 };
+  const primaryZones = new Map(primary.columns.map((column, index) => [column.zone, index]));
+  const secondaryZones = new Map(secondary.columns.map((column, index) => [column.zone, index]));
+  const secondaryBatches = new Map();
+  secondary.grid.forEach((row, index) => {
+    const key = assessmentBatchIdentity(row.batch);
+    if (!secondaryBatches.has(key)) secondaryBatches.set(key, []);
+    secondaryBatches.get(key).push(index);
+  });
+  const occurrences = new Map();
+  const visiblePrimary = new Set(primaryIndexes), visibleSecondary = new Set(secondaryIndexes);
+  primary.grid.forEach((row, primaryIndex) => {
+    const key = assessmentBatchIdentity(row.batch);
+    const occurrence = occurrences.get(key) || 0;
+    occurrences.set(key, occurrence + 1);
+    const secondaryIndex = secondaryBatches.get(key)?.[occurrence];
+    if (!visiblePrimary.has(primaryIndex) || !visibleSecondary.has(secondaryIndex)) return;
+    const other = secondary.grid[secondaryIndex];
+    for (const zone of ZONES) {
+      const primaryColumn = primaryZones.get(zone), secondaryColumn = secondaryZones.get(zone);
+      if (assessmentValueInRange(row.values[primaryColumn], primaryRange) && assessmentValueInRange(other.values[secondaryColumn], secondaryRange)) {
+        matches.primary.add(`${primaryIndex}:${primaryColumn}`);
+        matches.secondary.add(`${secondaryIndex}:${secondaryColumn}`);
+      }
+    }
+  });
+  matches.count = matches.primary.size;
+  return matches;
+}
+
+function renderAssessmentPlotTable(assessment, indexes, range, sharedKeys = null) {
   const batchZoneMode = assessment.referenceGranularity === "batch-zone";
   return renderV90AssessmentTable([
     ["MR N", ...assessment.columns.map(column => column.header)],
     ["Mu", ...assessment.columns.map(column => batchZoneMode ? "Per MR" : column.reference.mean)],
     ["Sigma", ...assessment.columns.map(column => batchZoneMode ? "Per MR" : column.reference.sigma)],
     ...indexes.map(index => [assessment.grid[index].batch, ...assessment.grid[index].values])
-  ], assessment, indexes, range);
+  ], assessment, indexes, range, sharedKeys);
 }
 
 function renderAppliedReferenceViewer(assessment, requestedZone) {
@@ -3564,7 +3624,7 @@ function renderV90AssessmentSummary(summaries) {
   </tr>`).join("")}</tbody></table>`;
 }
 
-function renderV90AssessmentTable(rows, assessment, gridIndexes, range = null) {
+function renderV90AssessmentTable(rows, assessment, gridIndexes, range = null, sharedKeys = null) {
   const [headers, ...body] = rows;
   return `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${body.map((row, rowIndex) => {
     const gridIndex = rowIndex >= 2 ? gridIndexes[rowIndex - 2] : null;
@@ -3580,7 +3640,9 @@ function renderV90AssessmentTable(rows, assessment, gridIndexes, range = null) {
         ? `${signedScore > 0 ? "Above" : signedScore < 0 ? "Below" : "At"} Mu: ${formatNumber(signedScore, 2)} SD`
         : "";
       const inspectable = assessment.referenceMode === "equal-lots" && gridRow && columnIndex > 0;
-      const highlighted = Boolean(gridRow && columnIndex > 0 && assessmentValueInRange(row[columnIndex], range));
+      const highlighted = Boolean(gridRow && columnIndex > 0 && (sharedKeys
+        ? sharedKeys.has(`${gridIndex}:${columnIndex - 1}`)
+        : assessmentValueInRange(row[columnIndex], range)));
       const content = inspectable
         ? `<button type="button" class="assessment-value-button" data-row="${gridIndex}" data-column="${columnIndex - 1}" aria-label="Details for MR ${escapeHtml(gridRow.batch)}, ${escapeHtml(headers[columnIndex])}">${formatCell(row[columnIndex]) || "-"}</button>`
         : formatCell(row[columnIndex]);
