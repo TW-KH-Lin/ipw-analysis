@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v17-grouped-labels-ui-library-release1-value-range";
+const CACHE_NAME = "ipw-complaint-workspace-v17-grouped-labels-ui-library-release1-zone-six-fit";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -21,7 +21,7 @@ const APP_SHELL = [
   "../images/correlation-zone-guide.png",
   "./index.html",
   "../workspace/workspace.css?v=2",
-  "../workspace/workspace-ui.js?v=4", "./workspace2.css?v=13", "./workspace2-ui.js?v=1",
+  "../workspace/workspace-ui.js?v=4", "./workspace2.css?v=14", "./workspace2-ui.js?v=1",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
   "../iphone-app.js?v=106",
