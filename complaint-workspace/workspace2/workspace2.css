@@ -114,3 +114,12 @@
 #assessment-batch-table td.assessment-range-match, #assessment-secondary-table td.assessment-range-match { background-image:repeating-linear-gradient(135deg,rgba(214,220,226,.82) 0 2px,transparent 2px 8px); font-weight:700; }
 @media (max-width:1100px) { .assessment-plot-grid.has-secondary { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:650px) { .assessment-plot-grid.has-secondary #assessment-batch-table table, .assessment-plot-grid.has-secondary #assessment-secondary-table table { min-width:520px; } }
+
+/* Paired ZM Plan tabs keep adjacent Zones visible at a compact roll width. */
+#zm-plan-result .zm-view-tabs.zm-plan-tabs { grid-template-columns:repeat(4,minmax(0,1fr)); }
+#zm-plan-result .zm-plan-wrap.is-zone-view { overflow-x:auto; }
+#zm-plan-result .zm-plan-table col.zm-m-col { width:50px; }
+#zm-plan-result .zm-plan-table col.zm-roll-col { width:22px; }
+#zm-plan-result .zm-plan-table th, #zm-plan-result .zm-plan-table td { width:22px; min-width:0; height:22px; padding:1px; font-size:9px; }
+#zm-plan-result .zm-plan-table tr > th:first-child { width:50px; min-width:50px; }
+#zm-plan-result .zm-mark-button { min-height:19px; font-size:8px; }
