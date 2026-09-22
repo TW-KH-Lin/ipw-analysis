@@ -2,6 +2,7 @@ import { productFamily } from './workspace2/report-import/report-parser.js?v=3';
 import { machineForRegion } from './workspace2/complaint-region.js?v=4';
 import { renderLabelTableView } from './workspace2/label-table-view.js?v=1';
 import { mergeProblemLabels, problemValuesTable, candidateLabel, resolveComplaintWorkbook } from "./workspace2/complaint-import-core.js?v=8";
+import { commonRegionalParameters, compareRegionalWorkbooks, comparisonCsvRows } from './workspace2/workbook-comparison.js?v=1';
 import { readPreference, writePreference, clearPreferences, setRememberSettings, rememberSettingsEnabled, datasetPreferenceKey } from "./local-preferences.js?v=1";
 import {
   buildCorrelation,
@@ -241,6 +242,22 @@ function bindEvents() {
   byId('library-lot-find')?.addEventListener('click',lookupLibraryLot);
   byId('library-lot-query')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();lookupLibraryLot();}});
   byId("active-workbook")?.addEventListener("change",event=>runAction(()=>activateWorkbook(event.target.value)));
+  byId('open-workbook-comparison')?.addEventListener('click',()=>{setComparisonMode(true);openPanel('compare-panel');});
+  byId('compare-enabled')?.addEventListener('change',event=>setComparisonMode(event.target.checked));
+  byId('return-single-workbook')?.addEventListener('click',()=>{setComparisonMode(false);openPanel('data-panel');});
+  byId('compare-file-options')?.addEventListener('change',event=>{
+    if(!event.target.matches('input[type="checkbox"]'))return;
+    const id=event.target.value;
+    if(event.target.checked){
+      if(comparisonState.selectedIds.size>=3){event.target.checked=false;byId('compare-status').textContent='Choose no more than 3 workbooks.';return;}
+      comparisonState.selectedIds.add(id);
+    } else comparisonState.selectedIds.delete(id);
+    invalidateWorkbookComparison();renderComparisonControls();
+  });
+  byId('compare-parameter')?.addEventListener('change',invalidateWorkbookComparison);
+  byId('compare-lot')?.addEventListener('input',invalidateWorkbookComparison);
+  byId('run-comparison')?.addEventListener('click',()=>runAction(createWorkbookComparison));
+  byId('download-comparison-csv')?.addEventListener('click',downloadWorkbookComparisonCsv);
   byId('remove-active-workbook')?.addEventListener('click',()=>runAction(async()=>{
     if(switchingWorkbook || !activeWorkbookId || workbookLibrary.size<2)return;
     if(!window.confirm('Remove this workbook from this session? Download its changes first. Its complaint matches will need to be checked again.'))return;
@@ -251,7 +268,7 @@ function bindEvents() {
   byId("load-local-workbook").addEventListener("click", () => runAction(loadLocalWorkbook));
   byId("new-lot-file").addEventListener("change", (event) => runAction(() => openNewLotWorkbook(event.target.files[0])));
   byId("merge-new-lots").addEventListener("click", () => runAction(mergeNewLots));
-  byId("source-sheet").addEventListener("change", () => runAction(() => selectSource(byId("source-sheet").value)));
+  byId("source-sheet").addEventListener("change", () => {invalidateWorkbookComparison();runAction(() => selectSource(byId("source-sheet").value));});
   byId("filter-mode").addEventListener("change", () => {
     invalidateAnalyses();
     renderFilterOptions();
@@ -460,6 +477,7 @@ function bindEvents() {
 const workbookLibrary=new Map();
 let activeWorkbookId=null, switchingWorkbook=false, workbookSequence=0;
 let libraryUndo=null;
+const comparisonState={enabled:false,selectedIds:new Set(),lastResult:null};
 const sessionFields=['originalData','workbookName','dataLabels','generatedSources','lotClassifications','classificationEdits','classificationsUnsaved','source'];
 function libraryControls() {
   const select=byId('active-workbook');if(!select)return;
@@ -468,11 +486,74 @@ function libraryControls() {
   select.value=activeWorkbookId || '';select.disabled=switchingWorkbook || !workbookLibrary.size;
   byId('workbook-file').disabled=switchingWorkbook;
   byId('remove-active-workbook').disabled=switchingWorkbook || workbookLibrary.size<2;
+  byId('open-workbook-comparison').disabled=switchingWorkbook || workbookLibrary.size<2;
   byId('workbook-library-status').textContent=`${workbookLibrary.size} workbook(s) available locally. Complaint matching searches all files. Gaussian, Correlation and QC use only the active workbook. Download changes before closing or reloading this tab. Charts are recalculated after switching.`;
   const summary=byId('workbook-tools-summary');
   if(summary)summary.textContent=activeWorkbookId
     ? `${workbookLibrary.size} workbook(s) · ${workbookLibrary.get(activeWorkbookId)?.file.name || 'Active workbook'}`
     : workbookLibrary.size ? `${workbookLibrary.size} workbook(s) loading` : 'No workbook loaded';
+  renderComparisonControls();
+}
+function setComparisonMode(enabled) {
+  comparisonState.enabled=enabled;
+  if(enabled && comparisonState.selectedIds.size<2){
+    comparisonState.selectedIds=new Set([activeWorkbookId,...workbookLibrary.keys()].filter(Boolean).slice(0,2));
+  }
+  if(!enabled)invalidateWorkbookComparison();
+  renderComparisonControls();
+}
+function invalidateWorkbookComparison() {
+  comparisonState.lastResult=null;
+  byId('download-comparison-csv').disabled=true;
+  byId('compare-result').replaceChildren();
+}
+function renderComparisonControls() {
+  const host=byId('compare-file-options');if(!host)return;
+  for(const id of [...comparisonState.selectedIds])if(!workbookLibrary.has(id)){comparisonState.selectedIds.delete(id);invalidateWorkbookComparison();}
+  const previous=byId('compare-parameter').value;
+  host.replaceChildren();
+  for(const [id,entry] of workbookLibrary){
+    const label=document.createElement('label');label.className='compare-file-choice';
+    const input=document.createElement('input');input.type='checkbox';input.value=id;input.checked=comparisonState.selectedIds.has(id);
+    const name=document.createElement('span');name.textContent=`${entry.file.name} · ${id}${entry.index?.source ? ` · ${entry.index.source}` : ''}`;
+    label.append(input,name);host.append(label);
+  }
+  byId('compare-enabled').checked=comparisonState.enabled;
+  byId('compare-controls').hidden=!comparisonState.enabled;
+  const selected=[...comparisonState.selectedIds].map(id=>workbookLibrary.get(id)).filter(entry=>entry?.index);
+  const parameters=commonRegionalParameters(selected.map(entry=>entry.index));
+  const select=byId('compare-parameter');select.replaceChildren();
+  for(const parameter of parameters)select.add(new Option(parameter,parameter));
+  if(parameters.includes(previous))select.value=previous;
+  select.disabled=parameters.length===0;
+  byId('run-comparison').disabled=!comparisonState.enabled || comparisonState.selectedIds.size<2 || selected.length!==comparisonState.selectedIds.size || !parameters.length || switchingWorkbook;
+  if(!comparisonState.enabled)byId('compare-status').textContent='Single-workbook analysis is active.';
+  else if(comparisonState.selectedIds.size<2)byId('compare-status').textContent='Select at least 2 workbooks.';
+  else if(!parameters.length)byId('compare-status').textContent='No common parameter with all six Zones was found in these workbooks.';
+  else byId('compare-status').textContent=`${comparisonState.selectedIds.size} workbooks selected · ${parameters.length} common Zone parameters.`;
+}
+function createWorkbookComparison() {
+  if(!comparisonState.enabled)throw new Error('Enable comparison mode first.');
+  indexActiveWorkbook();
+  const sources=[...comparisonState.selectedIds].map(id=>{
+    const entry=workbookLibrary.get(id);
+    if(!entry?.index)throw new Error('One selected workbook has not finished loading.');
+    return {id,name:entry.file.name,...entry.index};
+  });
+  const result=compareRegionalWorkbooks(sources,byId('compare-parameter').value,byId('compare-lot').value);
+  comparisonState.lastResult=result;
+  const summary=[['Workbook','Sheet','Machine','Rows','Lots','Values N','Mean','SD','Min','Max','Δ vs first'],
+    ...result.workbooks.map(book=>[book.name,book.source,book.machine,book.rowCount,book.lotCount,book.overall.n,book.overall.mean,book.overall.sigma,book.overall.min,book.overall.max,book.delta])];
+  const zones=[['Zone',...result.workbooks.flatMap(book=>[`${book.name} · Mean`,`${book.name} · N`,`${book.name} · Δ`])],
+    ...Array.from({length:6},(_,index)=>[index+1,...result.workbooks.flatMap((book,bookIndex)=>[
+      book.zones[index].mean,book.zones[index].n,bookIndex===0 || book.zones[index].mean==null || result.workbooks[0].zones[index].mean==null ? null : book.zones[index].mean-result.workbooks[0].zones[index].mean])])];
+  byId('compare-result').innerHTML=`<h3>Workbook summary</h3><div class="table-wrap">${renderTable(summary)}</div><h3>Zone profile · ${escapeHtml(result.parameter)}</h3><p>Δ compares each workbook with the first selected workbook. A blank value means no numeric data.</p><div class="table-wrap">${renderTable(zones)}</div>`;
+  byId('download-comparison-csv').disabled=false;
+  byId('compare-status').textContent=`Comparison complete: ${result.workbooks.length} workbooks · ${result.parameter}${result.exactLot ? ` · Lot ${result.exactLot}` : ' · all lots'}.`;
+}
+function downloadWorkbookComparisonCsv() {
+  const result=comparisonState.lastResult;if(!result)return;
+  downloadText(`IPW_${safeFilePart(result.parameter)}_workbook_comparison.csv`,toCsv(comparisonCsvRows(result)),'text/csv;charset=utf-8');
 }
 function captureWorkbookSession() {
   if(!activeWorkbookId || !state.workbook)return;

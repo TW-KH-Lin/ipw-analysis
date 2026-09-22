@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
   sidebar.setAttribute("aria-label", "Functions");
   const groups = [
     ["Data", [["data", "Data overview"], ["clean", "Clean data"], ["classification", "Lots & classification"], ["merge", "Merge new lots"], ["labels", "Data labels"]]],
-    ["Analysis", [["gaussian", "Gaussian fit"], ["trend", "Parameter trend"], ["period", "Period comparison"], ["correlation", "Correlation"]]],
+    ["Analysis", [["gaussian", "Gaussian fit"], ["trend", "Parameter trend"], ["period", "Period comparison"], ["compare", "Compare workbooks"], ["correlation", "Correlation"]]],
     ["Quality", [["lot", "New lot assessment"], ["release", "Lot release"]]],
     ["Save", [["export", "Save & export"]]]
   ];

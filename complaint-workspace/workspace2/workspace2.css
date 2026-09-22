@@ -131,3 +131,15 @@
 #zm-plan-result .zm-plan-table th, #zm-plan-result .zm-plan-table td { width:22px; min-width:0; height:22px; padding:1px; font-size:9px; }
 #zm-plan-result .zm-plan-table tr > th:first-child { width:50px; min-width:50px; }
 #zm-plan-result .zm-mark-button { min-height:19px; font-size:8px; }
+
+/* Cross-workbook mode keeps source choices and Zone summaries readable without merging datasets. */
+.compare-file-options { display:grid; gap:6px; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); }
+.compare-file-choice { display:flex; align-items:flex-start; gap:8px; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:#f7fafb; overflow-wrap:anywhere; }
+.compare-file-choice input { flex:0 0 auto; width:17px; min-height:17px; margin:2px 0 0; }
+#compare-panel .choice-row { display:inline-flex; align-items:center; gap:8px; margin:8px 0 14px; font-weight:700; }
+#compare-panel .choice-row input { width:18px; min-height:18px; margin:0; }
+#compare-panel .compact-actions { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
+#compare-panel .compact-actions button, #open-workbook-comparison { width:auto; min-height:34px; padding:6px 12px; font-size:13px; }
+#compare-result h3 { margin:18px 0 8px; }
+#compare-result table { width:max-content; min-width:100%; }
+#compare-result th, #compare-result td { padding:5px 9px; font-size:13px; white-space:nowrap; }

@@ -7,6 +7,7 @@ const screenNames = new Map([
   ["gaussian-panel", "Gaussian fit"],
   ["trend-panel", "Parameter trend"],
   ["period-panel", "Period comparison"],
+  ["compare-panel", "Compare workbooks"],
   ["lot-panel", "New lot assessment"],
   ["release-panel", "Lot release"],
   ["correlation-panel", "Correlation"],
@@ -15,7 +16,7 @@ const screenNames = new Map([
 
 const workflows = new Map([
   ["prepare", ["data-panel", "clean-panel", "classification-panel", "merge-panel", "labels-panel"]],
-  ["analyze", ["gaussian-panel", "trend-panel", "period-panel", "correlation-panel"]],
+  ["analyze", ["gaussian-panel", "trend-panel", "period-panel", "compare-panel", "correlation-panel"]],
   ["quality", ["lot-panel", "release-panel"]],
   ["output", ["export-panel"]]
 ]);
