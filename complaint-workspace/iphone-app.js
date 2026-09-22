@@ -332,12 +332,18 @@ function bindEvents() {
   byId("assessment-result").addEventListener("click", (event) => {
     const button = event.target.closest(".assessment-value-button");
     if (button) showEqualLotDetails(Number(button.dataset.row), Number(button.dataset.column), Boolean(button.closest("#assessment-secondary-table")));
+    const clear = event.target.closest(".assessment-range-clear");
+    if (clear) clearAssessmentHighlight(clear.dataset.plot);
   });
   byId("assessment-result").addEventListener("change", (event) => {
     if (event.target.id !== "assessment-secondary-parameter") return;
     updateSecondaryAssessment(event.target.value);
   });
   byId("assessment-result").addEventListener("input", (event) => {
+    if (event.target.classList.contains("assessment-range-input")) {
+      updateAssessmentHighlight(event.target);
+      return;
+    }
     if (event.target.id !== "assessment-batch-filter") return;
     state.assessmentBatchQuery = event.target.value;
     renderAssessmentBatchTables();
@@ -454,6 +460,10 @@ function libraryControls() {
   byId('workbook-file').disabled=switchingWorkbook;
   byId('remove-active-workbook').disabled=switchingWorkbook || workbookLibrary.size<2;
   byId('workbook-library-status').textContent=`${workbookLibrary.size} workbook(s) available locally. Complaint matching searches all files. Gaussian, Correlation and QC use only the active workbook. Download changes before closing or reloading this tab. Charts are recalculated after switching.`;
+  const summary=byId('workbook-tools-summary');
+  if(summary)summary.textContent=activeWorkbookId
+    ? `${workbookLibrary.size} workbook(s) · ${workbookLibrary.get(activeWorkbookId)?.file.name || 'Active workbook'}`
+    : workbookLibrary.size ? `${workbookLibrary.size} workbook(s) loading` : 'No workbook loaded';
 }
 function captureWorkbookSession() {
   if(!activeWorkbookId || !state.workbook)return;
@@ -3213,7 +3223,8 @@ function createAssessment() {
     secondaryParameters,
     secondaryParameter: "",
     secondaryAssessment: null,
-    secondaryError: ""
+    secondaryError: "",
+    highlightRanges: { primary: { min: "", max: "" }, secondary: { min: "", max: "" } }
   };
   renderAssessmentResult();
   byId("show-zm-plan").disabled = parameter === "All parameters" || !zoneColumns(state.headers, parameter)?.every((column) => column >= 0);
@@ -3240,11 +3251,42 @@ function updateSecondaryAssessment(parameter) {
   const current = state.lastAssessment;
   if (!current || (parameter && !current.secondaryParameters.includes(parameter))) return;
   current.secondaryParameter = parameter;
+  current.highlightRanges.secondary = { min: "", max: "" };
   buildSecondaryAssessment();
   byId("assessment-plot-grid").classList.toggle("has-secondary", Boolean(parameter));
   byId("assessment-secondary-pane").hidden = !parameter;
   byId("assessment-secondary-title").textContent = parameter;
+  byId("assessment-range-secondary-min").value = "";
+  byId("assessment-range-secondary-max").value = "";
   renderAssessmentBatchTables();
+}
+
+function updateAssessmentHighlight(input) {
+  const current = state.lastAssessment;
+  if (!current) return;
+  const plot = input.dataset.plot;
+  if (!Object.hasOwn(current.highlightRanges, plot)) return;
+  current.highlightRanges[plot][input.dataset.bound] = input.value;
+  renderAssessmentBatchTables();
+}
+
+function clearAssessmentHighlight(plot) {
+  const current = state.lastAssessment;
+  if (!current || !Object.hasOwn(current.highlightRanges, plot)) return;
+  current.highlightRanges[plot] = { min: "", max: "" };
+  byId(`assessment-range-${plot}-min`).value = "";
+  byId(`assessment-range-${plot}-max`).value = "";
+  renderAssessmentBatchTables();
+}
+
+function assessmentRangeControls(plot, range) {
+  return `<div class="assessment-range-controls" aria-label="${plot === "primary" ? "Primary" : "Second"} parameter value range">
+    <strong>Highlight values</strong>
+    <label>From<input id="assessment-range-${plot}-min" class="assessment-range-input" data-plot="${plot}" data-bound="min" type="number" step="any" value="${escapeHtml(range.min)}"></label>
+    <label>To<input id="assessment-range-${plot}-max" class="assessment-range-input" data-plot="${plot}" data-bound="max" type="number" step="any" value="${escapeHtml(range.max)}"></label>
+    <button type="button" class="assessment-range-clear" data-plot="${plot}">Clear</button>
+    <span id="assessment-range-${plot}-status" class="assessment-range-status" role="status"></span>
+  </div>`;
 }
 
 function renderAssessmentResult() {
@@ -3277,10 +3319,12 @@ function renderAssessmentResult() {
     <div id="assessment-plot-grid" class="assessment-plot-grid ${result.secondaryParameter ? "has-secondary" : ""}">
       <section class="assessment-plot-pane" aria-label="Primary parameter plot">
         <div class="assessment-plot-toolbar"><h3>${escapeHtml(result.parameter)}</h3><button id="export-assessment-png" class="command" type="button">Export PNG</button></div>
+        ${assessmentRangeControls("primary", result.highlightRanges.primary)}
         <div id="assessment-batch-table" class="table-wrap"></div>
       </section>
       <section id="assessment-secondary-pane" class="assessment-plot-pane" aria-label="Second parameter plot" ${result.secondaryParameter ? "" : "hidden"}>
         <div class="assessment-plot-toolbar"><h3 id="assessment-secondary-title">${escapeHtml(result.secondaryParameter)}</h3><button id="export-assessment-secondary-png" class="command" type="button" ${result.secondaryAssessment ? "" : "disabled"}>Export PNG</button></div>
+        ${assessmentRangeControls("secondary", result.highlightRanges.secondary)}
         <div id="assessment-secondary-table" class="table-wrap"></div>
       </section>
     </div>
@@ -3317,7 +3361,7 @@ async function exportAssessmentPng(secondary = false) {
   ctx.font='13px sans-serif';
   ctx.fillText(`Lot: ${current.lot} | Parameter: ${parameter} | Source: ${state.source}`,16,48,width-32);
   ctx.fillText(`Reference: ${current.mode} | Matching: ${current.granularity} | ${byId('assessment-batch-status').textContent}`,16,68,width-32);
-  ctx.fillText('Above Mu: red · Below Mu: green · Blank: no value; uncolored: no reference or summary',16,90,width-32);
+  ctx.fillText('Red: above Mu · Green: below Mu · Blue border: selected value range',16,90,width-32);
   rows.forEach((row,r)=>{let x=16;row.forEach((cell,c)=>{
     const style=getComputedStyle(cell), y=top+r*rowHeight;
     const background=style.backgroundColor;
@@ -3325,6 +3369,7 @@ async function exportAssessmentPng(secondary = false) {
     ctx.fillRect(x,y,widths[c],rowHeight);ctx.strokeStyle='#ccd7df';ctx.strokeRect(x,y,widths[c],rowHeight);
     ctx.fillStyle=style.color || '#172231';ctx.font=r===0?'bold 13px sans-serif':'13px sans-serif';
     ctx.fillText(cell.textContent.trim(),x+9,y+18,widths[c]-18);x+=widths[c];
+    if(cell.classList.contains('assessment-range-match')){ctx.strokeStyle='#2057c7';ctx.lineWidth=3;ctx.strokeRect(x-widths[c]+2,y+2,widths[c]-4,rowHeight-4);ctx.lineWidth=1;}
   });});
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
   if(!blob)throw new Error('The browser could not create the PNG. Select fewer MRs and try again.');
@@ -3345,18 +3390,24 @@ function renderAssessmentBatchTables() {
   }
   byId("assessment-batch-filter").setAttribute("aria-invalid", String(Boolean(error)));
   byId("assessment-batch-status").textContent = error || `${indexes.length} of ${assessment.grid.length} MR rows shown`;
+  const primaryRange = parseAssessmentHighlight(current.highlightRanges.primary);
+  byId("assessment-range-primary-status").textContent = primaryRange.error || (primaryRange.range
+    ? `${countAssessmentHighlights(assessment, indexes, primaryRange.range)} matching cells` : "");
   byId("assessment-batch-table").innerHTML = indexes.length
-    ? renderAssessmentPlotTable(assessment, indexes)
+    ? renderAssessmentPlotTable(assessment, indexes, primaryRange.range)
     : '<p class="empty-state">No matching MRs.</p>';
   const secondaryTable = byId("assessment-secondary-table");
   if (secondaryTable) {
     const second = current.secondaryAssessment;
     let secondaryIndexes = [];
     if (second && !error) secondaryIndexes = assessmentBatchIndexes(second.grid, state.assessmentBatchQuery);
+    const secondaryRange = parseAssessmentHighlight(current.highlightRanges.secondary);
+    byId("assessment-range-secondary-status").textContent = secondaryRange.error || (second && secondaryRange.range
+      ? `${countAssessmentHighlights(second, secondaryIndexes, secondaryRange.range)} matching cells` : "");
     secondaryTable.innerHTML = current.secondaryError
       ? `<p class="empty-state">${escapeHtml(current.secondaryError)}</p>`
       : !second ? '<p class="empty-state">Select a second Zone parameter.</p>'
-        : secondaryIndexes.length ? renderAssessmentPlotTable(second, secondaryIndexes)
+        : secondaryIndexes.length ? renderAssessmentPlotTable(second, secondaryIndexes, secondaryRange.range)
           : '<p class="empty-state">No matching MRs.</p>';
     byId("export-assessment-secondary-png").disabled = !secondaryIndexes.length || Boolean(error);
   }
@@ -3370,14 +3421,35 @@ function renderAssessmentBatchTables() {
   }
 }
 
-function renderAssessmentPlotTable(assessment, indexes) {
+function parseAssessmentHighlight(raw) {
+  const minText = String(raw.min).trim();
+  const maxText = String(raw.max).trim();
+  if (!minText && !maxText) return { range: null, error: "" };
+  if (!minText || !maxText) return { range: null, error: "Enter both limits." };
+  const min = Number(minText), max = Number(maxText);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { range: null, error: "Use numeric limits." };
+  if (min > max) return { range: null, error: "From must be ≤ To." };
+  return { range: { min, max }, error: "" };
+}
+
+function assessmentValueInRange(value, range) {
+  if (!range || value === null || value === undefined || String(value).trim() === "") return false;
+  const measured = Number(value);
+  return Number.isFinite(measured) && measured >= range.min && measured <= range.max;
+}
+
+function countAssessmentHighlights(assessment, indexes, range) {
+  return indexes.reduce((count, index) => count + assessment.grid[index].values.filter((value) => assessmentValueInRange(value, range)).length, 0);
+}
+
+function renderAssessmentPlotTable(assessment, indexes, range) {
   const batchZoneMode = assessment.referenceGranularity === "batch-zone";
   return renderV90AssessmentTable([
     ["MR N", ...assessment.columns.map(column => column.header)],
     ["Mu", ...assessment.columns.map(column => batchZoneMode ? "Per MR" : column.reference.mean)],
     ["Sigma", ...assessment.columns.map(column => batchZoneMode ? "Per MR" : column.reference.sigma)],
     ...indexes.map(index => [assessment.grid[index].batch, ...assessment.grid[index].values])
-  ], assessment, indexes);
+  ], assessment, indexes, range);
 }
 
 function renderAppliedReferenceViewer(assessment, requestedZone) {
@@ -3450,7 +3522,7 @@ function renderV90AssessmentSummary(summaries) {
   </tr>`).join("")}</tbody></table>`;
 }
 
-function renderV90AssessmentTable(rows, assessment, gridIndexes) {
+function renderV90AssessmentTable(rows, assessment, gridIndexes, range = null) {
   const [headers, ...body] = rows;
   return `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${body.map((row, rowIndex) => {
     const gridIndex = rowIndex >= 2 ? gridIndexes[rowIndex - 2] : null;
@@ -3466,10 +3538,12 @@ function renderV90AssessmentTable(rows, assessment, gridIndexes) {
         ? `${signedScore > 0 ? "Above" : signedScore < 0 ? "Below" : "At"} Mu: ${formatNumber(signedScore, 2)} SD`
         : "";
       const inspectable = assessment.referenceMode === "equal-lots" && gridRow && columnIndex > 0;
+      const highlighted = Boolean(gridRow && columnIndex > 0 && assessmentValueInRange(row[columnIndex], range));
       const content = inspectable
         ? `<button type="button" class="assessment-value-button" data-row="${gridIndex}" data-column="${columnIndex - 1}" aria-label="Details for MR ${escapeHtml(gridRow.batch)}, ${escapeHtml(headers[columnIndex])}">${formatCell(row[columnIndex]) || "-"}</button>`
         : formatCell(row[columnIndex]);
-      return `<td${status ? ` class="${statusClass(status)}"` : ""}${style ? ` style="${style}"` : ""}${direction ? ` title="${escapeHtml(direction)}"` : ""}>${content}</td>`;
+      const cellClass = [status ? statusClass(status) : "", highlighted ? "assessment-range-match" : ""].filter(Boolean).join(" ");
+      return `<td${cellClass ? ` class="${cellClass}"` : ""}${style ? ` style="${style}"` : ""}${direction ? ` title="${escapeHtml(direction)}"` : ""}>${content}</td>`;
     }).join("")}</tr>`;
   }).join("")}</tbody></table>`;
 }
