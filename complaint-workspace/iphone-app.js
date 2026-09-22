@@ -3393,10 +3393,11 @@ async function exportAssessmentPng(secondary = false) {
   const parameter=secondary ? current?.secondaryParameter : current?.parameter;
   if(!current || !table || byId('assessment-batch-filter')?.getAttribute('aria-invalid')==='true') throw new Error('Run an assessment and select valid MR rows before exporting.');
   const rows=[...table.rows].map(row=>[...row.cells]);
+  const legendLines=assessmentPngRangeLegend(current,secondary);
   const canvas=document.createElement('canvas'), measure=canvas.getContext('2d');
   measure.font='600 13px sans-serif';
   const widths=rows[0].map((_,c)=>Math.max(64,...rows.map(row=>measure.measureText(row[c]?.textContent.trim() || '').width+22)));
-  const width=widths.reduce((a,b)=>a+b,0)+32, rowHeight=27, top=114, height=top+rows.length*rowHeight+18;
+  const width=widths.reduce((a,b)=>a+b,0)+32, rowHeight=27, top=114+(legendLines.length-1)*18, height=top+rows.length*rowHeight+18;
   if(width>16000 || height>16000 || width*height>24000000) throw new Error('This table is too large for one PNG. Select fewer MRs or a single parameter.');
   const scale=Math.min(2,Math.sqrt(24000000/(width*height)));
   canvas.width=Math.ceil(width*scale);canvas.height=Math.ceil(height*scale);
@@ -3405,7 +3406,7 @@ async function exportAssessmentPng(secondary = false) {
   ctx.font='13px sans-serif';
   ctx.fillText(`Lot: ${current.lot} | Parameter: ${parameter} | Source: ${state.source}`,16,48,width-32);
   ctx.fillText(`Reference: ${current.mode} | Matching: ${current.granularity} | ${byId('assessment-batch-status').textContent}`,16,68,width-32);
-  ctx.fillText(`Red: above Mu · Green: below Mu · Gray stripes: ${current.sharedHighlightOnly ? 'both parameters in range' : 'selected value range'}`,16,90,width-32);
+  legendLines.forEach((line,index)=>ctx.fillText(line,16,90+index*18,width-32));
   rows.forEach((row,r)=>{let x=16;row.forEach((cell,c)=>{
     const style=getComputedStyle(cell), y=top+r*rowHeight, cellX=x, cellWidth=widths[c];
     const background=style.backgroundColor;
@@ -3425,6 +3426,19 @@ async function exportAssessmentPng(secondary = false) {
   if(!blob)throw new Error('The browser could not create the PNG. Select fewer MRs and try again.');
   downloadBlob(`${baseFileName()}_MR_Parameter_Zone_${safeFilePart(current.lot)}_${safeFilePart(parameter)}.png`,blob);
   setStatus('MR × Parameter × Zone PNG downloaded.',false,true);
+}
+
+function assessmentPngRangeLegend(current, secondary) {
+  const rangeText = (raw) => parseAssessmentHighlight(raw).range
+    ? `${text(raw.min)}~${text(raw.max)}` : "not set";
+  const colorLine = "Red: above Mu · Green: below Mu";
+  if (current.sharedHighlightOnly) return [
+    `${colorLine} · Gray stripes: shared MR × Zone`,
+    `${current.parameter} ${rangeText(current.highlightRanges.primary)} AND ${current.secondaryParameter} ${rangeText(current.highlightRanges.secondary)}`
+  ];
+  const parameter = secondary ? current.secondaryParameter : current.parameter;
+  const range = current.highlightRanges[secondary ? "secondary" : "primary"];
+  return [`${colorLine} · Gray stripes: ${parameter} ${rangeText(range)}`];
 }
 
 function renderAssessmentBatchTables() {
