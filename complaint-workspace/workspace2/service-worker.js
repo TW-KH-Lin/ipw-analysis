@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v17-grouped-labels-ui-library-release1";
+const CACHE_NAME = "ipw-complaint-workspace-v17-grouped-labels-ui-library-release1-dual-plots";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -21,10 +21,10 @@ const APP_SHELL = [
   "../images/correlation-zone-guide.png",
   "./index.html",
   "../workspace/workspace.css?v=2",
-  "../workspace/workspace-ui.js?v=4", "./workspace2.css?v=9", "./workspace2-ui.js?v=1",
+  "../workspace/workspace-ui.js?v=4", "./workspace2.css?v=11", "./workspace2-ui.js?v=1",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=101",
+  "../iphone-app.js?v=104",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",
   "../foldable-ui.js?v=6",

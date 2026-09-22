@@ -331,7 +331,11 @@ function bindEvents() {
   byId("assessment-reference-lot").addEventListener("change", invalidateAssessment);
   byId("assessment-result").addEventListener("click", (event) => {
     const button = event.target.closest(".assessment-value-button");
-    if (button) showEqualLotDetails(Number(button.dataset.row), Number(button.dataset.column));
+    if (button) showEqualLotDetails(Number(button.dataset.row), Number(button.dataset.column), Boolean(button.closest("#assessment-secondary-table")));
+  });
+  byId("assessment-result").addEventListener("change", (event) => {
+    if (event.target.id !== "assessment-secondary-parameter") return;
+    updateSecondaryAssessment(event.target.value);
   });
   byId("assessment-result").addEventListener("input", (event) => {
     if (event.target.id !== "assessment-batch-filter") return;
@@ -2172,6 +2176,7 @@ function renderGaussianResult() {
       ${fit.method === "robust-huber" ? metric("Outside histogram (still fitted)", formatInteger(fit.outsideHistogram)) + metric("Huber iterations", fit.iterations) : ""}
     </div>
     <details class="gaussian-chart-section" open><summary>Observed Histogram + Fitted Gaussian</summary>
+      <button id="export-gaussian-plot-png" class="command" type="button">Export PNG</button>
       <details open><summary>X-axis range</summary><div class="gaussian-axis-controls">
         <label>X-axis start<input id="gaussian-view-start" type="number" step="0.1" value="${fit.start}"></label>
         <label>X-axis end<input id="gaussian-view-end" type="number" step="0.1" value="${fit.end}"></label>
@@ -2193,6 +2198,7 @@ function renderGaussianResult() {
       ...fit.bins.slice(0, 40).map((bin) => [bin.center, bin.observed, bin.gaussian])
     ])}</div>
   `;
+  byId('export-gaussian-plot-png').addEventListener('click',()=>runAction(saveGaussianSnapshot));
   requestAnimationFrame(drawGaussianCharts);
   ["start", "end"].forEach(side => {
     byId(`gaussian-view-${side}`).addEventListener("input", updateGaussianView);
@@ -3183,34 +3189,62 @@ function createAssessment() {
   const lot = byId("assessment-lot").value;
   if (!lot) throw new Error("No Lot is available.");
   const mode = byId("assessment-reference").value;
-  const assessment = buildV90LotAssessment(
-    state.headers,
-    dataRows(),
-    mode === "filtered" ? filteredRows() : dataRows(),
-    {
-      parameter,
-      selectedLot: lot,
-      referenceMode: mode,
-      referenceGranularity: byId("assessment-granularity").value,
-      referenceLot: byId("assessment-reference-lot").value,
-      referenceLots: availableEqualReferenceLots().filter((lot) => state.equalReferenceLots.has(assessmentLotKey(lot))),
-      manualMu: optionalNumber("assessment-mu"),
-      manualSigma: optionalNumber("assessment-sigma"),
-      monitorLimit: requiredNumber("assessment-monitor"),
-      outlierLimit: requiredNumber("assessment-outlier")
-    }
-  );
+  const options = {
+    selectedLot: lot,
+    referenceMode: mode,
+    referenceGranularity: byId("assessment-granularity").value,
+    referenceLot: byId("assessment-reference-lot").value,
+    referenceLots: availableEqualReferenceLots().filter((lot) => state.equalReferenceLots.has(assessmentLotKey(lot))),
+    manualMu: optionalNumber("assessment-mu"),
+    manualSigma: optionalNumber("assessment-sigma"),
+    monitorLimit: requiredNumber("assessment-monitor"),
+    outlierLimit: requiredNumber("assessment-outlier")
+  };
+  const assessment = buildV90LotAssessment(state.headers, dataRows(), mode === "filtered" ? filteredRows() : dataRows(), { ...options, parameter });
+  const secondaryParameters = state.v90Parameters.filter((item) => item !== parameter && zoneColumns(state.headers, item)?.every((column) => column >= 0));
   state.lastAssessment = {
     parameter,
     lot,
     mode,
     granularity: assessment.referenceGranularity,
     assessment,
-    referenceViewZone: 1
+    referenceViewZone: 1,
+    options,
+    secondaryParameters,
+    secondaryParameter: "",
+    secondaryAssessment: null,
+    secondaryError: ""
   };
   renderAssessmentResult();
   byId("show-zm-plan").disabled = parameter === "All parameters" || !zoneColumns(state.headers, parameter)?.every((column) => column >= 0);
   setStatus(`Lot assessment: ${assessment.overall}.`, assessment.overall === "NOT OK", assessment.overall === "OK");
+}
+
+function buildSecondaryAssessment() {
+  const current = state.lastAssessment;
+  if (!current) return;
+  current.secondaryAssessment = null;
+  current.secondaryError = "";
+  if (!current.secondaryParameter) return;
+  try {
+    current.secondaryAssessment = buildV90LotAssessment(
+      state.headers, dataRows(), current.mode === "filtered" ? filteredRows() : dataRows(),
+      { ...current.options, parameter: current.secondaryParameter }
+    );
+  } catch (error) {
+    current.secondaryError = error.message || "This parameter could not be assessed.";
+  }
+}
+
+function updateSecondaryAssessment(parameter) {
+  const current = state.lastAssessment;
+  if (!current || (parameter && !current.secondaryParameters.includes(parameter))) return;
+  current.secondaryParameter = parameter;
+  buildSecondaryAssessment();
+  byId("assessment-plot-grid").classList.toggle("has-secondary", Boolean(parameter));
+  byId("assessment-secondary-pane").hidden = !parameter;
+  byId("assessment-secondary-title").textContent = parameter;
+  renderAssessmentBatchTables();
 }
 
 function renderAssessmentResult() {
@@ -3236,11 +3270,20 @@ function renderAssessmentResult() {
       <p class="result-note">Reference lots: ${assessment.referenceLots.map(escapeHtml).join(", ")}</p>` : ""}
     <div class="section-heading"><h2>Whole-lot Parameter Summary</h2></div>
     <div class="table-wrap compact-table">${renderV90AssessmentSummary(assessment.summaries)}</div>
-    <div class="section-heading"><h2>MR x Parameter x Zone</h2></div>
+    <div class="section-heading"><h2>MR x Parameter x Zone</h2>${result.secondaryParameters.length ? `<label>Second parameter (optional)<select id="assessment-secondary-parameter"><option value="">One parameter</option>${result.secondaryParameters.map((item) => `<option value="${escapeHtml(item)}" ${item === result.secondaryParameter ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>` : ""}</div>
     <label>MR N<input id="assessment-batch-filter" type="search" autocomplete="off" placeholder="All MRs" value="${escapeHtml(state.assessmentBatchQuery)}" aria-describedby="assessment-batch-status"></label>
     <p id="assessment-batch-status" class="result-note" role="status"></p>
     <p class="result-note">Higher-than-Mu values shade toward red; lower-than-Mu values shade toward green.</p>
-    <div id="assessment-batch-table" class="table-wrap"></div>
+    <div id="assessment-plot-grid" class="assessment-plot-grid ${result.secondaryParameter ? "has-secondary" : ""}">
+      <section class="assessment-plot-pane" aria-label="Primary parameter plot">
+        <div class="assessment-plot-toolbar"><h3>${escapeHtml(result.parameter)}</h3><button id="export-assessment-png" class="command" type="button">Export PNG</button></div>
+        <div id="assessment-batch-table" class="table-wrap"></div>
+      </section>
+      <section id="assessment-secondary-pane" class="assessment-plot-pane" aria-label="Second parameter plot" ${result.secondaryParameter ? "" : "hidden"}>
+        <div class="assessment-plot-toolbar"><h3 id="assessment-secondary-title">${escapeHtml(result.secondaryParameter)}</h3><button id="export-assessment-secondary-png" class="command" type="button" ${result.secondaryAssessment ? "" : "disabled"}>Export PNG</button></div>
+        <div id="assessment-secondary-table" class="table-wrap"></div>
+      </section>
+    </div>
     ${appliedReferenceTable}
     ${equalLotMode && !batchZoneMode ? `<details class="foldable-section" open><summary>Applied Equal Lot References</summary>
       <div class="table-wrap" data-fold-managed="true">${renderTable([
@@ -3251,7 +3294,42 @@ function renderAssessmentResult() {
   byId("assessment-result").querySelectorAll(".assessment-reference-tab").forEach((button) => {
     button.addEventListener("click", handleAssessmentReferenceView);
   });
+  byId('export-assessment-png').addEventListener('click',()=>runAction(() => exportAssessmentPng(false)));
+  byId('export-assessment-secondary-png').addEventListener('click',()=>runAction(() => exportAssessmentPng(true)));
   renderAssessmentBatchTables();
+}
+
+async function exportAssessmentPng(secondary = false) {
+  const table=byId(secondary ? 'assessment-secondary-table' : 'assessment-batch-table')?.querySelector('table');
+  const current=state.lastAssessment;
+  const parameter=secondary ? current?.secondaryParameter : current?.parameter;
+  if(!current || !table || byId('assessment-batch-filter')?.getAttribute('aria-invalid')==='true') throw new Error('Run an assessment and select valid MR rows before exporting.');
+  const rows=[...table.rows].map(row=>[...row.cells]);
+  const canvas=document.createElement('canvas'), measure=canvas.getContext('2d');
+  measure.font='600 13px sans-serif';
+  const widths=rows[0].map((_,c)=>Math.max(64,...rows.map(row=>measure.measureText(row[c]?.textContent.trim() || '').width+22)));
+  const width=widths.reduce((a,b)=>a+b,0)+32, rowHeight=27, top=114, height=top+rows.length*rowHeight+18;
+  if(width>16000 || height>16000 || width*height>24000000) throw new Error('This table is too large for one PNG. Select fewer MRs or a single parameter.');
+  const scale=Math.min(2,Math.sqrt(24000000/(width*height)));
+  canvas.width=Math.ceil(width*scale);canvas.height=Math.ceil(height*scale);
+  const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
+  ctx.fillStyle='#172231';ctx.font='bold 17px sans-serif';ctx.fillText('MR × Parameter × Zone',16,26);
+  ctx.font='13px sans-serif';
+  ctx.fillText(`Lot: ${current.lot} | Parameter: ${parameter} | Source: ${state.source}`,16,48,width-32);
+  ctx.fillText(`Reference: ${current.mode} | Matching: ${current.granularity} | ${byId('assessment-batch-status').textContent}`,16,68,width-32);
+  ctx.fillText('Above Mu: red · Below Mu: green · Blank: no value; uncolored: no reference or summary',16,90,width-32);
+  rows.forEach((row,r)=>{let x=16;row.forEach((cell,c)=>{
+    const style=getComputedStyle(cell), y=top+r*rowHeight;
+    const background=style.backgroundColor;
+    ctx.fillStyle=background && background!=='rgba(0, 0, 0, 0)' && background!=='transparent'?background:r===0?'#edf3f6':'#fff';
+    ctx.fillRect(x,y,widths[c],rowHeight);ctx.strokeStyle='#ccd7df';ctx.strokeRect(x,y,widths[c],rowHeight);
+    ctx.fillStyle=style.color || '#172231';ctx.font=r===0?'bold 13px sans-serif':'13px sans-serif';
+    ctx.fillText(cell.textContent.trim(),x+9,y+18,widths[c]-18);x+=widths[c];
+  });});
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+  if(!blob)throw new Error('The browser could not create the PNG. Select fewer MRs and try again.');
+  downloadBlob(`${baseFileName()}_MR_Parameter_Zone_${safeFilePart(current.lot)}_${safeFilePart(parameter)}.png`,blob);
+  setStatus('MR × Parameter × Zone PNG downloaded.',false,true);
 }
 
 function renderAssessmentBatchTables() {
@@ -3267,16 +3345,21 @@ function renderAssessmentBatchTables() {
   }
   byId("assessment-batch-filter").setAttribute("aria-invalid", String(Boolean(error)));
   byId("assessment-batch-status").textContent = error || `${indexes.length} of ${assessment.grid.length} MR rows shown`;
-  const batchZoneMode = assessment.referenceGranularity === "batch-zone";
-  const rows = [
-    ["MR N", ...assessment.columns.map(column => column.header)],
-    ["Mu", ...assessment.columns.map(column => batchZoneMode ? "Per MR" : column.reference.mean)],
-    ["Sigma", ...assessment.columns.map(column => batchZoneMode ? "Per MR" : column.reference.sigma)],
-    ...indexes.map(index => [assessment.grid[index].batch, ...assessment.grid[index].values])
-  ];
   byId("assessment-batch-table").innerHTML = indexes.length
-    ? renderV90AssessmentTable(rows, assessment, indexes)
+    ? renderAssessmentPlotTable(assessment, indexes)
     : '<p class="empty-state">No matching MRs.</p>';
+  const secondaryTable = byId("assessment-secondary-table");
+  if (secondaryTable) {
+    const second = current.secondaryAssessment;
+    let secondaryIndexes = [];
+    if (second && !error) secondaryIndexes = assessmentBatchIndexes(second.grid, state.assessmentBatchQuery);
+    secondaryTable.innerHTML = current.secondaryError
+      ? `<p class="empty-state">${escapeHtml(current.secondaryError)}</p>`
+      : !second ? '<p class="empty-state">Select a second Zone parameter.</p>'
+        : secondaryIndexes.length ? renderAssessmentPlotTable(second, secondaryIndexes)
+          : '<p class="empty-state">No matching MRs.</p>';
+    byId("export-assessment-secondary-png").disabled = !secondaryIndexes.length || Boolean(error);
+  }
   const referenceTable = byId("assessment-result").querySelector(".applied-reference-wrap");
   if (referenceTable) {
     const batches = new Set(indexes.map(index => text(assessment.grid[index].batch)));
@@ -3285,6 +3368,16 @@ function renderAssessmentBatchTables() {
       ? renderAppliedReferenceTable(references, current.referenceViewZone, assessment.referenceMode === "equal-lots")
       : '<p class="empty-state">No matching MRs.</p>';
   }
+}
+
+function renderAssessmentPlotTable(assessment, indexes) {
+  const batchZoneMode = assessment.referenceGranularity === "batch-zone";
+  return renderV90AssessmentTable([
+    ["MR N", ...assessment.columns.map(column => column.header)],
+    ["Mu", ...assessment.columns.map(column => batchZoneMode ? "Per MR" : column.reference.mean)],
+    ["Sigma", ...assessment.columns.map(column => batchZoneMode ? "Per MR" : column.reference.sigma)],
+    ...indexes.map(index => [assessment.grid[index].batch, ...assessment.grid[index].values])
+  ], assessment, indexes);
 }
 
 function renderAppliedReferenceViewer(assessment, requestedZone) {
@@ -3381,8 +3474,8 @@ function renderV90AssessmentTable(rows, assessment, gridIndexes) {
   }).join("")}</tbody></table>`;
 }
 
-function showEqualLotDetails(rowIndex, columnIndex) {
-  const assessment = state.lastAssessment?.assessment;
+function showEqualLotDetails(rowIndex, columnIndex, secondary = false) {
+  const assessment = secondary ? state.lastAssessment?.secondaryAssessment : state.lastAssessment?.assessment;
   if (assessment?.referenceMode !== "equal-lots") return;
   const row = assessment.grid[rowIndex];
   const column = assessment.columns[columnIndex];
