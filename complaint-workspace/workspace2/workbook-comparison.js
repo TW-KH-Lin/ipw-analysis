@@ -9,6 +9,31 @@ export function commonRegionalParameters(sources) {
     .map(([, parameter]) => parameter).sort((a, b) => a.localeCompare(b));
 }
 
+export function buildCombinedDataset(sources) {
+  if (sources.length < 2 || sources.length > 3) throw new Error('Select 2 or 3 workbooks.');
+  const maps = sources.map(source => new Map(source.headers.map((header, index) => [text(header).toLowerCase(), { header, index }])));
+  const commonHeaders = [...maps[0].values()].filter(item => maps.every(map => map.has(item.header.toLowerCase()))).map(item => item.header);
+  if (headerIndex(commonHeaders, 'Lot') < 0 || headerIndex(commonHeaders, 'N') < 0) {
+    throw new Error('The selected workbooks do not share Lot and N columns.');
+  }
+  const headers = [...commonHeaders, 'Source Workbook', 'Source Worksheet', 'Source Machine'];
+  const rows = [], origins = new Map();
+  sources.forEach((source, sourceIndex) => {
+    const lookup = maps[sourceIndex];
+    const columnMap = commonHeaders.map(header => lookup.get(header.toLowerCase()).index);
+    for (const originalRow of source.rows) {
+      const row = [...columnMap.map(column => originalRow[column]), source.name, source.source, machineName(source.name)];
+      rows.push(row);
+      origins.set(row, { source, originalRow, columnMap });
+    }
+  });
+  return { headers, rows, origins };
+}
+
+function machineName(name) {
+  return text(name).match(/(?:^|[^a-z0-9])(ZM[\s_-]?\d+)(?=[^a-z0-9]|$)/i)?.[1]?.replace(/[\s_-]/g, '').toUpperCase() || '';
+}
+
 export function compareRegionalWorkbooks(sources, parameter, exactLot = '') {
   if (sources.length < 2 || sources.length > 3) throw new Error('Select 2 or 3 workbooks.');
   const common = commonRegionalParameters(sources);

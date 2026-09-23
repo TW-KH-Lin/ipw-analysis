@@ -2,7 +2,7 @@ import { productFamily } from './workspace2/report-import/report-parser.js?v=3';
 import { machineForRegion } from './workspace2/complaint-region.js?v=4';
 import { renderLabelTableView } from './workspace2/label-table-view.js?v=1';
 import { mergeProblemLabels, problemValuesTable, candidateLabel, resolveComplaintWorkbook } from "./workspace2/complaint-import-core.js?v=8";
-import { commonRegionalParameters, compareRegionalWorkbooks, comparisonCsvRows } from './workspace2/workbook-comparison.js?v=1';
+import { buildCombinedDataset, commonRegionalParameters, compareRegionalWorkbooks, comparisonCsvRows } from './workspace2/workbook-comparison.js?v=2';
 import { readPreference, writePreference, clearPreferences, setRememberSettings, rememberSettingsEnabled, datasetPreferenceKey } from "./local-preferences.js?v=1";
 import {
   buildCorrelation,
@@ -243,8 +243,9 @@ function bindEvents() {
   byId('library-lot-query')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();lookupLibraryLot();}});
   byId("active-workbook")?.addEventListener("change",event=>runAction(()=>activateWorkbook(event.target.value)));
   byId('open-workbook-comparison')?.addEventListener('click',()=>{setComparisonMode(true);openPanel('compare-panel');});
-  byId('compare-enabled')?.addEventListener('change',event=>setComparisonMode(event.target.checked));
-  byId('return-single-workbook')?.addEventListener('click',()=>{setComparisonMode(false);openPanel('data-panel');});
+  byId('compare-enabled')?.addEventListener('change',event=>event.target.checked ? setComparisonMode(true) : runAction(returnToSingleWorkbook));
+  byId('activate-combined-analysis')?.addEventListener('click',()=>runAction(activateCombinedAnalysis));
+  byId('return-single-workbook')?.addEventListener('click',()=>runAction(returnToSingleWorkbook));
   byId('compare-file-options')?.addEventListener('change',event=>{
     if(!event.target.matches('input[type="checkbox"]'))return;
     const id=event.target.value;
@@ -478,18 +479,23 @@ const workbookLibrary=new Map();
 let activeWorkbookId=null, switchingWorkbook=false, workbookSequence=0;
 let libraryUndo=null;
 const comparisonState={enabled:false,selectedIds:new Set(),lastResult:null};
+const combinedContext={active:false,selectedIds:[],origins:new Map()};
 const sessionFields=['originalData','workbookName','dataLabels','generatedSources','lotClassifications','classificationEdits','classificationsUnsaved','source'];
 function libraryControls() {
   const select=byId('active-workbook');if(!select)return;
   select.replaceChildren();
   for(const [id,entry] of workbookLibrary) select.add(new Option(`${entry.file.name} · ${id}`,id));
-  select.value=activeWorkbookId || '';select.disabled=switchingWorkbook || !workbookLibrary.size;
-  byId('workbook-file').disabled=switchingWorkbook;
-  byId('remove-active-workbook').disabled=switchingWorkbook || workbookLibrary.size<2;
-  byId('open-workbook-comparison').disabled=switchingWorkbook || workbookLibrary.size<2;
-  byId('workbook-library-status').textContent=`${workbookLibrary.size} workbook(s) available locally. Complaint matching searches all files. Gaussian, Correlation and QC use only the active workbook. Download changes before closing or reloading this tab. Charts are recalculated after switching.`;
+  select.value=activeWorkbookId || '';select.disabled=switchingWorkbook || !workbookLibrary.size || combinedContext.active;
+  byId('workbook-file').disabled=switchingWorkbook || combinedContext.active;
+  byId('remove-active-workbook').disabled=switchingWorkbook || workbookLibrary.size<2 || combinedContext.active;
+  byId('open-workbook-comparison').disabled=switchingWorkbook || workbookLibrary.size<2 || combinedContext.active;
+  byId('workbook-library-status').textContent=combinedContext.active
+    ? `${combinedContext.selectedIds.length} workbooks are active as one read-only comparison dataset. Analysis and Quality use their common columns; Source Workbook, Source Worksheet, and Source Machine remain attached to every row.`
+    : `${workbookLibrary.size} workbook(s) available locally. Complaint matching searches all files. Gaussian, Correlation and QC use the active workbook unless Combined analysis is enabled. Download changes before closing or reloading this tab.`;
   const summary=byId('workbook-tools-summary');
-  if(summary)summary.textContent=activeWorkbookId
+  if(summary)summary.textContent=combinedContext.active
+    ? `Combined · ${combinedContext.selectedIds.length} workbooks`
+    : activeWorkbookId
     ? `${workbookLibrary.size} workbook(s) · ${workbookLibrary.get(activeWorkbookId)?.file.name || 'Active workbook'}`
     : workbookLibrary.size ? `${workbookLibrary.size} workbook(s) loading` : 'No workbook loaded';
   renderComparisonControls();
@@ -514,7 +520,7 @@ function renderComparisonControls() {
   host.replaceChildren();
   for(const [id,entry] of workbookLibrary){
     const label=document.createElement('label');label.className='compare-file-choice';
-    const input=document.createElement('input');input.type='checkbox';input.value=id;input.checked=comparisonState.selectedIds.has(id);
+    const input=document.createElement('input');input.type='checkbox';input.value=id;input.checked=comparisonState.selectedIds.has(id);input.disabled=combinedContext.active;
     const name=document.createElement('span');name.textContent=`${entry.file.name} · ${id}${entry.index?.source ? ` · ${entry.index.source}` : ''}`;
     label.append(input,name);host.append(label);
   }
@@ -527,7 +533,10 @@ function renderComparisonControls() {
   if(parameters.includes(previous))select.value=previous;
   select.disabled=parameters.length===0;
   byId('run-comparison').disabled=!comparisonState.enabled || comparisonState.selectedIds.size<2 || selected.length!==comparisonState.selectedIds.size || !parameters.length || switchingWorkbook;
-  if(!comparisonState.enabled)byId('compare-status').textContent='Single-workbook analysis is active.';
+  byId('activate-combined-analysis').disabled=!comparisonState.enabled || comparisonState.selectedIds.size<2 || selected.length!==comparisonState.selectedIds.size || !parameters.length || switchingWorkbook || combinedContext.active;
+  byId('return-single-workbook').disabled=!combinedContext.active;
+  if(combinedContext.active)byId('compare-status').textContent=`Combined analysis is active: ${combinedContext.selectedIds.length} workbooks. Analysis and Quality screens use the combined local dataset.`;
+  else if(!comparisonState.enabled)byId('compare-status').textContent='Single-workbook analysis is active.';
   else if(comparisonState.selectedIds.size<2)byId('compare-status').textContent='Select at least 2 workbooks.';
   else if(!parameters.length)byId('compare-status').textContent='No common parameter with all six Zones was found in these workbooks.';
   else byId('compare-status').textContent=`${comparisonState.selectedIds.size} workbooks selected · ${parameters.length} common Zone parameters.`;
@@ -555,17 +564,55 @@ function downloadWorkbookComparisonCsv() {
   const result=comparisonState.lastResult;if(!result)return;
   downloadText(`IPW_${safeFilePart(result.parameter)}_workbook_comparison.csv`,toCsv(comparisonCsvRows(result)),'text/csv;charset=utf-8');
 }
+async function activateCombinedAnalysis() {
+  if(combinedContext.active)return;
+  indexActiveWorkbook();captureWorkbookSession();
+  const ids=[...comparisonState.selectedIds];
+  if(ids.length<2 || ids.length>3)throw new Error('Select 2 or 3 workbooks.');
+  const entries=ids.map(id=>workbookLibrary.get(id));
+  if(entries.some(entry=>!entry?.index))throw new Error('One selected workbook has not finished loading.');
+  const sources=entries.map((entry,index)=>({id:ids[index],name:entry.file.name,entry,...entry.index}));
+  const {headers,rows,origins}=buildCombinedDataset(sources);
+  combinedContext.active=true;combinedContext.selectedIds=ids;combinedContext.origins=origins;
+  state.workbookName=`Combined_${entries.map(entry=>entry.file.name.replace(/\.[^.]+$/,'')).join('_')}`;
+  state.source='Combined comparison';state.headers=headers;state.rows=rows;state.sourceLocations=new Map();state.sourceColumns=[];state.generatedClean=false;
+  state.dataLabels=[];state.newLotImport=null;state.lastBuild=null;
+  state.lotClassifications=new Map();state.classificationEdits=new Map();state.classificationsUnsaved=false;
+  state.filterSelections={lots:new Set(),classification:new Set()};state.filterInitialized={lots:false,classification:false};
+  state.equalReferenceLots.clear();state.assessmentBatchQuery='';state.trendDateLookup=null;
+  state.parameters=getRegionalParameters(headers);state.structuredParameters=structuredParameters(headers,rows);
+  state.trendParameters=getTrendParameters(headers);state.v90Parameters=getV90Parameters(headers);
+  state.lots=getLotValues(dataRows(),headerIndex(headers,'Lot'));state.types=getTypeValues();
+  fillSelect(byId('source-sheet'),['Combined comparison'],'Combined comparison');byId('source-sheet').disabled=true;
+  populateWorkbookControls();invalidateAnalyses();renderCurrentData();applyCombinedControlState();libraryControls();
+  openPanel('gaussian-panel');
+  setStatus(`Combined analysis active: ${formatInteger(rows.length)} rows from ${entries.length} workbooks. Analysis and Quality now use this dataset.`,false,true);
+}
+async function returnToSingleWorkbook() {
+  if(!combinedContext.active){setComparisonMode(false);openPanel('data-panel');return;}
+  const id=activeWorkbookId;await activateWorkbook(id,true);comparisonState.enabled=false;renderComparisonControls();openPanel('data-panel');
+  setStatus(`Single-workbook analysis restored: ${workbookLibrary.get(id)?.file.name || 'Active workbook'}.`,false,true);
+}
+function applyCombinedControlState() {
+  if(!combinedContext.active)return;
+  byId('gaussian-visible-rows').checked=false;
+  ['gaussian-visible-rows','build-clean-data','new-lot-file','merge-new-lots','classification-lot','classification-value','apply-classification','save-classifications','label-lot','label-batch','label-machine','label-roll-width','label-roll-number','label-zone','label-text','label-comment','label-notes','save-data-label','download-workbook'].forEach(id=>{const control=byId(id);if(control)control.disabled=true;});
+  byId('classification-save-status').textContent='Combined analysis is read-only; switch back to edit a workbook.';
+}
 function captureWorkbookSession() {
-  if(!activeWorkbookId || !state.workbook)return;
+  if(combinedContext.active || !activeWorkbookId || !state.workbook)return;
   indexActiveWorkbook();
   workbookLibrary.get(activeWorkbookId).saved={state:structuredClone(Object.fromEntries(sessionFields.map(key=>[key,state[key]])))};
 }
-async function activateWorkbook(id) {
-  if(switchingWorkbook || id===activeWorkbookId)return;
+async function activateWorkbook(id,force=false) {
+  if(switchingWorkbook || id===activeWorkbookId && !force && !combinedContext.active)return;
   const target=workbookLibrary.get(id);if(!target)return;
   const guard={action:'can-switch',busy:false};window.dispatchEvent(new CustomEvent('ipw-complaint-session',{detail:guard}));
   if(guard.busy){libraryControls();throw new Error('Wait for complaint processing to finish before switching workbooks.');}
-  captureWorkbookSession();const previous=activeWorkbookId;
+  const wasCombined=combinedContext.active;
+  if(!wasCombined)captureWorkbookSession();
+  combinedContext.active=false;combinedContext.selectedIds=[];combinedContext.origins.clear();
+  const previous=activeWorkbookId;
   switchingWorkbook=true;libraryControls();
   async function load(entry) {
     const saved=entry.saved;
@@ -621,10 +668,10 @@ function lookupLibraryLot() {
 }
 
 function indexActiveWorkbook() {
-  if(!activeWorkbookId)return;
+  if(combinedContext.active || !activeWorkbookId)return;
   const headers=state.headers, rows=dataRows(), source=state.source, locations=new Map(state.sourceLocations), columns=[...state.sourceColumns], workbook=state.workbook;
   workbookLibrary.get(activeWorkbookId).index={headers,rows,source,rawMachineTable:complaintMachines(),
-    locate:row=>({row:locations.get(row)?.row}),
+    locate:(row,column)=>{const address=locations.get(row),c=columns[column];return {row:address?.row,cell:address && c!=null ? getXlsx().utils.encode_cell({r:address.row-1,c}) : ''};},
     isError:(row,column)=>{const address=locations.get(row),c=columns[column];return address && c!=null && workbook.Sheets[source]?.[getXlsx().utils.encode_cell({r:address.row-1,c})]?.t==='e';}};
 }
 function matchLibraryComplaints(items) {
@@ -1845,6 +1892,7 @@ function renderCurrentData() {
       }
     } }));
   }
+  applyCombinedControlState();
 }
 
 function invalidateAnalyses() {
@@ -2205,18 +2253,23 @@ function recommendGaussian() {
 function collectGaussianRecords(parameter, includedZones) {
   const columns = zoneColumns(state.headers, parameter), records = [], XLSX = getXlsx();
   const lotColumn = headerIndex(state.headers, "Lot"), batchColumn = headerIndex(state.headers, "N");
-  const sheet = state.workbook.Sheets[state.source];
+  const sheet = combinedContext.active ? null : state.workbook.Sheets[state.source];
   for (const row of rowsForAnalysis("gaussian-data-scope")) {
     const location = state.sourceLocations.get(row);
-    if (!location) throw new Error("Source row mapping is unavailable. Reopen the workbook before fitting.");
-    if (byId("gaussian-visible-rows").checked && sheet?.["!rows"]?.[location.row - 1]?.hidden) continue;
+    const origin = combinedContext.active ? combinedContext.origins.get(row) : null;
+    if (!origin && !location) throw new Error("Source row mapping is unavailable. Reopen the workbook before fitting.");
+    if (!combinedContext.active && byId("gaussian-visible-rows").checked && sheet?.["!rows"]?.[location.row - 1]?.hidden) continue;
     for (const zone of includedZones) {
       const column = columns?.[zone - 1];
       if (column === undefined || column < 0) continue;
-      const value = row[column], sourceCell = XLSX.utils.encode_cell({ r: location.row - 1, c: state.sourceColumns[column] });
-      if (sheet?.[sourceCell]?.t === "e" || !["number", "string"].includes(typeof value) || text(value) === "" || !Number.isFinite(Number(value))) continue;
+      const originalColumn=origin?.columnMap[column];
+      const located=origin ? origin.source.entry.index.locate(origin.originalRow,originalColumn) : null;
+      const sourceCell=origin ? located?.cell || '' : XLSX.utils.encode_cell({ r: location.row - 1, c: state.sourceColumns[column] });
+      const cellError=origin ? origin.source.entry.index.isError?.(origin.originalRow,originalColumn) : sheet?.[sourceCell]?.t === "e";
+      const value = row[column];
+      if (cellError || !["number", "string"].includes(typeof value) || text(value) === "" || !Number.isFinite(Number(value))) continue;
       records.push({ value: Number(value), lot: lotColumn >= 0 ? text(row[lotColumn]) : "", batch: batchColumn >= 0 ? text(row[batchColumn]) : "", zone,
-        source: state.source, sourceRow: location.row, sourceCell, parameter });
+        source: origin ? `${origin.source.name} · ${origin.source.source}` : state.source, sourceRow: origin ? located?.row : location.row, sourceCell, parameter });
     }
   }
   return records;
@@ -2483,6 +2536,19 @@ async function createTrend() {
 
 async function loadTrendDateLookup() {
   if (state.trendDateLookup instanceof Map) return state.trendDateLookup;
+  if(combinedContext.active){
+    setStatus('Reading production dates from selected workbooks...');await yieldToBrowser();
+    const merged=new Map(),XLSX=getXlsx();
+    for(const id of combinedContext.selectedIds){
+      const entry=workbookLibrary.get(id),data=entry?.saved?.state?.originalData;
+      if(!data)continue;
+      const rawWorkbook=XLSX.read(data.slice(0),{type:'array',cellDates:true,cellFormula:true,cellHTML:false,cellText:true,dense:false,sheets:['Auswertung']});
+      for(const [key,date] of buildTrendDateLookup(readWorkbookSheet(rawWorkbook,'Auswertung'))){
+        const existing=merged.get(key);if(!Number.isFinite(existing) || date<existing)merged.set(key,date);
+      }
+    }
+    state.trendDateLookup=merged;return merged;
+  }
   if (!state.originalData) throw new Error("Open a workbook first.");
   setStatus("Reading Auswertung production dates...");
   await yieldToBrowser();
@@ -5210,6 +5276,8 @@ async function runAction(action) {
     const merge = state.newLotImport?.preview;
     byId("merge-new-lots").disabled = !merge || Boolean(merge.missingHeaders.length || !merge.addedRows);
     updateLabelActionState();
+    renderComparisonControls();
+    applyCombinedControlState();
   }
 }
 
