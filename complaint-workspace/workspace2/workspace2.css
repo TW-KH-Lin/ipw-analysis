@@ -143,3 +143,11 @@
 #compare-result h3 { margin:18px 0 8px; }
 #compare-result table { width:max-content; min-width:100%; }
 #compare-result th, #compare-result td { padding:5px 9px; font-size:13px; white-space:nowrap; }
+.gaussian-source-controls { margin:8px 0 12px; padding:10px; border:1px solid var(--line); border-radius:7px; background:#f7fafb; }
+.gaussian-comparison-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; }
+.gaussian-comparison-grid.has-comparison { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.gaussian-comparison-grid .chart-card { min-width:0; margin:0; }
+.gaussian-comparison-grid canvas { width:100%; min-height:280px; }
+.assessment-side-options { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
+.assessment-side-options label { min-width:190px; }
+@media (max-width:1050px) { .gaussian-comparison-grid.has-comparison { grid-template-columns:minmax(0,1fr); } }
