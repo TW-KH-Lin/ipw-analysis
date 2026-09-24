@@ -79,10 +79,28 @@
 .label-result-scroll td details[open] { min-width:260px; max-width:420px; }
 .label-result-scroll td details summary { cursor:pointer; color:#145a88; }
 .label-result-scroll td details p { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.8rem; }
-.workbook-library { padding:.8rem 1.2rem; border-bottom:1px solid #d9e2e9; background:#f3f7fa; }
-.workbook-library label { display:flex; align-items:center; gap:1rem; font-weight:600; }
-.workbook-library select { flex:1; min-width:0; max-width:700px; }
-.workbook-library p { margin:.4rem 0 0; color:#526579; font-size:.8rem; }
+.workbook-library { padding:14px 18px; border-bottom:1px solid #d9e2e9; background:#f3f7fa; }
+.workbook-library-main { display:flex; align-items:end; gap:12px; }
+.workbook-library-main label { display:grid; flex:1; min-width:0; gap:5px; color:#25384a; font-size:12px; font-weight:700; }
+.workbook-library select { width:100%; min-width:0; max-width:760px; }
+.workbook-mode-badge { flex:0 0 auto; margin-bottom:5px; padding:5px 9px; border:1px solid #c8d5df; border-radius:999px; background:#fff; color:#526579; font-size:11px; font-weight:700; white-space:nowrap; }
+.workbook-mode-badge.is-combined { border-color:#8fc7b8; background:#e2f1ed; color:#075c4d; }
+.workbook-library-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.workbook-library-actions button { width:auto; min-height:36px; margin:0; }
+.workbook-remove-action { padding:7px 12px; border-color:#c8d5df; background:#fff; color:#334a5e; font-size:12px; }
+.workbook-compare-action { display:grid; grid-template-columns:auto; gap:1px; min-width:210px; padding:7px 13px; border-color:#8aaac2; background:#edf5fa; color:#124f77; text-align:left; }
+.workbook-compare-action > span { font-size:13px; font-weight:800; line-height:1.15; }
+.workbook-compare-action > small { color:#526f84; font-size:10px; font-weight:600; line-height:1.15; }
+.workbook-compare-action:hover:not(:disabled) { border-color:#397ba8; background:#e2f0f8; }
+.workbook-compare-action.is-active { border-color:#2f806c; background:#e2f1ed; color:#075c4d; }
+.workbook-compare-action.is-active > small { color:#397064; }
+.workbook-library p { margin:8px 0 0; color:#526579; font-size:12px; line-height:1.4; }
+@media (max-width:650px) {
+  .workbook-library-main { align-items:stretch; flex-direction:column; gap:8px; }
+  .workbook-mode-badge { align-self:flex-start; margin:0; }
+  .workbook-library-actions { display:grid; grid-template-columns:1fr; }
+  .workbook-library-actions button { width:100%; }
+}
 .lot-library-lookup { margin:.7rem 1.2rem; padding:.8rem; border:1px solid #d9e2e9; border-radius:8px; background:white; }
 .lot-library-lookup summary { cursor:pointer; font-weight:600; }
 .lot-library-lookup label { display:inline-flex; align-items:center; gap:.6rem; margin:.8rem; }
@@ -139,7 +157,7 @@
 #compare-panel .choice-row { display:inline-flex; align-items:center; gap:8px; margin:8px 0 14px; font-weight:700; }
 #compare-panel .choice-row input { width:18px; min-height:18px; margin:0; }
 #compare-panel .compact-actions { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
-#compare-panel .compact-actions button, #open-workbook-comparison { width:auto; min-height:34px; padding:6px 12px; font-size:13px; }
+#compare-panel .compact-actions button { width:auto; min-height:34px; padding:6px 12px; font-size:13px; }
 #compare-result h3 { margin:18px 0 8px; }
 #compare-result table { width:max-content; min-width:100%; }
 #compare-result th, #compare-result td { padding:5px 9px; font-size:13px; white-space:nowrap; }

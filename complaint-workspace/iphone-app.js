@@ -499,7 +499,16 @@ function libraryControls() {
   select.value=activeWorkbookId || '';select.disabled=switchingWorkbook || !workbookLibrary.size || combinedContext.active;
   byId('workbook-file').disabled=switchingWorkbook || combinedContext.active;
   byId('remove-active-workbook').disabled=switchingWorkbook || workbookLibrary.size<2 || combinedContext.active;
-  byId('open-workbook-comparison').disabled=switchingWorkbook || workbookLibrary.size<2 || combinedContext.active;
+  const comparisonButton=byId('open-workbook-comparison');
+  comparisonButton.disabled=switchingWorkbook || (!combinedContext.active && workbookLibrary.size<2);
+  comparisonButton.classList.toggle('is-active',combinedContext.active);
+  byId('workbook-compare-action-label').textContent=combinedContext.active?'Manage comparison':'Compare workbooks';
+  byId('workbook-compare-action-hint').textContent=combinedContext.active
+    ? `${combinedContext.selectedIds.length} workbooks active · open controls`
+    : workbookLibrary.size<2?'Add another workbook first':'Choose 2 or 3 loaded files';
+  const modeBadge=byId('workbook-mode-badge');
+  modeBadge.textContent=combinedContext.active?`Combined · ${combinedContext.selectedIds.length}`:'Single workbook';
+  modeBadge.classList.toggle('is-combined',combinedContext.active);
   byId('workbook-library-status').textContent=combinedContext.active
     ? `${combinedContext.selectedIds.length} workbooks are active as one read-only comparison dataset. Analysis and Quality use their common columns; Source Workbook, Source Worksheet, and Source Machine remain attached to every row.`
     : `${workbookLibrary.size} workbook(s) available locally. Complaint matching searches all files. Gaussian, Correlation and QC use the active workbook unless Combined analysis is enabled. Download changes before closing or reloading this tab.`;
