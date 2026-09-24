@@ -318,7 +318,7 @@ function bindEvents() {
     byId(id).addEventListener("change", invalidateAnalyses);
   });
   byId('gaussian-data-scope').addEventListener('change',()=>{syncGaussianLotChoices();invalidateGaussian();});
-  byId('gaussian-lot').addEventListener('change',invalidateGaussian);
+  byId('gaussian-lot').addEventListener('change',()=>{syncGaussianLotChoices();invalidateGaussian();});
   byId('gaussian-compare-lot').addEventListener('change',invalidateGaussian);
   ["period-data-scope", "period-parameter", "period-plot"].forEach((id) => byId(id).addEventListener("change", invalidatePeriod));
   ["period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end"]
@@ -628,7 +628,7 @@ function syncGaussianSourceChoices() {
   const choices=[['all','All selected worksheets'],...combinedContext.selectedIds.map(id=>{const entry=workbookLibrary.get(id);return [id,`${entry?.file.name || id} · ${entry?.index?.source || ''}`];})];
   const prior=choices.some(([value])=>value===primary.value)?primary.value:'all';
   primary.replaceChildren(...choices.map(([value,label])=>new Option(label,value)));primary.value=prior;
-  const compareChoices=[['','One worksheet plot'],...choices.filter(([value])=>value!=='all' && value!==primary.value)];
+  const compareChoices=[['','Use primary worksheet'],...choices.filter(([value])=>value!=='all' && value!==primary.value)];
   const comparePrior=compareChoices.some(([value])=>value===secondary.value)?secondary.value:'';
   secondary.replaceChildren(...compareChoices.map(([value,label])=>new Option(label,value)));secondary.value=comparePrior;
   syncGaussianLotChoices();
@@ -2314,11 +2314,17 @@ function syncGaussianLotChoices() {
   const primaryLots=gaussianLotsForSource(primarySource),primaryValue=byId('gaussian-lot').value;
   fillSelect(byId('gaussian-lot'),primaryLots,primaryLots.includes(primaryValue)?primaryValue:primaryLots[0]);
   byId('gaussian-lot').disabled=!single || !primaryLots.length;
-  const comparisonLots=comparisonSource?gaussianLotsForSource(comparisonSource):[];
+  const effectiveComparisonSource=comparisonSource || primarySource;
+  const sameSource=!comparisonSource || comparisonSource===primarySource;
+  const comparisonLots=gaussianLotsForSource(effectiveComparisonSource)
+    .filter(lot=>!sameSource || !sameDataValue(lot,byId('gaussian-lot').value));
   const comparisonValue=byId('gaussian-compare-lot').value;
-  fillSelect(byId('gaussian-compare-lot'),comparisonLots,comparisonLots.includes(comparisonValue)?comparisonValue:comparisonLots[0]);
-  byId('gaussian-compare-lot-field').hidden=!single || !comparisonSource;
-  byId('gaussian-compare-lot').disabled=!single || !comparisonSource || !comparisonLots.length;
+  const selectedComparison=comparisonLots.some(lot=>sameDataValue(lot,comparisonValue))
+    ? comparisonValue
+    : comparisonSource ? comparisonLots[0] : '';
+  fillSelect(byId('gaussian-compare-lot'),['',...comparisonLots],selectedComparison,value=>value || 'One lot');
+  byId('gaussian-compare-lot-field').hidden=!single;
+  byId('gaussian-compare-lot').disabled=!single || !comparisonLots.length;
 }
 
 function gaussianRows(lotOverride='') {
@@ -2368,17 +2374,18 @@ function createGaussian() {
   const sourceId=byId('gaussian-source')?.value || 'all';
   const comparisonId=byId('gaussian-compare-source')?.value || '';
   const selectedLot=scope==='single'?byId('gaussian-lot').value:'';
-  const comparisonLot=scope==='single' && comparisonId?byId('gaussian-compare-lot').value:'';
+  const comparisonLot=scope==='single'?byId('gaussian-compare-lot').value:'';
+  const effectiveComparisonId=comparisonId || (comparisonLot?sourceId:'');
   const records = collectGaussianRecords(parameter, includedZones,sourceId,selectedLot);
   if(records.length<2)throw new Error(`Primary worksheet${selectedLot?` · Lot ${selectedLot}`:''} has ${records.length} numeric value(s). Choose a Lot with at least two values.`);
   const primary=fitGaussianSelection(records,method);
-  const comparisonRecords=comparisonId?collectGaussianRecords(parameter,includedZones,comparisonId,comparisonLot):[];
-  if(comparisonId && comparisonRecords.length<2)throw new Error(`Comparison worksheet${comparisonLot?` · Lot ${comparisonLot}`:''} has ${comparisonRecords.length} numeric value(s). Choose its own Lot with at least two values.`);
-  const comparison=comparisonId?fitGaussianSelection(comparisonRecords,method):null;
+  const comparisonRecords=effectiveComparisonId?collectGaussianRecords(parameter,includedZones,effectiveComparisonId,comparisonLot):[];
+  if(effectiveComparisonId && comparisonRecords.length<2)throw new Error(`Comparison worksheet${comparisonLot?` · Lot ${comparisonLot}`:''} has ${comparisonRecords.length} numeric value(s). Choose a Lot with at least two values.`);
+  const comparison=effectiveComparisonId?fitGaussianSelection(comparisonRecords,method):null;
   const sourceLabel=combinedContext.active?(byId('gaussian-source')?.selectedOptions[0]?.textContent || state.source):state.source;
-  const comparisonLabel=byId('gaussian-compare-source')?.selectedOptions[0]?.textContent || '';
+  const comparisonLabel=comparisonId?(byId('gaussian-compare-source')?.selectedOptions[0]?.textContent || sourceLabel):sourceLabel;
   state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
-    comparison:comparison?{parameter,zones:includedZones,scope,selectedLot:comparisonLot,sourceId:comparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
+    comparison:comparison?{parameter,zones:includedZones,scope,selectedLot:comparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
   if(comparison)state.lastGaussian.viewRange={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};
   renderGaussianResult();renderGaussianExtremes();
   byId("save-gaussian-snapshot").disabled = false;byId("export-gaussian-extremes").disabled = false;
