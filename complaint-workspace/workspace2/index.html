@@ -13,10 +13,10 @@
     <link rel="apple-touch-icon" href="../icons/ipw-180.png">
     <link rel="stylesheet" href="../iphone.css?v=27">
     <link rel="stylesheet" href="../workspace/workspace.css?v=2">
-    <link rel="stylesheet" href="workspace2.css?v=21">
+    <link rel="stylesheet" href="workspace2.css?v=22">
     <script defer src="../vendor/xlsx.full.min.js"></script>
     <script defer src="../vendor/exceljs.min.js"></script>
-    <script type="module" src="../iphone-app.js?v=114"></script>
+    <script type="module" src="../iphone-app.js?v=115"></script>
     <script type="module" src="../workspace/workspace-ui.js?v=5"></script>
     <script type="module" src="workspace2-ui.js?v=2"></script>
     <script type="module" src="complaint-context.js?v=6"></script>
@@ -229,7 +229,7 @@
       <section id="gaussian-panel" class="panel" aria-label="Gaussian fit">
         <div class="form-grid">
           <label>Data scope<select id="gaussian-data-scope" disabled><option value="all">All lots</option><option value="filtered">Filtered lots</option><option value="single">Single lot</option></select></label>
-          <label id="gaussian-lot-field" hidden>Lot<select id="gaussian-lot" disabled></select></label>
+          <label id="gaussian-lot-field" hidden>Primary lot<select id="gaussian-lot" disabled></select></label>
           <label>Parameter<select id="gaussian-parameter" disabled></select></label>
           <label>Fit method<select id="gaussian-method" disabled><option value="standard">Standard Gaussian</option><option value="robust-huber">Robust Gaussian (Huber)</option><option value="nacl-truncated">NaCl truncated (legacy), limit 1.0</option></select></label>
           <label>Bin width<input id="gaussian-bin-width" inputmode="decimal" placeholder="Auto" disabled></label>
@@ -242,6 +242,7 @@
         <div id="gaussian-source-controls" class="form-grid gaussian-source-controls" hidden>
           <label>Primary worksheet<select id="gaussian-source"><option value="all">All selected worksheets</option></select></label>
           <label>Compare with (optional)<select id="gaussian-compare-source"><option value="">One worksheet plot</option></select></label>
+          <label id="gaussian-compare-lot-field" hidden>Comparison lot<select id="gaussian-compare-lot" disabled></select></label>
         </div>
         <fieldset class="zone-fieldset">
           <legend>Zones</legend>
@@ -318,6 +319,7 @@
         <div class="form-grid">
           <label>Parameter<select id="assessment-parameter" disabled></select></label>
           <label>Lot<select id="assessment-lot" disabled></select></label>
+          <label>Compare Lot (optional)<select id="assessment-compare-lot" disabled><option value="">One Lot</option></select></label>
           <label>Reference method<select id="assessment-reference" disabled><option value="history">Historical Zone Values</option><option value="filtered">Filtered Lots</option><option value="manual">Manual Mu / Sigma</option><option value="reference-lot">Reference Lot</option><option value="equal-lots">Selected Lots - Equal weight</option></select></label>
           <label id="assessment-reference-lot-field" hidden>Reference Lot<select id="assessment-reference-lot" disabled></select></label>
           <label>Historical matching<select id="assessment-granularity" disabled><option value="zone">Zone only</option><option value="batch-zone">MR + Zone</option></select></label>
