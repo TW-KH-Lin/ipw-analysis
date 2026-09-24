@@ -15,6 +15,8 @@ import {
   filterLotsByPeriod,
   gaussianFitWithOptions,
   gaussianExtremeSnapshot,
+  gaussianOverlapCoefficient,
+  gaussianSigmaCounts,
   getLotValues,
   getRegionalParameters,
   getTrendParameters,
@@ -25,7 +27,7 @@ import {
   recommendGaussianSettings,
   text,
   zoneColumns
-} from "./analysis.js?v=17";
+} from "./analysis.js?v=18";
 import {
   buildCleanDataFromAuswertung,
   buildFullSummary,
@@ -97,6 +99,7 @@ const state = {
   lastStructuredCorrelation: null,
   lastAssessment: null,
   assessmentBatchQuery: "",
+  assessmentSecondaryBatchQuery: "",
   equalReferenceLots: new Set(),
   lastRelease: null,
   lastZmPlan: null
@@ -338,11 +341,12 @@ function bindEvents() {
   byId("release-not-ok").addEventListener("input", invalidateRelease);
   byId("assessment-lot").addEventListener("change", () => {
     state.assessmentBatchQuery = "";
+    state.assessmentSecondaryBatchQuery = "";
     syncAssessmentReferenceLots();
     syncAssessmentCompareLots();
     invalidateAssessment();
   });
-  byId('assessment-compare-lot').addEventListener('change',invalidateAssessment);
+  byId('assessment-compare-lot').addEventListener('change',()=>{state.assessmentSecondaryBatchQuery="";invalidateAssessment();});
   byId("assessment-parameter").addEventListener("change", () => {
     syncAssessmentReferenceMode();
     invalidateAssessment();
@@ -376,8 +380,9 @@ function bindEvents() {
       updateAssessmentHighlight(event.target);
       return;
     }
-    if (event.target.id !== "assessment-batch-filter") return;
-    state.assessmentBatchQuery = event.target.value;
+    if (event.target.id !== "assessment-batch-filter" && event.target.id !== "assessment-secondary-batch-filter") return;
+    if (event.target.id === "assessment-batch-filter") state.assessmentBatchQuery = event.target.value;
+    else state.assessmentSecondaryBatchQuery = event.target.value;
     renderAssessmentBatchTables();
   });
   byId("assessment-equal-search").addEventListener("input", renderEqualReferenceChoices);
@@ -599,7 +604,7 @@ async function activateCombinedAnalysis() {
   state.dataLabels=[];state.newLotImport=null;state.lastBuild=null;
   state.lotClassifications=new Map();state.classificationEdits=new Map();state.classificationsUnsaved=false;
   state.filterSelections={lots:new Set(),classification:new Set()};state.filterInitialized={lots:false,classification:false};
-  state.equalReferenceLots.clear();state.assessmentBatchQuery='';state.trendDateLookup=null;
+  state.equalReferenceLots.clear();state.assessmentBatchQuery='';state.assessmentSecondaryBatchQuery='';state.trendDateLookup=null;
   state.parameters=getRegionalParameters(headers);state.structuredParameters=structuredParameters(headers,rows);
   state.trendParameters=getTrendParameters(headers);state.v90Parameters=getV90Parameters(headers);
   state.lots=getLotValues(dataRows(),headerIndex(headers,'Lot'));state.types=getTypeValues();
@@ -784,6 +789,7 @@ async function parseWorkbook(data, fileName) {
   state.filterInitialized = { lots: false, classification: false };
   state.equalReferenceLots.clear();
   state.assessmentBatchQuery = "";
+  state.assessmentSecondaryBatchQuery = "";
   state.lastBuild = null;
   state.gaussianSnapshots = [];
   state.gaussianExtremeExports = [];
@@ -854,6 +860,7 @@ async function selectSource(sheetName) {
   const source = prepareSource(sheetName);
   if (state.source !== sheetName) {
     state.assessmentBatchQuery = "";
+    state.assessmentSecondaryBatchQuery = "";
     state.equalReferenceLots.clear();
     byId("assessment-equal-search").value = "";
   }
@@ -2413,7 +2420,23 @@ function fitGaussianSelection(records,method) {
   const lots = new Set(fittedRecords.map((record) => record.lot).filter(Boolean));
   const batches = new Set(fittedRecords.map((record) => `${record.lot}|${record.batch}`).filter((key) => key !== "|"));
   const extremes = gaussianExtremeSnapshot(fittedRecords, fit, requiredNumber("gaussian-extreme-sigma"));
-  return {extremes,fit:{...fit,lotCount:lots.size,batchCount:batches.size}};
+  return {extremes,fit:{...fit,lotCount:lots.size,batchCount:batches.size},sigmaCounts:gaussianSigmaCounts(fittedRecords.map(record=>record.value),fit.mean,fit.sigma)};
+}
+
+function renderGaussianSigmaCounts(current,label) {
+  const summary=current.sigmaCounts,n=summary.n;
+  const row=(name,lower,upper,count)=>[name,lower,upper,count,n?`${formatNumber(count/n*100,1)}%`:'0%'];
+  return `<article class="gaussian-sigma-card"><h3>${escapeHtml(label)}</h3><div class="table-wrap mini-table">${renderTable([
+    ["Range","Lower","Upper","Count","% of N"],
+    row("Below Mu - 2 Sigma","",summary.lower2,summary.below2),
+    row("Mu - 2 Sigma to Mu - 1 Sigma",summary.lower2,summary.lower1,summary.lower2to1),
+    row("Mu - 1 Sigma to Mu",summary.lower1,summary.mu,summary.lower1toMean),
+    row("Mu to Mu + 1 Sigma",summary.mu,summary.upper1,summary.meanToUpper1),
+    row("Mu + 1 Sigma to Mu + 2 Sigma",summary.upper1,summary.upper2,summary.upper1to2),
+    row("Above Mu + 2 Sigma",summary.upper2,"",summary.above2),
+    row("Within Mu +/- 1 Sigma",summary.lower1,summary.upper1,summary.within1),
+    row("Within Mu +/- 2 Sigma",summary.lower2,summary.upper2,summary.within2)
+  ])}</div></article>`;
 }
 
 function renderGaussianResult() {
@@ -2446,7 +2469,20 @@ function renderGaussianResult() {
       <div class="gaussian-comparison-grid ${result.comparison?'has-comparison':''}">
         <article class="chart-card"><h3>${escapeHtml(result.sourceLabel || result.source)}${result.selectedLot?` · Lot ${escapeHtml(result.selectedLot)}`:''}</h3><p>N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)}</p><canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></article>
         ${result.comparison?`<article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(result.comparison.sourceLabel)}${result.comparison.selectedLot?` · Lot ${escapeHtml(result.comparison.selectedLot)}`:''}</h3><button id="export-gaussian-comparison-png" class="command" type="button">Export PNG</button></div><p>N ${formatInteger(result.comparison.fit.n)} · Mu ${formatNumber(result.comparison.fit.mean,3)} · Sigma ${formatNumber(result.comparison.fit.sigma,3)}</p><canvas id="gaussian-comparison-chart" aria-label="Comparison worksheet Gaussian plot"></canvas></article>`:''}
-      </div></details>
+      </div>
+      ${result.comparison?`<div class="gaussian-overlay-control"><label class="choice-row"><input id="gaussian-overlay-toggle" type="checkbox" ${result.overlayVisible?'checked':''}>Show both distributions in one plot</label></div>
+        <section id="gaussian-overlay-section" class="chart-card gaussian-overlay-card" ${result.overlayVisible?'':'hidden'}>
+          <div class="assessment-plot-toolbar"><h3>Distribution overlap</h3><button id="export-gaussian-overlay-png" class="command" type="button">Export PNG</button></div>
+          <p>Normalized density · Blue: primary · Orange: comparison · Fitted Gaussian overlap: ${formatNumber(gaussianOverlapCoefficient(fit.mean,fit.sigma,result.comparison.fit.mean,result.comparison.fit.sigma)*100,1)}%</p>
+          <canvas id="gaussian-overlay-chart" aria-label="Overlaid primary and comparison Gaussian distributions"></canvas>
+        </section>`:''}
+      </details>
+    <details class="gaussian-sigma-section" open><summary>Exact counts by sigma range</summary>
+      <div class="gaussian-sigma-grid ${result.comparison?'has-comparison':''}">
+        ${renderGaussianSigmaCounts(result,`${result.sourceLabel || result.source}${result.selectedLot?` · Lot ${result.selectedLot}`:''}`)}
+        ${result.comparison?renderGaussianSigmaCounts(result.comparison,`${result.comparison.sourceLabel}${result.comparison.selectedLot?` · Lot ${result.comparison.selectedLot}`:''}`):''}
+      </div>
+    </details>
     <div class="table-wrap mini-table compact-table cutoff-table">${renderTable([
       ["Percentile cutoff", "Value"],
       ["2.5%", fit.low25],
@@ -2461,6 +2497,12 @@ function renderGaussianResult() {
   `;
   byId('export-gaussian-plot-png').addEventListener('click',()=>runAction(saveGaussianSnapshot));
   byId('export-gaussian-comparison-png')?.addEventListener('click',()=>runAction(()=>saveGaussianSnapshot(true)));
+  byId('gaussian-overlay-toggle')?.addEventListener('change',event=>{
+    result.overlayVisible=event.target.checked;
+    byId('gaussian-overlay-section').hidden=!result.overlayVisible;
+    if(result.overlayVisible)requestAnimationFrame(drawGaussianCharts);
+  });
+  byId('export-gaussian-overlay-png')?.addEventListener('click',()=>runAction(saveGaussianOverlaySnapshot));
   requestAnimationFrame(drawGaussianCharts);
   ["start", "end"].forEach(side => {
     byId(`gaussian-view-${side}`).addEventListener("input", updateGaussianView);
@@ -2481,6 +2523,11 @@ function drawGaussianCharts() {
   if (!state.lastGaussian) return;
   drawGaussian(byId("gaussian-chart"), { ...state.lastGaussian.fit, ...state.lastGaussian.viewRange }, "combined");
   if(state.lastGaussian.comparison)drawGaussian(byId('gaussian-comparison-chart'),{...state.lastGaussian.comparison.fit,...state.lastGaussian.viewRange},'combined');
+  if(state.lastGaussian.comparison&&state.lastGaussian.overlayVisible)drawGaussianOverlay(
+    byId('gaussian-overlay-chart'),
+    {...state.lastGaussian.fit,...state.lastGaussian.viewRange},
+    {...state.lastGaussian.comparison.fit,...state.lastGaussian.viewRange}
+  );
 }
 
 function updateGaussianView() {
@@ -2558,6 +2605,8 @@ function saveGaussianSnapshot(secondary = false) {
     ["MRs used", formatInteger(fit.batchCount)],
     ["Mean", fit.mean.toFixed(3)],
     ["Sigma", fit.sigma.toFixed(3)],
+    ["Within Mu +/- 1 Sigma", `${formatInteger(current.sigmaCounts.within1)} (${formatNumber(current.sigmaCounts.within1/current.sigmaCounts.n*100,1)}%)`],
+    ["Within Mu +/- 2 Sigma", `${formatInteger(current.sigmaCounts.within2)} (${formatNumber(current.sigmaCounts.within2/current.sigmaCounts.n*100,1)}%)`],
     ["Zones", current.zones.join(", ")]
   ];
   const chartHeight = (rows.length + 1) * 42;
@@ -2604,6 +2653,16 @@ function saveGaussianSnapshot(secondary = false) {
   });
   renderGaussianSnapshots();
   setStatus(`Saved ${fileName}.`, false, true);
+}
+
+function saveGaussianOverlaySnapshot() {
+  const current=state.lastGaussian;
+  if(!current?.comparison)throw new Error("Select a comparison Lot or worksheet before exporting an overlap plot.");
+  const canvas=document.createElement("canvas");
+  drawGaussianOverlay(canvas,{...current.fit,...current.viewRange},{...current.comparison.fit,...current.viewRange},{width:1400,height:760});
+  const fileName=`${baseFileName()}_${safeFilePart(current.parameter)}_${safeFilePart(current.selectedLot || 'Primary')}_vs_${safeFilePart(current.comparison.selectedLot || 'Comparison')}_Gaussian_Overlap_${fileDateStamp(new Date())}.png`;
+  const link=document.createElement("a");link.href=canvas.toDataURL("image/png");link.download=fileName;document.body.append(link);link.click();link.remove();
+  setStatus(`Saved ${fileName}.`,false,true);
 }
 
 function renderGaussianSnapshots() {
@@ -3591,6 +3650,7 @@ function updateSecondaryAssessment(parameter) {
   if (!current || (parameter && !current.secondaryParameters.includes(parameter))) return;
   current.secondaryParameter = parameter;
   current.secondaryLot='';
+  state.assessmentSecondaryBatchQuery = "";
   current.secondaryManual = { mu: "", sigma: "" };
   current.sharedHighlightOnly = false;
   current.highlightRanges.secondary = { min: "", max: "" };
@@ -3614,6 +3674,7 @@ function updateSecondaryLotAssessment(lot) {
   const current=state.lastAssessment;
   if(!current || lot && !current.comparisonLots.some(item=>sameDataValue(item,lot)))return;
   current.secondaryLot=lot;current.secondaryParameter='';current.secondaryManual={mu:'',sigma:''};current.sharedHighlightOnly=false;
+  state.assessmentSecondaryBatchQuery = "";
   current.highlightRanges.secondary={min:'',max:''};buildSecondaryAssessment();
   const active=Boolean(lot);byId('assessment-plot-grid').classList.toggle('has-secondary',active);byId('assessment-secondary-pane').hidden=!active;
   if(current.mode==='manual')byId('assessment-secondary-pane').querySelector('.assessment-secondary-manual').hidden=true;
@@ -3683,19 +3744,22 @@ function renderAssessmentResult() {
     <div class="section-heading"><h2>Whole-lot Parameter Summary</h2></div>
     <div class="table-wrap compact-table">${renderV90AssessmentSummary(assessment.summaries)}</div>
     <div class="section-heading"><h2>MR x Parameter x Zone</h2><div class="assessment-side-options">${result.secondaryParameters.length ? `<label>Second parameter (optional)<select id="assessment-secondary-parameter"><option value="">One parameter</option>${result.secondaryParameters.map((item) => `<option value="${escapeHtml(item)}" ${item === result.secondaryParameter ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>` : ""}<label>Compare another Lot (same parameter)<select id="assessment-secondary-lot"><option value="">One Lot</option>${result.comparisonLots.map(item=>`<option value="${escapeHtml(item)}" ${sameDataValue(item,result.secondaryLot)?'selected':''}>${escapeHtml(item)}</option>`).join('')}</select></label></div></div>
-    <label>MR N<input id="assessment-batch-filter" type="search" autocomplete="off" placeholder="All MRs" value="${escapeHtml(state.assessmentBatchQuery)}" aria-describedby="assessment-batch-status"></label>
-    <p id="assessment-batch-status" class="result-note" role="status"></p>
     <p class="result-note">Higher-than-Mu values shade toward red; lower-than-Mu values shade toward green.</p>
+    <p class="result-note">Each plot has its own MR filter. Shared highlighting uses only MRs visible in both plots.</p>
     <div class="assessment-shared-control"><label><input id="assessment-shared-highlight" type="checkbox" ${result.sharedHighlightOnly ? "checked" : ""} ${result.secondaryAssessment ? "" : "disabled"} aria-describedby="assessment-shared-status">Highlight only matching MR × Zone cells in both parameter ranges</label><span id="assessment-shared-status" role="status"></span></div>
     <div id="assessment-plot-grid" class="assessment-plot-grid ${result.secondaryParameter || result.secondaryLot ? "has-secondary" : ""}">
       <section class="assessment-plot-pane" aria-label="Primary parameter plot">
         <div class="assessment-plot-toolbar"><h3>${escapeHtml(result.parameter)}</h3><button id="export-assessment-png" class="command" type="button">Export PNG</button></div>
+        <label class="assessment-mr-filter">MR N<input id="assessment-batch-filter" type="search" autocomplete="off" placeholder="All primary MRs" value="${escapeHtml(state.assessmentBatchQuery)}" aria-describedby="assessment-batch-status"></label>
+        <p id="assessment-batch-status" class="result-note assessment-mr-status" role="status"></p>
         ${result.mode === "manual" ? `<div class="assessment-primary-manual"><span>Manual Mu: ${formatCell(result.options.manualMu)}</span><span>Manual Sigma: ${formatCell(result.options.manualSigma)}</span></div>` : ""}
         ${assessmentRangeControls("primary", result.highlightRanges.primary)}
         <div id="assessment-batch-table" class="table-wrap"></div>
       </section>
       <section id="assessment-secondary-pane" class="assessment-plot-pane" aria-label="Second comparison plot" ${result.secondaryParameter || result.secondaryLot ? "" : "hidden"}>
         <div class="assessment-plot-toolbar"><h3 id="assessment-secondary-title">${escapeHtml(result.secondaryLot?`${result.parameter} · Lot ${result.secondaryLot}`:result.secondaryParameter)}</h3><button id="export-assessment-secondary-png" class="command" type="button" ${result.secondaryAssessment ? "" : "disabled"}>Export PNG</button></div>
+        <label class="assessment-mr-filter">MR N<input id="assessment-secondary-batch-filter" type="search" autocomplete="off" placeholder="All comparison MRs" value="${escapeHtml(state.assessmentSecondaryBatchQuery)}" aria-describedby="assessment-secondary-batch-status"></label>
+        <p id="assessment-secondary-batch-status" class="result-note assessment-mr-status" role="status"></p>
         ${result.mode === "manual" ? `<div class="assessment-secondary-manual" ${result.secondaryParameter?'':'hidden'}><label>Manual Mu<input id="assessment-secondary-manual-mu" class="assessment-secondary-manual-input" data-field="mu" type="number" step="any" value="${escapeHtml(result.secondaryManual.mu)}"></label><label>Manual Sigma<input id="assessment-secondary-manual-sigma" class="assessment-secondary-manual-input" data-field="sigma" type="number" step="any" value="${escapeHtml(result.secondaryManual.sigma)}"></label></div>` : ""}
         ${assessmentRangeControls("secondary", result.highlightRanges.secondary)}
         <div id="assessment-secondary-table" class="table-wrap"></div>
@@ -3721,7 +3785,9 @@ async function exportAssessmentPng(secondary = false) {
   const current=state.lastAssessment;
   const parameter=secondary ? current?.secondaryParameter || current?.parameter : current?.parameter;
   const lot=secondary && current?.secondaryLot ? current.secondaryLot : current?.lot;
-  if(!current || !table || byId('assessment-batch-filter')?.getAttribute('aria-invalid')==='true') throw new Error('Run an assessment and select valid MR rows before exporting.');
+  const filterId=secondary?'assessment-secondary-batch-filter':'assessment-batch-filter';
+  const statusId=secondary?'assessment-secondary-batch-status':'assessment-batch-status';
+  if(!current || !table || byId(filterId)?.getAttribute('aria-invalid')==='true') throw new Error('Run an assessment and select valid MR rows before exporting.');
   const rows=[...table.rows].map(row=>[...row.cells]);
   const legendLines=assessmentPngRangeLegend(current,secondary);
   const canvas=document.createElement('canvas'), measure=canvas.getContext('2d');
@@ -3735,7 +3801,7 @@ async function exportAssessmentPng(secondary = false) {
   ctx.fillStyle='#172231';ctx.font='bold 17px sans-serif';ctx.fillText('MR × Parameter × Zone',16,26);
   ctx.font='13px sans-serif';
   ctx.fillText(`Lot: ${lot} | Parameter: ${parameter} | Source: ${state.source}`,16,48,width-32);
-  ctx.fillText(`Reference: ${current.mode} | Matching: ${current.granularity} | ${byId('assessment-batch-status').textContent}`,16,68,width-32);
+  ctx.fillText(`Reference: ${current.mode} | Matching: ${current.granularity} | ${byId(statusId).textContent}`,16,68,width-32);
   legendLines.forEach((line,index)=>ctx.fillText(line,16,90+index*18,width-32));
   rows.forEach((row,r)=>{let x=16;row.forEach((cell,c)=>{
     const style=getComputedStyle(cell), y=top+r*rowHeight, cellX=x, cellWidth=widths[c];
@@ -3776,17 +3842,29 @@ function renderAssessmentBatchTables() {
   if (!current || !byId("assessment-batch-table")) return;
   const { assessment } = current;
   let indexes = [];
-  let error = "";
+  let primaryError = "";
   try {
     indexes = assessmentBatchIndexes(assessment.grid, state.assessmentBatchQuery);
   } catch (failure) {
-    error = failure.message;
+    primaryError = failure.message;
   }
-  byId("assessment-batch-filter").setAttribute("aria-invalid", String(Boolean(error)));
-  byId("assessment-batch-status").textContent = error || `${indexes.length} of ${assessment.grid.length} MR rows shown`;
+  byId("assessment-batch-filter").setAttribute("aria-invalid", String(Boolean(primaryError)));
+  byId("assessment-batch-status").textContent = primaryError || `${indexes.length} of ${assessment.grid.length} primary MR rows shown`;
   const primaryRange = parseAssessmentHighlight(current.highlightRanges.primary);
   const second = current.secondaryAssessment;
-  const secondaryIndexes = second && !error ? assessmentBatchIndexes(second.grid, state.assessmentBatchQuery) : [];
+  let secondaryIndexes = [];
+  let secondaryFilterError = "";
+  if (second) {
+    try {
+      secondaryIndexes = assessmentBatchIndexes(second.grid, state.assessmentSecondaryBatchQuery);
+    } catch (failure) {
+      secondaryFilterError = failure.message;
+    }
+  }
+  const secondaryFilter=byId("assessment-secondary-batch-filter");
+  if(secondaryFilter)secondaryFilter.setAttribute("aria-invalid",String(Boolean(secondaryFilterError)));
+  const secondaryStatus=byId("assessment-secondary-batch-status");
+  if(secondaryStatus)secondaryStatus.textContent=secondaryFilterError || (second?`${secondaryIndexes.length} of ${second.grid.length} comparison MR rows shown`:"");
   const secondaryRange = parseAssessmentHighlight(current.highlightRanges.secondary);
   const sharedCheckbox = byId("assessment-shared-highlight");
   const sharedAvailable = Boolean(second && hasSixAssessmentZones(assessment) && hasSixAssessmentZones(second));
@@ -3804,7 +3882,9 @@ function renderAssessmentBatchTables() {
       : "";
   byId("assessment-range-primary-status").textContent = primaryRange.error || (primaryRange.range
     ? `${countAssessmentHighlights(assessment, indexes, primaryRange.range)} matching cells` : "");
-  byId("assessment-batch-table").innerHTML = indexes.length
+  byId("assessment-batch-table").innerHTML = primaryError
+    ? `<p class="empty-state">${escapeHtml(primaryError)}</p>`
+    : indexes.length
     ? renderAssessmentPlotTable(assessment, indexes, primaryRange.range, sharedMode ? shared.primary : null)
     : '<p class="empty-state">No matching MRs.</p>';
   const secondaryTable = byId("assessment-secondary-table");
@@ -3814,9 +3894,10 @@ function renderAssessmentBatchTables() {
     secondaryTable.innerHTML = current.secondaryError
       ? `<p class="empty-state">${escapeHtml(current.secondaryError)}</p>`
       : !second ? '<p class="empty-state">Select a second Zone parameter or another Lot.</p>'
-        : secondaryIndexes.length ? renderAssessmentPlotTable(second, secondaryIndexes, secondaryRange.range, sharedMode ? shared.secondary : null)
+        : secondaryFilterError ? `<p class="empty-state">${escapeHtml(secondaryFilterError)}</p>`
+          : secondaryIndexes.length ? renderAssessmentPlotTable(second, secondaryIndexes, secondaryRange.range, sharedMode ? shared.secondary : null)
           : '<p class="empty-state">No matching MRs.</p>';
-    byId("export-assessment-secondary-png").disabled = !secondaryIndexes.length || Boolean(error);
+    byId("export-assessment-secondary-png").disabled = !secondaryIndexes.length || Boolean(secondaryFilterError);
   }
   const referenceTable = byId("assessment-result").querySelector(".applied-reference-wrap");
   if (referenceTable) {
@@ -4824,6 +4905,45 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
       }).join("")}</tbody>
     </table>
   `;
+}
+
+function drawGaussianOverlay(canvas, primary, comparison, dimensions) {
+  if(!canvas||!primary?.bins?.length||!comparison?.bins?.length)return;
+  const xAxis=integerChartAxis([Math.min(primary.start,comparison.start),Math.max(primary.end,comparison.end)]);
+  const start=xAxis.min,end=xAxis.max;
+  const {ctx,width,height,colors}=setupCanvas(canvas,dimensions);
+  const fontSize=dimensions?18:14,pad={left:58,right:16,top:72,bottom:38};
+  const percent=(value,fit)=>fit.n&&fit.binWidth?value/fit.n/fit.binWidth*100:0;
+  const maxValue=Math.max(1,
+    ...primary.bins.flatMap(bin=>[percent(bin.observed,primary),percent(bin.gaussian,primary)]),
+    ...comparison.bins.flatMap(bin=>[percent(bin.observed,comparison),percent(bin.gaussian,comparison)]));
+  const yAxis=integerChartAxis([0,maxValue]);
+  ctx.font=`${fontSize}px sans-serif`;
+  pad.left=Math.max(pad.left,...yAxis.ticks.map(value=>ctx.measureText(`${formatInteger(value)}%`).width+14));
+  if(width<760)pad.top=104;
+  const plotWidth=width-pad.left-pad.right,plotHeight=height-pad.top-pad.bottom,maxY=yAxis.max;
+  const xScale=value=>pad.left+(value-start)/(end-start)*plotWidth;
+  const yScale=value=>pad.top+plotHeight-value/maxY*plotHeight;
+  ctx.clearRect(0,0,width,height);ctx.fillStyle="#fff";ctx.fillRect(0,0,width,height);
+  ctx.strokeStyle=colors.line;ctx.lineWidth=1;ctx.fillStyle=colors.muted;ctx.textAlign="right";
+  yAxis.ticks.forEach(value=>{const y=yScale(value);ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(width-pad.right,y);ctx.stroke();ctx.fillText(`${formatInteger(value)}%`,pad.left-8,y+5);});
+  ctx.textAlign="center";
+  const tickWidth=Math.max(...xAxis.ticks.map(value=>ctx.measureText(formatNumber(value,2)).width))+12;
+  const tickStride=Math.max(1,Math.ceil(tickWidth/(plotWidth/(xAxis.ticks.length-1))));
+  xAxis.ticks.forEach((value,index)=>{const x=xScale(value);ctx.beginPath();ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();if(index%tickStride===0)ctx.fillText(formatNumber(value,2),x,height-12);});
+  drawFrame(ctx,pad,width,height,colors);
+  const series=[
+    {fit:primary,bar:"rgba(25,93,141,0.30)",line:"#195d8d",label:"Primary"},
+    {fit:comparison,bar:"rgba(216,103,35,0.30)",line:"#c55418",label:"Comparison"}
+  ];
+  ctx.save();ctx.beginPath();ctx.rect(pad.left,pad.top,plotWidth,plotHeight);ctx.clip();
+  series.forEach(({fit,bar})=>fit.bins.forEach(bin=>{const x0=xScale(bin.lower),x1=xScale(bin.upper),barHeight=percent(bin.observed,fit)/maxY*plotHeight;ctx.fillStyle=bar;ctx.fillRect(x0+1,pad.top+plotHeight-barHeight,Math.max(1,x1-x0-2),barHeight);}));
+  series.forEach(({fit,line})=>{ctx.beginPath();fit.bins.forEach((bin,index)=>{const x=xScale(bin.center),y=yScale(percent(bin.gaussian,fit));if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.strokeStyle=line;ctx.lineWidth=3;ctx.stroke();});
+  series.forEach(({fit,line})=>{if(fit.mean<start||fit.mean>end)return;const x=xScale(fit.mean);ctx.beginPath();ctx.setLineDash([6,4]);ctx.strokeStyle=line;ctx.lineWidth=1.5;ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();ctx.setLineDash([]);});
+  ctx.restore();
+  ctx.font=`bold ${fontSize}px sans-serif`;ctx.textAlign="left";
+  series.forEach(({bar,line,label,fit},index)=>{const stacked=width<760,x=stacked?pad.left:pad.left+index*plotWidth/2,y=stacked?26+index*28:30;ctx.fillStyle=bar;ctx.fillRect(x,y-14,24,14);ctx.strokeStyle=line;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+24,y-7);ctx.stroke();ctx.fillStyle="#172231";ctx.fillText(`${label}: N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)}`,x+32,y,stacked?plotWidth-36:plotWidth/2-36);});
+  ctx.font=`${fontSize}px sans-serif`;ctx.fillStyle=colors.muted;ctx.fillText(`Normalized density · Fitted overlap ${formatNumber(gaussianOverlapCoefficient(primary.mean,primary.sigma,comparison.mean,comparison.sigma)*100,1)}%`,pad.left,width<760?88:54,plotWidth);
 }
 
 function drawGaussian(canvas, fit, mode = "combined", dimensions) {

@@ -340,6 +340,40 @@ export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd,
   };
 }
 
+export function gaussianSigmaCounts(values, mean, sigma) {
+  values=values.filter(value=>typeof value==="number"&&Number.isFinite(value));
+  if(!Number.isFinite(mean)||!Number.isFinite(sigma)||sigma<0)throw new Error("Gaussian mean and sigma are required for sigma counts.");
+  const count=(test)=>values.reduce((total,value)=>total+(test(value)?1:0),0);
+  const lower2=mean-2*sigma,lower1=mean-sigma,upper1=mean+sigma,upper2=mean+2*sigma;
+  return {
+    n:values.length,mu:mean,sigma,lower2,lower1,upper1,upper2,
+    below2:count(value=>value<lower2),
+    lower2to1:count(value=>value>=lower2&&value<lower1),
+    lower1toMean:count(value=>value>=lower1&&value<mean),
+    meanToUpper1:count(value=>value>=mean&&value<=upper1),
+    upper1to2:count(value=>value>upper1&&value<=upper2),
+    above2:count(value=>value>upper2),
+    within1:count(value=>value>=lower1&&value<=upper1),
+    within2:count(value=>value>=lower2&&value<=upper2)
+  };
+}
+
+export function gaussianOverlapCoefficient(firstMean, firstSigma, secondMean, secondSigma) {
+  if(![firstMean,firstSigma,secondMean,secondSigma].every(Number.isFinite)||firstSigma<0||secondSigma<0)throw new Error("Two Gaussian means and non-negative sigmas are required.");
+  if(firstSigma===0||secondSigma===0)return firstSigma===secondSigma&&firstMean===secondMean?1:0;
+  const start=Math.min(firstMean-6*firstSigma,secondMean-6*secondSigma);
+  const end=Math.max(firstMean+6*firstSigma,secondMean+6*secondSigma);
+  const steps=2400,width=(end-start)/steps;
+  const density=(value,mean,sigma)=>Math.exp(-0.5*((value-mean)/sigma)**2)/(sigma*Math.sqrt(2*Math.PI));
+  let area=0;
+  for(let index=0;index<=steps;index+=1){
+    const value=start+index*width;
+    const overlap=Math.min(density(value,firstMean,firstSigma),density(value,secondMean,secondSigma));
+    area+=(index===0||index===steps?0.5:1)*overlap*width;
+  }
+  return Math.max(0,Math.min(1,area));
+}
+
 export function getTrendParameters(headers) {
   const regional = getRegionalParameters(headers).filter((parameter) =>
     zoneColumns(headers, parameter)?.every((index) => index >= 0)

@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v23-same-worksheet-lot-gaussian";
+const CACHE_NAME = "ipw-complaint-workspace-v24-independent-mr-overlay-gaussian";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -21,16 +21,16 @@ const APP_SHELL = [
   "../images/correlation-zone-guide.png",
   "./index.html",
   "../workspace/workspace.css?v=2",
-  "../workspace/workspace-ui.js?v=5", "./workspace2.css?v=23", "./workspace2-ui.js?v=2",
+  "../workspace/workspace-ui.js?v=5", "./workspace2.css?v=24", "./workspace2-ui.js?v=2",
   "./workbook-comparison.js?v=2",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=117",
+  "../iphone-app.js?v=118",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",
   "../foldable-ui.js?v=6",
   "../local-preferences.js?v=1",
-  "../analysis.js?v=17",
+  "../analysis.js?v=18",
   "../v90-analysis.js?v=6",
   "../clean-data.js?v=2",
   "../data-management.js?v=5",
