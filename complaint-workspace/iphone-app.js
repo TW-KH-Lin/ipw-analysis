@@ -2426,22 +2426,22 @@ function fitGaussianSelection(records,method) {
 function renderGaussianSigmaCounts(current,label) {
   const summary=current.sigmaCounts,n=summary.n;
   const value=value=>formatNumber(value,2),percent=count=>n?`${formatNumber(count/n*100,1)}%`:'0%';
-  const row=(band,interval,count)=>[band,interval,count,percent(count)];
+  const row=(band,interval,count)=>[band,interval,`${formatInteger(count)} (${percent(count)})`];
   return `<article class="gaussian-sigma-card">
     <h3>${escapeHtml(label)}</h3>
     <p class="gaussian-sigma-meta">N ${formatInteger(n)} · μ ${value(summary.mu)} · σ ${value(summary.sigma)}</p>
     <div class="gaussian-sigma-summary">
-      <div><span>Within ±1σ</span><strong>${formatInteger(summary.within1)} / ${formatInteger(n)}</strong><small>${percent(summary.within1)}</small></div>
-      <div><span>Within ±2σ</span><strong>${formatInteger(summary.within2)} / ${formatInteger(n)}</strong><small>${percent(summary.within2)}</small></div>
+      <span><b>±1σ</b> ${formatInteger(summary.within1)}/${formatInteger(n)} (${percent(summary.within1)})</span>
+      <span><b>±2σ</b> ${formatInteger(summary.within2)}/${formatInteger(n)} (${percent(summary.within2)})</span>
     </div>
     <div class="table-wrap mini-table gaussian-sigma-table" data-fold-managed="true">${renderTable([
-      ["Sigma band","Value interval","N","%"],
-      row("< μ−2σ",`< ${value(summary.lower2)}`,summary.below2),
-      row("μ−2σ → μ−1σ",`${value(summary.lower2)} – ${value(summary.lower1)}`,summary.lower2to1),
-      row("μ−1σ → μ",`${value(summary.lower1)} – ${value(summary.mu)}`,summary.lower1toMean),
-      row("μ → μ+1σ",`${value(summary.mu)} – ${value(summary.upper1)}`,summary.meanToUpper1),
-      row("μ+1σ → μ+2σ",`${value(summary.upper1)} – ${value(summary.upper2)}`,summary.upper1to2),
-      row("> μ+2σ",`> ${value(summary.upper2)}`,summary.above2)
+      ["Band","Value range","N (%)"],
+      row("< −2σ",`< ${value(summary.lower2)}`,summary.below2),
+      row("−2σ…−1σ",`${value(summary.lower2)}–${value(summary.lower1)}`,summary.lower2to1),
+      row("−1σ…μ",`${value(summary.lower1)}–${value(summary.mu)}`,summary.lower1toMean),
+      row("μ…+1σ",`${value(summary.mu)}–${value(summary.upper1)}`,summary.meanToUpper1),
+      row("+1σ…+2σ",`${value(summary.upper1)}–${value(summary.upper2)}`,summary.upper1to2),
+      row("> +2σ",`> ${value(summary.upper2)}`,summary.above2)
     ])}</div>
   </article>`;
 }

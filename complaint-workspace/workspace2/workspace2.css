@@ -180,15 +180,14 @@
 .gaussian-sigma-grid.has-comparison { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .gaussian-sigma-card { min-width:0; }
 .gaussian-sigma-card h3 { margin:0 0 7px; overflow-wrap:anywhere; font-size:14px; }
-.gaussian-sigma-meta { margin:0 0 8px; color:var(--muted); font-size:12px; }
-.gaussian-sigma-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:0 0 9px; }
-.gaussian-sigma-summary > div { display:grid; grid-template-columns:1fr auto; gap:2px 8px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:#f5f8fa; }
-.gaussian-sigma-summary span { grid-column:1/-1; color:var(--muted); font-size:11px; font-weight:700; }
-.gaussian-sigma-summary strong { font-size:14px; font-variant-numeric:tabular-nums; }
-.gaussian-sigma-summary small { align-self:end; color:var(--blue-dark); font-size:11px; font-weight:700; }
-.gaussian-sigma-table table { width:100%; table-layout:auto; }
-.gaussian-sigma-table th,.gaussian-sigma-table td { padding:5px 7px; font-size:12px; white-space:nowrap; }
-.gaussian-sigma-table th:nth-child(3),.gaussian-sigma-table td:nth-child(3),.gaussian-sigma-table th:nth-child(4),.gaussian-sigma-table td:nth-child(4) { width:48px; text-align:right; }
+.gaussian-sigma-meta { margin:0 0 5px; color:var(--muted); font-size:11px; }
+.gaussian-sigma-summary { display:flex; flex-wrap:wrap; gap:5px; margin:0 0 6px; }
+.gaussian-sigma-summary span { padding:3px 7px; border:1px solid var(--line); border-radius:999px; background:#f5f8fa; color:var(--muted); font-size:10px; white-space:nowrap; }
+.gaussian-sigma-summary b { color:var(--blue-dark); }
+.gaussian-sigma-table { width:fit-content; max-width:100%; }
+.gaussian-sigma-table table { width:max-content; min-width:0; table-layout:auto; }
+.gaussian-sigma-table th,.gaussian-sigma-table td { padding:3px 6px; font-size:11px; line-height:1.25; white-space:nowrap; }
+.gaussian-sigma-table th:nth-child(3),.gaussian-sigma-table td:nth-child(3) { text-align:right; }
 .assessment-side-options { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
 .assessment-side-options label { min-width:190px; }
 @media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison { grid-template-columns:minmax(0,1fr); } }
