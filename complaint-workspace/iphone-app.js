@@ -4275,7 +4275,7 @@ function zoneProfileHeatStyle(score) {
 }
 
 function renderZoneProfileTable(profile) {
-  return `<div class="table-wrap zone-profile-table"><table><thead><tr><th>Zone</th><th>N</th><th>Mean</th><th>Median</th><th>SD</th><th>Δ overall</th><th>Std. Δ</th></tr></thead><tbody>${profile.zones.map(zone=>`<tr><td>Zone ${zone.zone}</td><td>${formatInteger(zone.n)}</td><td${zoneProfileHeatStyle(zone.standardizedDelta)}>${formatNumber(zone.mean,3)}</td><td>${formatNumber(zone.median,3)}</td><td>${formatNumber(zone.sigma,3)}</td><td>${formatNumber(zone.delta,3)}</td><td>${formatNumber(zone.standardizedDelta,2)}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap zone-profile-table"><table><thead><tr><th>Zone</th><th>N</th><th>Mean</th><th>Median</th><th>SD</th><th>Δ overall</th><th>Std. Δ</th></tr></thead><tbody>${profile.zones.map(zone=>`<tr><td>Zone ${zone.zone}</td><td>${formatInteger(zone.n)}</td><td${zoneProfileHeatStyle(zone.standardizedDelta)}>${formatNumber(zone.mean,2)}</td><td>${formatNumber(zone.median,2)}</td><td>${formatNumber(zone.sigma,2)}</td><td>${formatNumber(zone.delta,2)}</td><td>${formatNumber(zone.standardizedDelta,2)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 function renderZoneProfilePairs(profile) {
@@ -4283,7 +4283,7 @@ function renderZoneProfilePairs(profile) {
   if(profile.friedman.p>=0.05)return '<p class="empty-state">The overall Friedman test is not significant; Zone pairs are not interpreted.</p>';
   const significant=profile.pairwise.filter(item=>item.adjustedP<0.05).sort((a,b)=>a.adjustedP-b.adjustedP);
   if(!significant.length)return '<p class="empty-state">No Zone pair remains significant after Holm correction (α = 0.05).</p>';
-  return `<div class="table-wrap compact-table"><table><thead><tr><th>Zones</th><th>Direction</th><th>Paired N</th><th>Mean Δ</th><th>Raw p</th><th>Holm-adjusted p</th></tr></thead><tbody>${significant.map(item=>`<tr><td>Zone ${item.first} vs ${item.second}</td><td>${escapeHtml(item.direction.replace(/(\d)/g,'Zone $1'))}</td><td>${formatInteger(item.n)}</td><td>${formatNumber(item.meanDifference,3)}</td><td>${formatProbability(item.p)}</td><td>${formatProbability(item.adjustedP)}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap compact-table"><table><thead><tr><th>Zones</th><th>Direction</th><th>Paired N</th><th>Mean Δ</th><th>Raw p</th><th>Holm-adjusted p</th></tr></thead><tbody>${significant.map(item=>`<tr><td>Zone ${item.first} vs ${item.second}</td><td>${escapeHtml(item.direction.replace(/(\d)/g,'Zone $1'))}</td><td>${formatInteger(item.n)}</td><td>${formatNumber(item.meanDifference,2)}</td><td>${formatProbability(item.p)}</td><td>${formatProbability(item.adjustedP)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 function zoneProfileSignificance(profile) {
@@ -4294,7 +4294,7 @@ function zoneProfileSignificance(profile) {
 
 function renderZoneProfileResult() {
   const current=state.lastZoneProfile;if(!current)return;
-  byId('zone-profile-result').innerHTML=`<div class="zone-profile-grid">${current.profiles.map((profile,index)=>`<article class="zone-profile-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(profile.parameter)}</h3><button class="command" type="button" data-zone-profile-export="${index}">Export PNG</button></div><p class="zone-profile-source">${escapeHtml(current.sourceLabel)}${current.lot?` · Lot ${escapeHtml(current.lot)}`:''}</p><div class="metric-grid">${metric('Complete paired MRs',formatInteger(profile.completeCases))}${metric('Friedman p',formatProbability(profile.friedman.p))}${metric("Kendall's W",formatNumber(profile.friedman.kendallW,3))}${metric('Result',zoneProfileSignificance(profile))}</div><div class="chart-card"><canvas id="zone-profile-chart-${index}" aria-label="${escapeHtml(profile.parameter)} Zone 1 to 6 profile"></canvas></div>${renderZoneProfileTable(profile)}<details><summary>Significant Zone pairs</summary>${renderZoneProfilePairs(profile)}</details><p class="zone-profile-note">Trend: ${escapeHtml(profile.direction)} · Mean change per Zone: ${formatNumber(profile.slope,3)}. Friedman uses complete Zone 1–6 MR rows. Pairwise results use exact sign tests with Holm correction.</p></article>`).join('')}</div>`;
+  byId('zone-profile-result').innerHTML=`<div class="zone-profile-grid">${current.profiles.map((profile,index)=>`<article class="zone-profile-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(profile.parameter)}</h3><button class="command" type="button" data-zone-profile-export="${index}">Export PNG</button></div><p class="zone-profile-source">${escapeHtml(current.sourceLabel)}${current.lot?` · Lot ${escapeHtml(current.lot)}`:''}</p><div class="metric-grid">${metric('Complete paired MRs',formatInteger(profile.completeCases))}${metric('Friedman p',formatProbability(profile.friedman.p))}${metric("Kendall's W",formatNumber(profile.friedman.kendallW,2))}${metric('Result',zoneProfileSignificance(profile))}</div><div class="chart-card"><canvas id="zone-profile-chart-${index}" aria-label="${escapeHtml(profile.parameter)} Zone 1 to 6 bar chart"></canvas></div>${renderZoneProfileTable(profile)}<details><summary>Significant Zone pairs</summary>${renderZoneProfilePairs(profile)}</details><p class="zone-profile-note">Trend: ${escapeHtml(profile.direction)} · Mean change per Zone: ${formatNumber(profile.slope,2)}. Friedman uses complete Zone 1–6 MR rows. Pairwise results use exact sign tests with Holm correction.</p></article>`).join('')}</div>`;
   byId('zone-profile-result').querySelectorAll('[data-zone-profile-export]').forEach(button=>button.addEventListener('click',()=>runAction(()=>saveZoneProfileSnapshot(Number(button.dataset.zoneProfileExport)))));
   requestAnimationFrame(()=>current.profiles.forEach((profile,index)=>drawZoneProfile(byId(`zone-profile-chart-${index}`),profile,current)));
 }
@@ -4303,20 +4303,19 @@ function drawZoneProfile(canvas,profile,current,dimensions) {
   if(!canvas)return;
   const {ctx,width,height,colors}=setupCanvas(canvas,dimensions),pad={left:64,right:22,top:92,bottom:52};
   const values=profile.zones.flatMap(zone=>zone.mean===null?[]:[zone.mean-zone.sigma,zone.mean+zone.sigma,zone.median]);
-  const extent=paddedExtent(values),plotWidth=width-pad.left-pad.right,plotHeight=height-pad.top-pad.bottom;
-  const xScale=zone=>pad.left+(zone-1)/5*plotWidth,yScale=value=>pad.top+plotHeight-(value-extent.min)/(extent.max-extent.min)*plotHeight;
+  const extent=integerChartAxis(values),plotWidth=width-pad.left-pad.right,plotHeight=height-pad.top-pad.bottom;
+  const xScale=zone=>pad.left+(zone-.5)/6*plotWidth,yScale=value=>pad.top+plotHeight-(value-extent.min)/(extent.max-extent.min)*plotHeight;
   ctx.clearRect(0,0,width,height);ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
   ctx.fillStyle=colors.ink;ctx.textAlign='left';ctx.font='bold 17px Aptos, Calibri, Arial, sans-serif';ctx.fillText(`${profile.parameter} · Zone 1–6`,pad.left,24,plotWidth);
   ctx.fillStyle=colors.muted;ctx.font='13px Aptos, Calibri, Arial, sans-serif';ctx.fillText(`${current.sourceLabel}${current.lot?` · Lot ${current.lot}`:''}`,pad.left,47,plotWidth);
-  ctx.fillText(`Friedman p ${formatProbability(profile.friedman.p)} · Kendall's W ${formatNumber(profile.friedman.kendallW,3)} · Paired MR N ${formatInteger(profile.completeCases)}`,pad.left,68,plotWidth);
+  ctx.fillText(`Friedman p ${formatProbability(profile.friedman.p)} · Kendall's W ${formatNumber(profile.friedman.kendallW,2)} · Paired MR N ${formatInteger(profile.completeCases)}`,pad.left,68,plotWidth);
   ctx.strokeStyle=colors.line;ctx.lineWidth=1;ctx.textAlign='right';ctx.font='12px Aptos, Calibri, Arial, sans-serif';
-  for(let index=0;index<=4;index+=1){const value=extent.min+(extent.max-extent.min)*index/4,y=yScale(value);ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(width-pad.right,y);ctx.stroke();ctx.fillStyle=colors.muted;ctx.fillText(formatNumber(value,3),pad.left-8,y+4);}
+  extent.ticks.forEach(value=>{const y=yScale(value);ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(width-pad.right,y);ctx.stroke();ctx.fillStyle=colors.muted;ctx.fillText(formatInteger(value),pad.left-8,y+4);});
   drawFrame(ctx,pad,width,height,colors);
   if(profile.overall.mean!==null){ctx.save();ctx.setLineDash([5,4]);ctx.strokeStyle=colors.muted;ctx.beginPath();ctx.moveTo(pad.left,yScale(profile.overall.mean));ctx.lineTo(width-pad.right,yScale(profile.overall.mean));ctx.stroke();ctx.restore();}
-  const valid=profile.zones.filter(zone=>zone.mean!==null);
-  ctx.strokeStyle=colors.blue;ctx.lineWidth=2;ctx.beginPath();valid.forEach((zone,index)=>{const x=xScale(zone.zone),y=yScale(zone.mean);if(index)ctx.lineTo(x,y);else ctx.moveTo(x,y);});ctx.stroke();
-  profile.zones.forEach(zone=>{const x=xScale(zone.zone);ctx.fillStyle=colors.muted;ctx.textAlign='center';ctx.fillText(`Zone ${zone.zone}`,x,height-18);if(zone.mean===null)return;const low=yScale(zone.mean-zone.sigma),high=yScale(zone.mean+zone.sigma);ctx.strokeStyle=colors.ink;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,low);ctx.lineTo(x,high);ctx.moveTo(x-5,low);ctx.lineTo(x+5,low);ctx.moveTo(x-5,high);ctx.lineTo(x+5,high);ctx.stroke();ctx.fillStyle=zone.standardizedDelta>=0?'#c83c2d':'#368e42';ctx.beginPath();ctx.arc(x,yScale(zone.mean),5,0,Math.PI*2);ctx.fill();ctx.save();ctx.translate(x,yScale(zone.median));ctx.rotate(Math.PI/4);ctx.fillStyle='#f0a000';ctx.fillRect(-3.5,-3.5,7,7);ctx.restore();});
-  ctx.fillStyle=colors.muted;ctx.textAlign='left';ctx.fillText('● Mean  ◆ Median  │ ±1 SD  – – Overall mean',pad.left,height-2,plotWidth);
+  const barWidth=Math.min(56,plotWidth/8);
+  profile.zones.forEach(zone=>{const x=xScale(zone.zone);ctx.fillStyle=colors.muted;ctx.textAlign='center';ctx.fillText(`Zone ${zone.zone}`,x,height-18);if(zone.mean===null)return;const meanY=yScale(zone.mean),baseY=yScale(extent.min),low=yScale(zone.mean-zone.sigma),high=yScale(zone.mean+zone.sigma);ctx.fillStyle=zone.standardizedDelta>=0?'rgba(200,60,45,.78)':'rgba(54,142,66,.78)';ctx.fillRect(x-barWidth/2,meanY,barWidth,Math.max(1,baseY-meanY));ctx.strokeStyle=colors.ink;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,low);ctx.lineTo(x,high);ctx.moveTo(x-5,low);ctx.lineTo(x+5,low);ctx.moveTo(x-5,high);ctx.lineTo(x+5,high);ctx.stroke();ctx.save();ctx.translate(x,yScale(zone.median));ctx.rotate(Math.PI/4);ctx.fillStyle='#f0a000';ctx.fillRect(-3.5,-3.5,7,7);ctx.restore();ctx.fillStyle=colors.ink;ctx.font='bold 11px Aptos, Calibri, Arial, sans-serif';ctx.fillText(formatNumber(zone.mean,2),x,Math.max(pad.top+11,high-7));});
+  ctx.fillStyle=colors.muted;ctx.textAlign='left';ctx.font='12px Aptos, Calibri, Arial, sans-serif';ctx.fillText('Bar: Mean  ◆ Median  │ ±1 SD  – – Overall mean',pad.left,height-2,plotWidth);
 }
 
 function saveZoneProfileSnapshot(index) {

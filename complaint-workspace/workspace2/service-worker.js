@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v32-zone-profile-navigation";
+const CACHE_NAME = "ipw-complaint-workspace-v33-zone-profile-bars";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -25,7 +25,7 @@ const APP_SHELL = [
   "./workbook-comparison.js?v=2",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=124",
+  "../iphone-app.js?v=125",
   "./zone-profile.js?v=1",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",
