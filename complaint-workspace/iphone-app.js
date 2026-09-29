@@ -636,10 +636,10 @@ function syncGaussianSourceChoices() {
   host.hidden=!combinedContext.active;
   const primary=byId('gaussian-source'),secondary=byId('gaussian-compare-source');
   if(!combinedContext.active){fillSelect(primary,["all"],"all");fillSelect(secondary,[""],"");return;}
-  const choices=[['all','All selected worksheets'],...combinedContext.selectedIds.map(id=>{const entry=workbookLibrary.get(id);return [id,`${entry?.file.name || id} · ${entry?.index?.source || ''}`];})];
+  const choices=[['all','Combined selected workbooks'],...combinedContext.selectedIds.map(id=>{const entry=workbookLibrary.get(id);return [id,`Workbook · ${entry?.file.name || id} · ${entry?.index?.source || ''}`];})];
   const prior=choices.some(([value])=>value===primary.value)?primary.value:'all';
   primary.replaceChildren(...choices.map(([value,label])=>new Option(label,value)));primary.value=prior;
-  const compareChoices=[['','Use primary worksheet'],...choices.filter(([value])=>value!=='all' && value!==primary.value)];
+  const compareChoices=[['','No separate dataset'],...choices.filter(([value])=>value!==primary.value)];
   const comparePrior=compareChoices.some(([value])=>value===secondary.value)?secondary.value:'';
   secondary.replaceChildren(...compareChoices.map(([value,label])=>new Option(label,value)));secondary.value=comparePrior;
   syncGaussianLotChoices();
@@ -651,10 +651,10 @@ function syncCorrelationSourceChoices() {
   host.hidden=!combinedContext.active||structured;
   const primary=byId('correlation-source'),secondary=byId('correlation-compare-source');
   if(!combinedContext.active){fillSelect(primary,['all'],'all');fillSelect(secondary,[''],'');return;}
-  const choices=[['all','All selected worksheets'],...combinedContext.selectedIds.map(id=>{const entry=workbookLibrary.get(id);return [id,`${entry?.file.name||id} · ${entry?.index?.source||''}`];})];
+  const choices=[['all','Combined selected workbooks'],...combinedContext.selectedIds.map(id=>{const entry=workbookLibrary.get(id);return [id,`Workbook · ${entry?.file.name||id} · ${entry?.index?.source||''}`];})];
   const prior=choices.some(([value])=>value===primary.value)?primary.value:'all';
   primary.replaceChildren(...choices.map(([value,label])=>new Option(label,value)));primary.value=prior;
-  const compareChoices=[['','Use primary worksheet'],...choices.filter(([value])=>value!=='all'&&value!==primary.value)];
+  const compareChoices=[['','No separate dataset'],...choices.filter(([value])=>value!==primary.value)];
   const comparePrior=compareChoices.some(([value])=>value===secondary.value)?secondary.value:'';
   secondary.replaceChildren(...compareChoices.map(([value,label])=>new Option(label,value)));secondary.value=comparePrior;
 }

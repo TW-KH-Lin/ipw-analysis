@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v29-correlation-comparison";
+const CACHE_NAME = "ipw-complaint-workspace-v30-combined-or-separate-datasets";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -25,7 +25,7 @@ const APP_SHELL = [
   "./workbook-comparison.js?v=2",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=122",
+  "../iphone-app.js?v=123",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",
   "../foldable-ui.js?v=6",
