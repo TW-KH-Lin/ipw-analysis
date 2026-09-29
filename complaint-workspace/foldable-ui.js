@@ -12,6 +12,7 @@ const resultTitles = new Map([
   ["assessment-result", "Assessment result"],
   ["zm-plan-result", "ZM plan result"],
   ["release-result", "Release result"],
+  ["zone-profile-result", "Zone Profile result"],
   ["correlation-result", "Correlation result"],
   ["export-result", "Export overview"]
 ]);
@@ -30,6 +31,7 @@ const settingsPanels = new Map([
   ["period-panel", "period-result"],
   ["lot-panel", "assessment-result"],
   ["release-panel", "release-result"],
+  ["zone-profile-panel", "zone-profile-result"],
   ["correlation-panel", "correlation-result"],
   ["export-panel", "export-result"]
 ]);

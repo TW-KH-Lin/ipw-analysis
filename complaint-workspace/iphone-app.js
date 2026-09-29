@@ -60,6 +60,7 @@ import {
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
 import { buildStructuredCorrelation, structuredParameters, replayStructuredExclusions, structuredConclusions } from "./structured-correlation.js?v=10";
+import { buildZoneProfile } from "./workspace2/zone-profile.js?v=1";
 
 const state = {
   workbook: null,
@@ -102,6 +103,7 @@ const state = {
   assessmentSecondaryBatchQuery: "",
   equalReferenceLots: new Set(),
   lastRelease: null,
+  lastZoneProfile: null,
   lastZmPlan: null
 };
 
@@ -159,6 +161,7 @@ const REMEMBERED_CONTROLS = [
   "reference-temperature", "reference-humidity",
   "summary-parameter", "gaussian-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end", "gaussian-extreme-sigma", "gaussian-extreme-side",
   "trend-parameter", "period-parameter", "period-mode", "period-plot", "period-lot", "period-lot-b",
+  "zone-profile-data-scope", "zone-profile-parameter-a", "zone-profile-parameter-b",
   "period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end",
   "assessment-lot", "assessment-parameter", "assessment-reference", "assessment-reference-lot",
   "assessment-granularity", "assessment-monitor", "assessment-outlier", "assessment-mu", "assessment-sigma",
@@ -323,6 +326,12 @@ function bindEvents() {
   byId("correlation-compare-lot").addEventListener("change",invalidateCorrelation);
   byId("correlation-source").addEventListener("change",()=>{syncCorrelationSourceChoices();syncCorrelationComparisonControls();invalidateCorrelation();});
   byId("correlation-compare-source").addEventListener("change",()=>{syncCorrelationComparisonControls();invalidateCorrelation();});
+  byId("zone-profile-data-scope").addEventListener("change",()=>{syncZoneProfileLots();invalidateZoneProfile();});
+  byId("zone-profile-lot").addEventListener("change",invalidateZoneProfile);
+  byId("zone-profile-source").addEventListener("change",()=>{syncZoneProfileLots();invalidateZoneProfile();});
+  byId("zone-profile-parameter-a").addEventListener("change",invalidateZoneProfile);
+  byId("zone-profile-parameter-b").addEventListener("change",invalidateZoneProfile);
+  byId("run-zone-profile").addEventListener("click",()=>runAction(createZoneProfile));
   byId('gaussian-data-scope').addEventListener('change',()=>{syncGaussianLotChoices();invalidateGaussian();});
   byId('gaussian-lot').addEventListener('change',()=>{syncGaussianLotChoices();invalidateGaussian();});
   byId('gaussian-compare-lot').addEventListener('change',invalidateGaussian);
@@ -630,6 +639,8 @@ function applyCombinedControlState() {
   syncGaussianSourceChoices();
   syncCorrelationSourceChoices();
   syncCorrelationComparisonControls();
+  syncZoneProfileSourceChoices();
+  syncZoneProfileLots();
 }
 function syncGaussianSourceChoices() {
   const host=byId('gaussian-source-controls');if(!host)return;
@@ -673,6 +684,27 @@ function syncCorrelationComparisonControls() {
   fillSelect(byId('correlation-compare-lot'),['',...comparisonLots],selected,value=>value||'One lot');
   byId('correlation-compare-lot-field').hidden=!single;byId('correlation-compare-lot').disabled=!single||!comparisonLots.length;
   byId('correlation-source-controls').hidden=!combinedContext.active||structured;
+}
+
+function syncZoneProfileSourceChoices() {
+  const host=byId('zone-profile-source-controls');if(!host)return;
+  host.hidden=!combinedContext.active;
+  const select=byId('zone-profile-source');
+  if(!combinedContext.active){fillSelect(select,['all'],'all');return;}
+  const choices=[['all','Combined selected workbooks'],...combinedContext.selectedIds.map(id=>{const entry=workbookLibrary.get(id);return [id,`Workbook · ${entry?.file.name||id} · ${entry?.index?.source||''}`];})];
+  const prior=choices.some(([value])=>value===select.value)?select.value:'all';
+  select.replaceChildren(...choices.map(([value,label])=>new Option(label,value)));select.value=prior;
+}
+
+function syncZoneProfileLots() {
+  const single=byId('zone-profile-data-scope')?.value==='single';
+  const sourceId=byId('zone-profile-source')?.value||'all';
+  const lots=gaussianLotsForSource(sourceId),control=byId('zone-profile-lot');
+  if(!control)return;
+  const prior=lots.some(lot=>sameDataValue(lot,control.value))?control.value:lots[0];
+  fillSelect(control,lots,prior);
+  byId('zone-profile-lot-field').hidden=!single;
+  control.disabled=!single||!lots.length;
 }
 function captureWorkbookSession() {
   if(combinedContext.active || !activeWorkbookId || !state.workbook)return;
@@ -1797,6 +1829,8 @@ function populateWorkbookControls() {
     "generated-summary-parameter",
     "gaussian-parameter",
     "trend-parameter",
+    "zone-profile-parameter-a",
+    "zone-profile-parameter-b",
     "correlation-y",
     "correlation-x",
     "export-parameter"
@@ -1810,6 +1844,7 @@ function populateWorkbookControls() {
   fillSelect(byId('gaussian-compare-lot'),state.lots,byId('gaussian-compare-lot').value || state.lots[0]);
   byId("generated-summary-parameter").disabled = !state.lastBuild;
   if (byId("correlation-x").options.length > 1) byId("correlation-x").value = secondParameter;
+  if (byId("zone-profile-parameter-b").options.length > 1 && byId("zone-profile-parameter-b").value === byId("zone-profile-parameter-a").value) byId("zone-profile-parameter-b").value = secondParameter;
   enableControls([
     "correlation-analysis", "correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions",
     "filter-mode",
@@ -1873,6 +1908,11 @@ function populateWorkbookControls() {
     "release-monitor",
     "release-not-ok",
     "run-release",
+    "zone-profile-data-scope",
+    "zone-profile-lot",
+    "zone-profile-parameter-a",
+    "zone-profile-parameter-b",
+    "run-zone-profile",
     "assessment-parameter",
     "assessment-lot",
     "assessment-compare-lot",
@@ -1910,6 +1950,7 @@ function populateWorkbookControls() {
   byId("run-period").disabled = !state.v90Parameters.length;
   byId("release-lot").disabled = !state.lots.length;
   byId("run-release").disabled = !state.lots.length;
+  byId("run-zone-profile").disabled = state.parameters.length < 2;
   byId("assessment-parameter").disabled = !state.v90Parameters.length;
   byId("save-period-plot").disabled = !state.lastPeriod;
   byId("download-release").disabled = !state.lastRelease;
@@ -1925,6 +1966,8 @@ function populateWorkbookControls() {
   syncStructuredCorrelationControls();
   syncCorrelationSourceChoices();
   syncCorrelationComparisonControls();
+  syncZoneProfileSourceChoices();
+  syncZoneProfileLots();
   byId("run-gaussian").disabled = !state.parameters.length;
   byId("recommend-gaussian").disabled = !state.parameters.length;
   byId("run-trend").disabled = !state.trendParameters.length;
@@ -1995,8 +2038,14 @@ function invalidateAnalyses() {
   invalidateTrend();
   invalidatePeriod();
   invalidateCorrelation();
+  invalidateZoneProfile();
   invalidateAssessment();
   invalidateRelease();
+}
+
+function invalidateZoneProfile() {
+  state.lastZoneProfile=null;
+  clearResult('zone-profile-result');
 }
 
 function invalidateCorrelation() {
@@ -4188,6 +4237,95 @@ function directionalAssessmentColors(signedScore, monitorLimit, outlierLimit) {
   };
 }
 
+function zoneProfileRows(sourceId='all',lot='') {
+  const scope=byId('zone-profile-data-scope').value;
+  let rows=scope==='filtered'?filteredRows():dataRows();
+  if(sourceId!=='all')rows=rows.filter(row=>combinedContext.origins.get(row)?.source.id===sourceId);
+  if(lot){const lotColumn=headerIndex(state.headers,'Lot');rows=lotColumn<0?[]:rows.filter(row=>sameDataValue(row[lotColumn],lot));}
+  return rows;
+}
+
+function createZoneProfile() {
+  const parameterA=byId('zone-profile-parameter-a').value,parameterB=byId('zone-profile-parameter-b').value;
+  if(!parameterA||!parameterB)throw new Error('Select two parameters.');
+  if(parameterA===parameterB)throw new Error('Select two different parameters.');
+  const sourceId=byId('zone-profile-source').value||'all';
+  const single=byId('zone-profile-data-scope').value==='single';
+  const lot=single?byId('zone-profile-lot').value:'';
+  const rows=zoneProfileRows(sourceId,lot);
+  if(!rows.length)throw new Error('No rows match the selected dataset and Lot scope.');
+  const sourceLabel=combinedContext.active?(byId('zone-profile-source').selectedOptions[0]?.textContent||state.source):`${state.workbookName} · ${state.source}`;
+  state.lastZoneProfile={profiles:[buildZoneProfile(state.headers,rows,parameterA),buildZoneProfile(state.headers,rows,parameterB)],sourceId,sourceLabel,lot,scope:byId('zone-profile-data-scope').value};
+  renderZoneProfileResult();
+  setStatus(`Zone Profile complete: ${parameterA} and ${parameterB} across ${formatInteger(rows.length)} rows.`,false,true);
+}
+
+function formatProbability(value) {
+  if(value===null||value===undefined||!Number.isFinite(value))return 'Insufficient paired rows';
+  if(value<0.0001)return '< 0.0001';
+  return formatNumber(value,4);
+}
+
+function zoneProfileHeatStyle(score) {
+  if(!Number.isFinite(score))return '';
+  const strength=Math.min(0.72,0.12+Math.abs(score)*0.2);
+  const background=score>=0?`rgba(210,55,38,${strength})`:`rgba(54,151,63,${strength})`;
+  const color=Math.abs(score)>=1.8?'#fff':'#172231';
+  return ` style="background:${background};color:${color}"`;
+}
+
+function renderZoneProfileTable(profile) {
+  return `<div class="table-wrap zone-profile-table"><table><thead><tr><th>Zone</th><th>N</th><th>Mean</th><th>Median</th><th>SD</th><th>Δ overall</th><th>Std. Δ</th></tr></thead><tbody>${profile.zones.map(zone=>`<tr><td>Zone ${zone.zone}</td><td>${formatInteger(zone.n)}</td><td${zoneProfileHeatStyle(zone.standardizedDelta)}>${formatNumber(zone.mean,3)}</td><td>${formatNumber(zone.median,3)}</td><td>${formatNumber(zone.sigma,3)}</td><td>${formatNumber(zone.delta,3)}</td><td>${formatNumber(zone.standardizedDelta,2)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderZoneProfilePairs(profile) {
+  if(profile.friedman.p===null)return '<p class="empty-state">At least three complete Zone 1–6 MR rows are required.</p>';
+  if(profile.friedman.p>=0.05)return '<p class="empty-state">The overall Friedman test is not significant; Zone pairs are not interpreted.</p>';
+  const significant=profile.pairwise.filter(item=>item.adjustedP<0.05).sort((a,b)=>a.adjustedP-b.adjustedP);
+  if(!significant.length)return '<p class="empty-state">No Zone pair remains significant after Holm correction (α = 0.05).</p>';
+  return `<div class="table-wrap compact-table"><table><thead><tr><th>Zones</th><th>Direction</th><th>Paired N</th><th>Mean Δ</th><th>Raw p</th><th>Holm-adjusted p</th></tr></thead><tbody>${significant.map(item=>`<tr><td>Zone ${item.first} vs ${item.second}</td><td>${escapeHtml(item.direction.replace(/(\d)/g,'Zone $1'))}</td><td>${formatInteger(item.n)}</td><td>${formatNumber(item.meanDifference,3)}</td><td>${formatProbability(item.p)}</td><td>${formatProbability(item.adjustedP)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function zoneProfileSignificance(profile) {
+  const test=profile.friedman;
+  if(test.p===null)return 'Insufficient complete MR rows';
+  return test.p<0.05?'Significant Zone difference':'No significant Zone difference';
+}
+
+function renderZoneProfileResult() {
+  const current=state.lastZoneProfile;if(!current)return;
+  byId('zone-profile-result').innerHTML=`<div class="zone-profile-grid">${current.profiles.map((profile,index)=>`<article class="zone-profile-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(profile.parameter)}</h3><button class="command" type="button" data-zone-profile-export="${index}">Export PNG</button></div><p class="zone-profile-source">${escapeHtml(current.sourceLabel)}${current.lot?` · Lot ${escapeHtml(current.lot)}`:''}</p><div class="metric-grid">${metric('Complete paired MRs',formatInteger(profile.completeCases))}${metric('Friedman p',formatProbability(profile.friedman.p))}${metric("Kendall's W",formatNumber(profile.friedman.kendallW,3))}${metric('Result',zoneProfileSignificance(profile))}</div><div class="chart-card"><canvas id="zone-profile-chart-${index}" aria-label="${escapeHtml(profile.parameter)} Zone 1 to 6 profile"></canvas></div>${renderZoneProfileTable(profile)}<details><summary>Significant Zone pairs</summary>${renderZoneProfilePairs(profile)}</details><p class="zone-profile-note">Trend: ${escapeHtml(profile.direction)} · Mean change per Zone: ${formatNumber(profile.slope,3)}. Friedman uses complete Zone 1–6 MR rows. Pairwise results use exact sign tests with Holm correction.</p></article>`).join('')}</div>`;
+  byId('zone-profile-result').querySelectorAll('[data-zone-profile-export]').forEach(button=>button.addEventListener('click',()=>runAction(()=>saveZoneProfileSnapshot(Number(button.dataset.zoneProfileExport)))));
+  requestAnimationFrame(()=>current.profiles.forEach((profile,index)=>drawZoneProfile(byId(`zone-profile-chart-${index}`),profile,current)));
+}
+
+function drawZoneProfile(canvas,profile,current,dimensions) {
+  if(!canvas)return;
+  const {ctx,width,height,colors}=setupCanvas(canvas,dimensions),pad={left:64,right:22,top:92,bottom:52};
+  const values=profile.zones.flatMap(zone=>zone.mean===null?[]:[zone.mean-zone.sigma,zone.mean+zone.sigma,zone.median]);
+  const extent=paddedExtent(values),plotWidth=width-pad.left-pad.right,plotHeight=height-pad.top-pad.bottom;
+  const xScale=zone=>pad.left+(zone-1)/5*plotWidth,yScale=value=>pad.top+plotHeight-(value-extent.min)/(extent.max-extent.min)*plotHeight;
+  ctx.clearRect(0,0,width,height);ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
+  ctx.fillStyle=colors.ink;ctx.textAlign='left';ctx.font='bold 17px Aptos, Calibri, Arial, sans-serif';ctx.fillText(`${profile.parameter} · Zone 1–6`,pad.left,24,plotWidth);
+  ctx.fillStyle=colors.muted;ctx.font='13px Aptos, Calibri, Arial, sans-serif';ctx.fillText(`${current.sourceLabel}${current.lot?` · Lot ${current.lot}`:''}`,pad.left,47,plotWidth);
+  ctx.fillText(`Friedman p ${formatProbability(profile.friedman.p)} · Kendall's W ${formatNumber(profile.friedman.kendallW,3)} · Paired MR N ${formatInteger(profile.completeCases)}`,pad.left,68,plotWidth);
+  ctx.strokeStyle=colors.line;ctx.lineWidth=1;ctx.textAlign='right';ctx.font='12px Aptos, Calibri, Arial, sans-serif';
+  for(let index=0;index<=4;index+=1){const value=extent.min+(extent.max-extent.min)*index/4,y=yScale(value);ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(width-pad.right,y);ctx.stroke();ctx.fillStyle=colors.muted;ctx.fillText(formatNumber(value,3),pad.left-8,y+4);}
+  drawFrame(ctx,pad,width,height,colors);
+  if(profile.overall.mean!==null){ctx.save();ctx.setLineDash([5,4]);ctx.strokeStyle=colors.muted;ctx.beginPath();ctx.moveTo(pad.left,yScale(profile.overall.mean));ctx.lineTo(width-pad.right,yScale(profile.overall.mean));ctx.stroke();ctx.restore();}
+  const valid=profile.zones.filter(zone=>zone.mean!==null);
+  ctx.strokeStyle=colors.blue;ctx.lineWidth=2;ctx.beginPath();valid.forEach((zone,index)=>{const x=xScale(zone.zone),y=yScale(zone.mean);if(index)ctx.lineTo(x,y);else ctx.moveTo(x,y);});ctx.stroke();
+  profile.zones.forEach(zone=>{const x=xScale(zone.zone);ctx.fillStyle=colors.muted;ctx.textAlign='center';ctx.fillText(`Zone ${zone.zone}`,x,height-18);if(zone.mean===null)return;const low=yScale(zone.mean-zone.sigma),high=yScale(zone.mean+zone.sigma);ctx.strokeStyle=colors.ink;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,low);ctx.lineTo(x,high);ctx.moveTo(x-5,low);ctx.lineTo(x+5,low);ctx.moveTo(x-5,high);ctx.lineTo(x+5,high);ctx.stroke();ctx.fillStyle=zone.standardizedDelta>=0?'#c83c2d':'#368e42';ctx.beginPath();ctx.arc(x,yScale(zone.mean),5,0,Math.PI*2);ctx.fill();ctx.save();ctx.translate(x,yScale(zone.median));ctx.rotate(Math.PI/4);ctx.fillStyle='#f0a000';ctx.fillRect(-3.5,-3.5,7,7);ctx.restore();});
+  ctx.fillStyle=colors.muted;ctx.textAlign='left';ctx.fillText('● Mean  ◆ Median  │ ±1 SD  – – Overall mean',pad.left,height-2,plotWidth);
+}
+
+function saveZoneProfileSnapshot(index) {
+  const current=state.lastZoneProfile,profile=current?.profiles[index];if(!profile)throw new Error('Run Zone Profile before exporting.');
+  const canvas=document.createElement('canvas');drawZoneProfile(canvas,profile,current,{width:1100,height:680});
+  const fileName=`${baseFileName()}_${safeFilePart(current.lot||'All_Lots')}_${safeFilePart(profile.parameter)}_Zone_Profile.png`;
+  const link=document.createElement('a');link.href=canvas.toDataURL('image/png');link.download=fileName;document.body.append(link);link.click();link.remove();setStatus(`Saved ${fileName}.`,false,true);
+}
+
 function correlationRowsFor(sourceId='all',lot='') {
   const scope=byId('correlation-data-scope').value;
   let rows=scope==='all'||scope==='single'?dataRows():filteredRows();
@@ -5547,6 +5685,7 @@ function paddedExtent(values) {
 
 function redrawCharts() {
   drawStructuredPlot();
+  if(state.lastZoneProfile)state.lastZoneProfile.profiles.forEach((profile,index)=>drawZoneProfile(byId(`zone-profile-chart-${index}`),profile,state.lastZoneProfile));
   if (state.lastGaussian && byId("gaussian-chart")) drawGaussianCharts();
   if (state.lastTrend && byId("trend-lot-chart")) drawTrendCharts();
   if (state.lastPeriod && byId("period-chart-0")) drawPeriodCharts();

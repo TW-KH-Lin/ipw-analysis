@@ -13,14 +13,14 @@
     <link rel="apple-touch-icon" href="../icons/ipw-180.png">
     <link rel="stylesheet" href="../iphone.css?v=27">
     <link rel="stylesheet" href="../workspace/workspace.css?v=2">
-    <link rel="stylesheet" href="workspace2.css?v=28">
+    <link rel="stylesheet" href="workspace2.css?v=29">
     <script defer src="../vendor/xlsx.full.min.js"></script>
     <script defer src="../vendor/exceljs.min.js"></script>
-    <script type="module" src="../iphone-app.js?v=123"></script>
+    <script type="module" src="../iphone-app.js?v=124"></script>
     <script type="module" src="../workspace/workspace-ui.js?v=5"></script>
-    <script type="module" src="workspace2-ui.js?v=2"></script>
+    <script type="module" src="workspace2-ui.js?v=3"></script>
     <script type="module" src="complaint-context.js?v=6"></script>
-    <script type="module" src="../foldable-ui.js?v=6"></script>
+    <script type="module" src="../foldable-ui.js?v=7"></script>
     <script src="./report-import/vendor/pdf.min.js"></script>
   <script type="module" src="./complaint-label-import.js?v=13"></script>
 </head>
@@ -145,6 +145,7 @@
         <button class="tab" type="button" data-panel="compare-panel">Compare</button>
         <button class="tab" type="button" data-panel="lot-panel">Lot</button>
         <button class="tab" type="button" data-panel="release-panel">Release</button>
+        <button class="tab" type="button" data-panel="zone-profile-panel">Zone Profile</button>
         <button class="tab" type="button" data-panel="correlation-panel">Correlation</button>
         <button class="tab" type="button" data-panel="export-panel">Export</button>
       </nav>
@@ -399,6 +400,22 @@
           <button id="download-release" class="command" type="button" disabled>Release Summary CSV</button>
         </div>
         <div id="release-result" class="result-block"></div>
+      </section>
+
+      <section id="zone-profile-panel" class="panel" aria-label="Zone profile and significance">
+        <div class="section-heading"><h2>Zone Profile &amp; Significance</h2></div>
+        <p>Compare two parameters across Zone 1–6. Each profile uses paired MR rows for significance testing. Red indicates above-overall values; green indicates below-overall values.</p>
+        <div class="form-grid">
+          <label>Data scope<select id="zone-profile-data-scope" disabled><option value="filtered">Filtered data</option><option value="all">All lots</option><option value="single">Single lot</option></select></label>
+          <label id="zone-profile-lot-field" hidden>Lot<select id="zone-profile-lot" disabled></select></label>
+          <label>Left parameter<select id="zone-profile-parameter-a" disabled></select></label>
+          <label>Right parameter<select id="zone-profile-parameter-b" disabled></select></label>
+        </div>
+        <div id="zone-profile-source-controls" class="form-grid gaussian-source-controls" hidden>
+          <label>Dataset<select id="zone-profile-source"><option value="all">Combined selected workbooks</option></select></label>
+        </div>
+        <div class="analysis-actions"><button id="run-zone-profile" class="command primary" type="button" disabled>Run Zone Profile</button></div>
+        <div id="zone-profile-result" class="result-block"></div>
       </section>
 
       <section id="correlation-panel" class="panel" aria-label="Correlation plot">

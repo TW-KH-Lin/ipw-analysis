@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v30-combined-or-separate-datasets";
+const CACHE_NAME = "ipw-complaint-workspace-v31-zone-profile";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -21,14 +21,15 @@ const APP_SHELL = [
   "../images/correlation-zone-guide.png",
   "./index.html",
   "../workspace/workspace.css?v=2",
-  "../workspace/workspace-ui.js?v=5", "./workspace2.css?v=28", "./workspace2-ui.js?v=2",
+  "../workspace/workspace-ui.js?v=5", "./workspace2.css?v=29", "./workspace2-ui.js?v=3",
   "./workbook-comparison.js?v=2",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=123",
+  "../iphone-app.js?v=124",
+  "./zone-profile.js?v=1",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",
-  "../foldable-ui.js?v=6",
+  "../foldable-ui.js?v=7",
   "../local-preferences.js?v=1",
   "../analysis.js?v=18",
   "../v90-analysis.js?v=6",

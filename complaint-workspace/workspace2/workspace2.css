@@ -173,6 +173,19 @@
 .correlation-comparison-grid.has-comparison { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .correlation-comparison-grid .chart-card { min-width:0; margin:0; }
 .correlation-comparison-grid canvas { width:100%; min-height:360px; }
+.zone-profile-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:12px; }
+.zone-profile-card { min-width:0; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+.zone-profile-card .chart-card { margin:10px 0; }
+.zone-profile-card canvas { display:block; width:100%; height:360px; min-height:300px; }
+.zone-profile-card .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.zone-profile-card .metric { min-width:0; padding:7px 9px; }
+.zone-profile-card .metric strong { overflow-wrap:anywhere; font-size:15px; }
+.zone-profile-source,.zone-profile-note { margin:4px 0 8px; color:var(--muted); font-size:12px; }
+.zone-profile-table table { width:100%; min-width:0; table-layout:fixed; }
+.zone-profile-table th,.zone-profile-table td { padding:4px 5px; font-size:11px; white-space:nowrap; text-align:right; }
+.zone-profile-table th:first-child,.zone-profile-table td:first-child { text-align:left; }
+.zone-profile-card details { margin-top:9px; }
+.zone-profile-card details summary { font-weight:700; cursor:pointer; }
 .gaussian-overlay-control { margin:10px 0 6px; }
 .gaussian-overlay-control .choice-row { display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:700; }
 .gaussian-overlay-control input { width:18px; min-height:18px; margin:0; }
@@ -196,4 +209,4 @@
 .gaussian-sigma-table th:nth-child(3),.gaussian-sigma-table td:nth-child(3) { text-align:right; }
 .assessment-side-options { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
 .assessment-side-options label { min-width:190px; }
-@media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.correlation-comparison-grid.has-comparison { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }
