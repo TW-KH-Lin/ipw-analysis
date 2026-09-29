@@ -317,9 +317,12 @@ function bindEvents() {
   byId("label-parameters").addEventListener("change", renderLabelSelectionPreview);
   byId("save-data-label").addEventListener("click", () => runAction(saveDataLabel));
   byId("remove-data-label").addEventListener("click", () => runAction(removeSelectedDataLabel));
-  ["trend-data-scope", "correlation-data-scope"].forEach((id) => {
-    byId(id).addEventListener("change", invalidateAnalyses);
-  });
+  byId("trend-data-scope").addEventListener("change",invalidateAnalyses);
+  byId("correlation-data-scope").addEventListener("change",()=>{syncCorrelationComparisonControls();invalidateCorrelation();});
+  byId("correlation-lot").addEventListener("change",()=>{syncCorrelationComparisonControls();invalidateCorrelation();});
+  byId("correlation-compare-lot").addEventListener("change",invalidateCorrelation);
+  byId("correlation-source").addEventListener("change",()=>{syncCorrelationSourceChoices();syncCorrelationComparisonControls();invalidateCorrelation();});
+  byId("correlation-compare-source").addEventListener("change",()=>{syncCorrelationComparisonControls();invalidateCorrelation();});
   byId('gaussian-data-scope').addEventListener('change',()=>{syncGaussianLotChoices();invalidateGaussian();});
   byId('gaussian-lot').addEventListener('change',()=>{syncGaussianLotChoices();invalidateGaussian();});
   byId('gaussian-compare-lot').addEventListener('change',invalidateGaussian);
@@ -448,6 +451,7 @@ function bindEvents() {
   byId("correlation-removal").addEventListener("input", invalidateCorrelation);
   byId("correlation-analysis").addEventListener("change", () => {
     syncStructuredCorrelationControls();
+    syncCorrelationComparisonControls();
     invalidateCorrelation();
   });
   ["correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions"].forEach(id => {
@@ -624,6 +628,8 @@ function applyCombinedControlState() {
   ['gaussian-visible-rows','build-clean-data','new-lot-file','merge-new-lots','classification-lot','classification-value','apply-classification','save-classifications','label-lot','label-batch','label-machine','label-roll-width','label-roll-number','label-zone','label-text','label-comment','label-notes','save-data-label','download-workbook'].forEach(id=>{const control=byId(id);if(control)control.disabled=true;});
   byId('classification-save-status').textContent='Combined analysis is read-only; switch back to edit a workbook.';
   syncGaussianSourceChoices();
+  syncCorrelationSourceChoices();
+  syncCorrelationComparisonControls();
 }
 function syncGaussianSourceChoices() {
   const host=byId('gaussian-source-controls');if(!host)return;
@@ -637,6 +643,36 @@ function syncGaussianSourceChoices() {
   const comparePrior=compareChoices.some(([value])=>value===secondary.value)?secondary.value:'';
   secondary.replaceChildren(...compareChoices.map(([value,label])=>new Option(label,value)));secondary.value=comparePrior;
   syncGaussianLotChoices();
+}
+
+function syncCorrelationSourceChoices() {
+  const host=byId('correlation-source-controls');if(!host)return;
+  const structured=byId('correlation-analysis').value==='structured';
+  host.hidden=!combinedContext.active||structured;
+  const primary=byId('correlation-source'),secondary=byId('correlation-compare-source');
+  if(!combinedContext.active){fillSelect(primary,['all'],'all');fillSelect(secondary,[''],'');return;}
+  const choices=[['all','All selected worksheets'],...combinedContext.selectedIds.map(id=>{const entry=workbookLibrary.get(id);return [id,`${entry?.file.name||id} · ${entry?.index?.source||''}`];})];
+  const prior=choices.some(([value])=>value===primary.value)?primary.value:'all';
+  primary.replaceChildren(...choices.map(([value,label])=>new Option(label,value)));primary.value=prior;
+  const compareChoices=[['','Use primary worksheet'],...choices.filter(([value])=>value!=='all'&&value!==primary.value)];
+  const comparePrior=compareChoices.some(([value])=>value===secondary.value)?secondary.value:'';
+  secondary.replaceChildren(...compareChoices.map(([value,label])=>new Option(label,value)));secondary.value=comparePrior;
+}
+
+function syncCorrelationComparisonControls() {
+  const structured=byId('correlation-analysis').value==='structured';
+  const single=byId('correlation-data-scope').value==='single'&&!structured;
+  const primarySource=byId('correlation-source').value||'all',comparisonSource=byId('correlation-compare-source').value||'';
+  const primaryLots=gaussianLotsForSource(primarySource),primaryValue=byId('correlation-lot').value;
+  fillSelect(byId('correlation-lot'),primaryLots,primaryLots.includes(primaryValue)?primaryValue:primaryLots[0]);
+  byId('correlation-lot-field').hidden=!single;byId('correlation-lot').disabled=!single||!primaryLots.length;
+  const effectiveSource=comparisonSource||primarySource,sameSource=!comparisonSource||comparisonSource===primarySource;
+  const comparisonLots=gaussianLotsForSource(effectiveSource).filter(lot=>!sameSource||!sameDataValue(lot,byId('correlation-lot').value));
+  const previous=byId('correlation-compare-lot').value;
+  const selected=comparisonLots.some(lot=>sameDataValue(lot,previous))?previous:comparisonSource?comparisonLots[0]:'';
+  fillSelect(byId('correlation-compare-lot'),['',...comparisonLots],selected,value=>value||'One lot');
+  byId('correlation-compare-lot-field').hidden=!single;byId('correlation-compare-lot').disabled=!single||!comparisonLots.length;
+  byId('correlation-source-controls').hidden=!combinedContext.active||structured;
 }
 function captureWorkbookSession() {
   if(combinedContext.active || !activeWorkbookId || !state.workbook)return;
@@ -1855,6 +1891,8 @@ function populateWorkbookControls() {
     "zm-coordinate-preset",
     "save-zm-coordinate-preset",
     "correlation-data-scope",
+    "correlation-lot",
+    "correlation-compare-lot",
     "correlation-y",
     "correlation-x",
     "correlation-scope",
@@ -1885,6 +1923,8 @@ function populateWorkbookControls() {
   syncCorrelationZones();
   syncCorrelationRemovalInput();
   syncStructuredCorrelationControls();
+  syncCorrelationSourceChoices();
+  syncCorrelationComparisonControls();
   byId("run-gaussian").disabled = !state.parameters.length;
   byId("recommend-gaussian").disabled = !state.parameters.length;
   byId("run-trend").disabled = !state.trendParameters.length;
@@ -1945,6 +1985,8 @@ function renderCurrentData() {
     } }));
   }
   syncGaussianSourceChoices();
+  syncCorrelationSourceChoices();
+  syncCorrelationComparisonControls();
   applyCombinedControlState();
 }
 
@@ -4146,6 +4188,14 @@ function directionalAssessmentColors(signedScore, monitorLimit, outlierLimit) {
   };
 }
 
+function correlationRowsFor(sourceId='all',lot='') {
+  const scope=byId('correlation-data-scope').value;
+  let rows=scope==='all'||scope==='single'?dataRows():filteredRows();
+  if(sourceId!=='all')rows=rows.filter(row=>combinedContext.origins.get(row)?.source.id===sourceId);
+  if(lot){const lotColumn=headerIndex(state.headers,'Lot');rows=lotColumn<0?[]:rows.filter(row=>sameDataValue(row[lotColumn],lot));}
+  return rows;
+}
+
 async function createCorrelation() {
   if (byId("correlation-analysis").value === "structured") {
     invalidateCorrelation();
@@ -4180,18 +4230,28 @@ async function createCorrelation() {
   const scope = byId("correlation-data-scope").value;
   const removalMethod = byId("correlation-outliers").value;
   const removalValue = requiredNumber("correlation-removal");
+  const sourceId=byId('correlation-source').value||'all',comparisonId=byId('correlation-compare-source').value||'';
+  const primaryLot=scope==='single'?byId('correlation-lot').value:'';
+  const comparisonLot=scope==='single'?byId('correlation-compare-lot').value:'';
+  const effectiveComparisonId=comparisonId||(comparisonLot?sourceId:'');
+  const primaryRows=correlationRowsFor(sourceId,primaryLot);
   const result = buildCorrelation(
     state.headers,
-    rowsForAnalysis("correlation-data-scope"),
+    primaryRows,
     xParameter,
     yParameter,
     byId("correlation-scope").value,
     removalMethod,
     removalValue
   );
-  state.lastCorrelation = { xParameter, yParameter, scope, removalMethod, removalValue, result };
+  const comparisonRows=effectiveComparisonId?correlationRowsFor(effectiveComparisonId,comparisonLot):[];
+  const comparisonResult=effectiveComparisonId?buildCorrelation(state.headers,comparisonRows,xParameter,yParameter,byId("correlation-scope").value,removalMethod,removalValue):null;
+  const sourceLabel=combinedContext.active?(byId('correlation-source').selectedOptions[0]?.textContent||state.source):`${state.workbookName} · ${state.source}`;
+  const comparisonLabel=comparisonId?(byId('correlation-compare-source').selectedOptions[0]?.textContent||sourceLabel):sourceLabel;
+  state.lastCorrelation = { xParameter, yParameter, scope, removalMethod, removalValue, result,sourceId,sourceLabel,selectedLot:primaryLot,
+    comparison:comparisonResult?{xParameter,yParameter,scope,removalMethod,removalValue,result:comparisonResult,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,selectedLot:comparisonLot}:null };
   renderCorrelationResult();
-  setStatus(`Correlation: ${formatInteger(result.rawN)} included, ${formatInteger(result.excludedN)} excluded.`, false, true);
+  setStatus(`${comparisonResult?'Correlation comparison':'Correlation'}: ${formatInteger(result.rawN)} primary pairs${comparisonResult?` and ${formatInteger(comparisonResult.rawN)} comparison pairs`:''}.`, false, true);
 }
 
 function structuredCorrelationTable(result) {
@@ -4372,13 +4432,60 @@ function renderCorrelationResult() {
       ${metric("Pearson r", formatNumber(result.r, 4))}
       ${metric("Slope", formatNumber(result.slope, 4))}
     </div>
-    <div class="chart-card"><canvas id="correlation-chart" aria-label="Matched-zone correlation scatter plot"></canvas></div>
+    <div class="correlation-comparison-grid ${current.comparison?'has-comparison':''}">
+      <article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(current.sourceLabel || state.source)}${current.selectedLot?` · Lot ${escapeHtml(current.selectedLot)}`:''}</h3><button id="export-correlation-png" class="command" type="button">Export PNG</button></div><canvas id="correlation-chart" aria-label="Primary matched-zone correlation scatter plot"></canvas></article>
+      ${current.comparison?`<article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(current.comparison.sourceLabel)}${current.comparison.selectedLot?` · Lot ${escapeHtml(current.comparison.selectedLot)}`:''}</h3><button id="export-correlation-comparison-png" class="command" type="button">Export PNG</button></div><canvas id="correlation-comparison-chart" aria-label="Comparison matched-zone correlation scatter plot"></canvas></article>`:''}
+    </div>
+    ${current.comparison?`<div class="gaussian-overlay-control"><label class="choice-row"><input id="correlation-overlay-toggle" type="checkbox" ${current.overlayVisible?'checked':''}>Show both correlations in one plot</label></div>
+      <section id="correlation-overlay-section" class="chart-card gaussian-overlay-card" ${current.overlayVisible?'':'hidden'}>
+        <div class="assessment-plot-toolbar"><h3>Correlation comparison · ${escapeHtml(current.yParameter)} vs ${escapeHtml(current.xParameter)}</h3><button id="export-correlation-overlay-png" class="command" type="button">Export PNG</button></div>
+        <p>Blue: Primary · Orange: Comparison · Shared X and Y scales</p>
+        <canvas id="correlation-overlay-chart" aria-label="Overlaid primary and comparison correlation plot"></canvas>
+      </section>`:''}
     <div class="table-wrap mini-table">${renderTable([
       ["Lot", "MR N", "Zone", "X", "Y", "Status"],
       ...displayPairs.slice(0, 80).map((pair) => [pair.lot, pair.batch, `Zone ${pair.zone}`, pair.x, pair.y, pair.included ? "Included" : `Excluded: ${pair.exclusionReason || "Extreme"}`])
     ])}</div>
   `;
-  requestAnimationFrame(() => drawScatter(byId("correlation-chart"), current));
+  byId('export-correlation-png').addEventListener('click',()=>runAction(()=>saveCorrelationSnapshot(false)));
+  byId('export-correlation-comparison-png')?.addEventListener('click',()=>runAction(()=>saveCorrelationSnapshot(true)));
+  byId('correlation-overlay-toggle')?.addEventListener('change',event=>{current.overlayVisible=event.target.checked;byId('correlation-overlay-section').hidden=!current.overlayVisible;if(current.overlayVisible)requestAnimationFrame(()=>drawCorrelationOverlay(byId('correlation-overlay-chart'),current));});
+  byId('export-correlation-overlay-png')?.addEventListener('click',()=>runAction(saveCorrelationOverlaySnapshot));
+  requestAnimationFrame(() => {
+    const extents=correlationSharedExtents(current);
+    drawScatter(byId("correlation-chart"),current,{details:correlationFigureDetails(current,'Primary'),...extents});
+    if(current.comparison)drawScatter(byId('correlation-comparison-chart'),current.comparison,{details:correlationFigureDetails(current.comparison,'Comparison'),...extents});
+    if(current.comparison&&current.overlayVisible)drawCorrelationOverlay(byId('correlation-overlay-chart'),current);
+  });
+}
+
+function correlationFigureDetails(current,role) {
+  return {role,source:`${current.sourceLabel || state.source}${current.selectedLot?` · Lot ${current.selectedLot}`:''}`};
+}
+
+function correlationSharedExtents(current) {
+  if(!current?.comparison)return {};
+  const included=[...current.result.included,...current.comparison.result.included];
+  const x=paddedExtent(included.map(pair=>pair.x)),y=paddedExtent(included.map(pair=>pair.y));
+  return {extentX:integerChartAxis([x.min,x.max]),extentY:integerChartAxis([y.min,y.max])};
+}
+
+function saveCorrelationSnapshot(secondary=false) {
+  const root=state.lastCorrelation,current=secondary?root?.comparison:root;
+  if(!current)throw new Error('Run the correlation comparison before exporting.');
+  const canvas=document.createElement('canvas');
+  drawScatter(canvas,current,{details:correlationFigureDetails(current,secondary?'Comparison':'Primary'),dimensions:{width:1100,height:720},...correlationSharedExtents(root)});
+  const fileName=`${baseFileName()}_${safeFilePart(current.selectedLot || current.sourceLabel || 'Correlation')}_${safeFilePart(current.yParameter)}_vs_${safeFilePart(current.xParameter)}_Correlation.png`;
+  const link=document.createElement('a');link.href=canvas.toDataURL('image/png');link.download=fileName;document.body.append(link);link.click();link.remove();
+  setStatus(`Saved ${fileName}.`,false,true);
+}
+
+function saveCorrelationOverlaySnapshot() {
+  const current=state.lastCorrelation;if(!current?.comparison)throw new Error('Run a correlation comparison before exporting.');
+  const canvas=document.createElement('canvas');drawCorrelationOverlay(canvas,current,{width:1200,height:820});
+  const fileName=`${baseFileName()}_${safeFilePart(current.yParameter)}_vs_${safeFilePart(current.xParameter)}_Correlation_Comparison.png`;
+  const link=document.createElement('a');link.href=canvas.toDataURL('image/png');link.download=fileName;document.body.append(link);link.click();link.remove();
+  setStatus(`Saved ${fileName}.`,false,true);
 }
 
 function renderExportNote() {
@@ -4841,6 +4948,9 @@ function syncZoneChoices(containerId, parameter) {
 function syncStructuredCorrelationControls(refreshParameters = true) {
   const structured = byId("correlation-analysis").value === "structured";
   byId("correlation-structured-settings").hidden = !structured;
+  const singleScope=byId('correlation-data-scope').querySelector('option[value="single"]');
+  if(singleScope)singleScope.disabled=structured;
+  if(structured&&byId('correlation-data-scope').value==='single')byId('correlation-data-scope').value='filtered';
   ["correlation-scope", "correlation-outliers", "correlation-removal"].forEach(id => { byId(id).closest("label").hidden = structured; });
   if (refreshParameters) {
     const choices = structured ? state.structuredParameters : state.parameters;
@@ -5068,15 +5178,51 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
   ctx.restore();
 }
 
-function drawScatter(canvas, current) {
+function drawCorrelationOverlay(canvas,current,dimensions) {
+  if(!canvas||!current?.comparison)return;
+  const {ctx,width,height,colors}=setupCanvas(canvas,dimensions),pad={left:58,right:24,top:138,bottom:58};
+  if(width<760)pad.top=190;
+  const {extentX,extentY}=correlationSharedExtents(current),plotWidth=width-pad.left-pad.right,plotHeight=height-pad.top-pad.bottom;
+  const xScale=value=>pad.left+(value-extentX.min)/(extentX.max-extentX.min)*plotWidth;
+  const yScale=value=>pad.top+plotHeight-(value-extentY.min)/(extentY.max-extentY.min)*plotHeight;
+  ctx.clearRect(0,0,width,height);ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);ctx.font='14px Aptos, Calibri, Arial, sans-serif';
+  ctx.strokeStyle=colors.line;ctx.lineWidth=1;ctx.fillStyle=colors.muted;ctx.textAlign='right';
+  extentY.ticks.forEach(value=>{const y=yScale(value);ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(width-pad.right,y);ctx.stroke();ctx.fillText(formatNumber(value,2),pad.left-7,y+4);});
+  ctx.textAlign='center';extentX.ticks.forEach(value=>{const x=xScale(value);ctx.beginPath();ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();ctx.fillText(formatNumber(value,2),x,height-pad.bottom+20);});
+  drawFrame(ctx,pad,width,height,colors);
+  const series=[
+    {item:current,role:'Primary',point:'rgba(25,93,141,.55)',line:'#195d8d'},
+    {item:current.comparison,role:'Comparison',point:'rgba(216,103,35,.55)',line:'#c55418'}
+  ];
+  ctx.save();ctx.beginPath();ctx.rect(pad.left,pad.top,plotWidth,plotHeight);ctx.clip();
+  series.forEach(({item,point,line})=>{
+    item.result.included.forEach(pair=>{ctx.beginPath();ctx.arc(xScale(pair.x),yScale(pair.y),3,0,Math.PI*2);ctx.fillStyle=point;ctx.fill();});
+    if(Number.isFinite(item.result.slope)&&Number.isFinite(item.result.intercept)){
+      ctx.beginPath();ctx.moveTo(xScale(extentX.min),yScale(item.result.slope*extentX.min+item.result.intercept));ctx.lineTo(xScale(extentX.max),yScale(item.result.slope*extentX.max+item.result.intercept));ctx.strokeStyle=line;ctx.lineWidth=2.5;ctx.stroke();
+    }
+  });
+  ctx.restore();
+  ctx.textAlign='left';ctx.fillStyle=colors.ink;ctx.font='bold 17px Aptos, Calibri, Arial, sans-serif';ctx.fillText(`${current.yParameter} vs ${current.xParameter}`,pad.left,24,plotWidth);
+  series.forEach(({item,role,point,line},index)=>{const stacked=width<760,columnWidth=stacked?plotWidth:plotWidth/2-12,x=stacked?pad.left:pad.left+index*plotWidth/2,y=stacked?58+index*48:58;
+    ctx.fillStyle=point;ctx.fillRect(x,y-12,22,12);ctx.strokeStyle=line;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x,y-6);ctx.lineTo(x+22,y-6);ctx.stroke();
+    ctx.fillStyle=colors.ink;ctx.font='bold 13px Aptos, Calibri, Arial, sans-serif';ctx.fillText(`${role} · ${item.sourceLabel || state.source}${item.selectedLot?` · Lot ${item.selectedLot}`:''}`,x+30,y,columnWidth-34);
+    ctx.fillStyle=colors.muted;ctx.font='13px Aptos, Calibri, Arial, sans-serif';ctx.fillText(`N ${formatInteger(item.result.rawN)} · r ${formatNumber(item.result.r,4)} · Slope ${formatNumber(item.result.slope,4)} · Excluded ${formatInteger(item.result.excludedN)}`,x+30,y+22,columnWidth-34);
+  });
+  ctx.fillStyle=colors.muted;ctx.font='13px Aptos, Calibri, Arial, sans-serif';ctx.fillText('Shared X and Y scales',pad.left,width<760?166:112,plotWidth);
+  ctx.fillStyle=colors.ink;ctx.textAlign='center';ctx.font='14px Aptos, Calibri, Arial, sans-serif';ctx.fillText(current.xParameter,pad.left+plotWidth/2,height-8,plotWidth);
+  ctx.save();ctx.translate(13,pad.top+plotHeight/2);ctx.rotate(-Math.PI/2);ctx.fillText(current.yParameter,0,0,plotHeight);ctx.restore();
+}
+
+function drawScatter(canvas, current, options={}) {
   if (!canvas || !current?.result?.pairs?.length) return;
-  const { ctx, width, height, colors } = setupCanvas(canvas);
-  const pad = { left: 54, right: 24, top: 16, bottom: 58 };
+  const { ctx, width, height, colors } = setupCanvas(canvas,options.dimensions);
+  const details=options.details;
+  const pad = { left: 54, right: 24, top: details?96:16, bottom: 58 };
   const valuesX = current.result.included.map((pair) => pair.x);
   const valuesY = current.result.included.map((pair) => pair.y);
   const boundsX = paddedExtent(valuesX), boundsY = paddedExtent(valuesY);
-  const extentX = integerChartAxis([boundsX.min, boundsX.max]);
-  const extentY = integerChartAxis([boundsY.min, boundsY.max]);
+  const extentX = options.extentX || integerChartAxis([boundsX.min, boundsX.max]);
+  const extentY = options.extentY || integerChartAxis([boundsY.min, boundsY.max]);
   ctx.font = "14px Aptos, Calibri, Arial, sans-serif";
   pad.left = Math.max(pad.left, ...extentY.ticks.map(value => ctx.measureText(formatInteger(value)).width + 30));
   pad.right = Math.max(pad.right, ctx.measureText(formatInteger(extentX.max)).width / 2 + 8);
@@ -5087,6 +5233,13 @@ function drawScatter(canvas, current) {
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
+  if(details){
+    ctx.textAlign="left";ctx.fillStyle=colors.ink;ctx.font="bold 16px Aptos, Calibri, Arial, sans-serif";
+    ctx.fillText(`${details.role} · ${current.yParameter} vs ${current.xParameter}`,pad.left,24,width-pad.left-pad.right);
+    ctx.fillStyle=colors.muted;ctx.font="13px Aptos, Calibri, Arial, sans-serif";
+    ctx.fillText(details.source,pad.left,47,width-pad.left-pad.right);
+    ctx.fillText(`N ${formatInteger(current.result.rawN)} · Pearson r ${formatNumber(current.result.r,4)} · Slope ${formatNumber(current.result.slope,4)} · Excluded ${formatInteger(current.result.excludedN)}`,pad.left,69,width-pad.left-pad.right);
+  }
   ctx.strokeStyle = colors.line;
   ctx.lineWidth = 1;
   ctx.fillStyle = colors.muted;
@@ -5110,7 +5263,7 @@ function drawScatter(canvas, current) {
   for (const pair of current.result.included) {
     ctx.beginPath();
     ctx.arc(xScale(pair.x), yScale(pair.y), 3, 0, Math.PI * 2);
-    ctx.fillStyle = colors.blue;
+    ctx.fillStyle = options.pointColor || colors.blue;
     ctx.fill();
   }
   if (Number.isFinite(current.result.slope) && Number.isFinite(current.result.intercept)) {
@@ -5119,7 +5272,7 @@ function drawScatter(canvas, current) {
     ctx.beginPath();
     ctx.moveTo(xScale(extentX.min), yScale(y1));
     ctx.lineTo(xScale(extentX.max), yScale(y2));
-    ctx.strokeStyle = colors.green;
+    ctx.strokeStyle = options.lineColor || colors.green;
     ctx.lineWidth = 2;
     ctx.stroke();
   }
@@ -5397,7 +5550,12 @@ function redrawCharts() {
   if (state.lastGaussian && byId("gaussian-chart")) drawGaussianCharts();
   if (state.lastTrend && byId("trend-lot-chart")) drawTrendCharts();
   if (state.lastPeriod && byId("period-chart-0")) drawPeriodCharts();
-  if (state.lastCorrelation && byId("correlation-chart")) drawScatter(byId("correlation-chart"), state.lastCorrelation);
+  if (state.lastCorrelation && byId("correlation-chart")) {
+    const extents=correlationSharedExtents(state.lastCorrelation);
+    drawScatter(byId("correlation-chart"),state.lastCorrelation,{details:correlationFigureDetails(state.lastCorrelation,'Primary'),...extents});
+    if(state.lastCorrelation.comparison&&byId('correlation-comparison-chart'))drawScatter(byId('correlation-comparison-chart'),state.lastCorrelation.comparison,{details:correlationFigureDetails(state.lastCorrelation.comparison,'Comparison'),...extents});
+    if(state.lastCorrelation.comparison&&state.lastCorrelation.overlayVisible&&byId('correlation-overlay-chart'))drawCorrelationOverlay(byId('correlation-overlay-chart'),state.lastCorrelation);
+  }
 }
 
 function drawEmptyState() {
