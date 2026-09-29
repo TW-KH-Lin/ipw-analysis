@@ -2479,8 +2479,8 @@ function renderGaussianResult() {
       </div>
       ${result.comparison?`<div class="gaussian-overlay-control"><label class="choice-row"><input id="gaussian-overlay-toggle" type="checkbox" ${result.overlayVisible?'checked':''}>Show both distributions in one plot</label></div>
         <section id="gaussian-overlay-section" class="chart-card gaussian-overlay-card" ${result.overlayVisible?'':'hidden'}>
-          <div class="assessment-plot-toolbar"><h3>Distribution overlap</h3><button id="export-gaussian-overlay-png" class="command" type="button">Export PNG</button></div>
-          <p>Normalized density · Blue: primary · Orange: comparison · Fitted Gaussian overlap: ${formatNumber(gaussianOverlapCoefficient(fit.mean,fit.sigma,result.comparison.fit.mean,result.comparison.fit.sigma)*100,1)}%</p>
+          <div class="assessment-plot-toolbar"><h3>Distribution overlap · ${escapeHtml(result.parameter)}</h3><button id="export-gaussian-overlay-png" class="command" type="button">Export PNG</button></div>
+          <p>Blue: ${escapeHtml(result.sourceLabel || result.source)}${result.selectedLot?` · Lot ${escapeHtml(result.selectedLot)}`:''} · Orange: ${escapeHtml(result.comparison.sourceLabel)}${result.comparison.selectedLot?` · Lot ${escapeHtml(result.comparison.selectedLot)}`:''}</p>
           <canvas id="gaussian-overlay-chart" aria-label="Overlaid primary and comparison Gaussian distributions"></canvas>
         </section>`:''}
       </details>
@@ -2533,8 +2533,18 @@ function drawGaussianCharts() {
   if(state.lastGaussian.comparison&&state.lastGaussian.overlayVisible)drawGaussianOverlay(
     byId('gaussian-overlay-chart'),
     {...state.lastGaussian.fit,...state.lastGaussian.viewRange},
-    {...state.lastGaussian.comparison.fit,...state.lastGaussian.viewRange}
+    {...state.lastGaussian.comparison.fit,...state.lastGaussian.viewRange},
+    gaussianOverlayDetails(state.lastGaussian)
   );
+}
+
+function gaussianOverlayDetails(current) {
+  return {
+    parameter:current.parameter,
+    zones:current.zones,
+    primary:`${current.sourceLabel || current.source}${current.selectedLot?` · Lot ${current.selectedLot}`:''}`,
+    comparison:`${current.comparison.sourceLabel || current.comparison.source}${current.comparison.selectedLot?` · Lot ${current.comparison.selectedLot}`:''}`
+  };
 }
 
 function updateGaussianView() {
@@ -2666,7 +2676,7 @@ function saveGaussianOverlaySnapshot() {
   const current=state.lastGaussian;
   if(!current?.comparison)throw new Error("Select a comparison Lot or worksheet before exporting an overlap plot.");
   const canvas=document.createElement("canvas");
-  drawGaussianOverlay(canvas,{...current.fit,...current.viewRange},{...current.comparison.fit,...current.viewRange},{width:1400,height:760});
+  drawGaussianOverlay(canvas,{...current.fit,...current.viewRange},{...current.comparison.fit,...current.viewRange},gaussianOverlayDetails(current),{width:1400,height:820});
   const fileName=`${baseFileName()}_${safeFilePart(current.parameter)}_${safeFilePart(current.selectedLot || 'Primary')}_vs_${safeFilePart(current.comparison.selectedLot || 'Comparison')}_Gaussian_Overlap_${fileDateStamp(new Date())}.png`;
   const link=document.createElement("a");link.href=canvas.toDataURL("image/png");link.download=fileName;document.body.append(link);link.click();link.remove();
   setStatus(`Saved ${fileName}.`,false,true);
@@ -4914,12 +4924,12 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
   `;
 }
 
-function drawGaussianOverlay(canvas, primary, comparison, dimensions) {
+function drawGaussianOverlay(canvas, primary, comparison, details={}, dimensions) {
   if(!canvas||!primary?.bins?.length||!comparison?.bins?.length)return;
   const xAxis=integerChartAxis([Math.min(primary.start,comparison.start),Math.max(primary.end,comparison.end)]);
   const start=xAxis.min,end=xAxis.max;
   const {ctx,width,height,colors}=setupCanvas(canvas,dimensions);
-  const fontSize=dimensions?18:14,pad={left:58,right:16,top:72,bottom:38};
+  const fontSize=dimensions?18:14,pad={left:58,right:16,top:126,bottom:38};
   const percent=(value,fit)=>fit.n&&fit.binWidth?value/fit.n/fit.binWidth*100:0;
   const maxValue=Math.max(1,
     ...primary.bins.flatMap(bin=>[percent(bin.observed,primary),percent(bin.gaussian,primary)]),
@@ -4927,7 +4937,7 @@ function drawGaussianOverlay(canvas, primary, comparison, dimensions) {
   const yAxis=integerChartAxis([0,maxValue]);
   ctx.font=`${fontSize}px sans-serif`;
   pad.left=Math.max(pad.left,...yAxis.ticks.map(value=>ctx.measureText(`${formatInteger(value)}%`).width+14));
-  if(width<760)pad.top=104;
+  if(width<760)pad.top=178;
   const plotWidth=width-pad.left-pad.right,plotHeight=height-pad.top-pad.bottom,maxY=yAxis.max;
   const xScale=value=>pad.left+(value-start)/(end-start)*plotWidth;
   const yScale=value=>pad.top+plotHeight-value/maxY*plotHeight;
@@ -4940,17 +4950,24 @@ function drawGaussianOverlay(canvas, primary, comparison, dimensions) {
   xAxis.ticks.forEach((value,index)=>{const x=xScale(value);ctx.beginPath();ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();if(index%tickStride===0)ctx.fillText(formatNumber(value,2),x,height-12);});
   drawFrame(ctx,pad,width,height,colors);
   const series=[
-    {fit:primary,bar:"rgba(25,93,141,0.30)",line:"#195d8d",label:"Primary"},
-    {fit:comparison,bar:"rgba(216,103,35,0.30)",line:"#c55418",label:"Comparison"}
+    {fit:primary,bar:"rgba(25,93,141,0.30)",line:"#195d8d",label:"Primary",source:details.primary || "Primary"},
+    {fit:comparison,bar:"rgba(216,103,35,0.30)",line:"#c55418",label:"Comparison",source:details.comparison || "Comparison"}
   ];
   ctx.save();ctx.beginPath();ctx.rect(pad.left,pad.top,plotWidth,plotHeight);ctx.clip();
   series.forEach(({fit,bar})=>fit.bins.forEach(bin=>{const x0=xScale(bin.lower),x1=xScale(bin.upper),barHeight=percent(bin.observed,fit)/maxY*plotHeight;ctx.fillStyle=bar;ctx.fillRect(x0+1,pad.top+plotHeight-barHeight,Math.max(1,x1-x0-2),barHeight);}));
   series.forEach(({fit,line})=>{ctx.beginPath();fit.bins.forEach((bin,index)=>{const x=xScale(bin.center),y=yScale(percent(bin.gaussian,fit));if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.strokeStyle=line;ctx.lineWidth=3;ctx.stroke();});
   series.forEach(({fit,line})=>{if(fit.mean<start||fit.mean>end)return;const x=xScale(fit.mean);ctx.beginPath();ctx.setLineDash([6,4]);ctx.strokeStyle=line;ctx.lineWidth=1.5;ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();ctx.setLineDash([]);});
   ctx.restore();
-  ctx.font=`bold ${fontSize}px sans-serif`;ctx.textAlign="left";
-  series.forEach(({bar,line,label,fit},index)=>{const stacked=width<760,x=stacked?pad.left:pad.left+index*plotWidth/2,y=stacked?26+index*28:30;ctx.fillStyle=bar;ctx.fillRect(x,y-14,24,14);ctx.strokeStyle=line;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+24,y-7);ctx.stroke();ctx.fillStyle="#172231";ctx.fillText(`${label}: N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)}`,x+32,y,stacked?plotWidth-36:plotWidth/2-36);});
-  ctx.font=`${fontSize}px sans-serif`;ctx.fillStyle=colors.muted;ctx.fillText(`Normalized density · Fitted overlap ${formatNumber(gaussianOverlapCoefficient(primary.mean,primary.sigma,comparison.mean,comparison.sigma)*100,1)}%`,pad.left,width<760?88:54,plotWidth);
+  ctx.textAlign="left";ctx.fillStyle="#172231";ctx.font=`bold ${fontSize+2}px sans-serif`;
+  ctx.fillText(`Parameter: ${details.parameter || "—"} · Zones: ${(details.zones || []).join(", ") || "—"}`,pad.left,26,plotWidth);
+  ctx.font=`${fontSize}px sans-serif`;ctx.fillStyle=colors.muted;
+  ctx.fillText(`Normalized density · Fitted Gaussian overlap: ${formatNumber(gaussianOverlapCoefficient(primary.mean,primary.sigma,comparison.mean,comparison.sigma)*100,1)}%`,pad.left,52,plotWidth);
+  series.forEach(({bar,line,label,source,fit},index)=>{
+    const stacked=width<760,columnWidth=stacked?plotWidth:plotWidth/2-12,x=stacked?pad.left:pad.left+index*plotWidth/2,y=stacked?82+index*48:80;
+    ctx.fillStyle=bar;ctx.fillRect(x,y-14,24,14);ctx.strokeStyle=line;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+24,y-7);ctx.stroke();
+    ctx.fillStyle="#172231";ctx.font=`bold ${fontSize}px sans-serif`;ctx.fillText(`${label} · ${source}`,x+32,y,columnWidth-36);
+    ctx.fillStyle=colors.muted;ctx.font=`${fontSize}px sans-serif`;ctx.fillText(`N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)}`,x+32,y+23,columnWidth-36);
+  });
 }
 
 function drawGaussian(canvas, fit, mode = "combined", dimensions) {
