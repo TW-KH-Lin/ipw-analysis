@@ -2580,7 +2580,7 @@ function renderGaussianResult() {
         <article class="chart-card"><h3>${escapeHtml(result.parameter)} · ${escapeHtml(result.sourceLabel || result.source)}${result.selectedLot?` · Lot ${escapeHtml(result.selectedLot)}`:''}</h3><p>N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)}</p><canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></article>
         ${result.comparison?`<article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(result.comparison.parameter)} · ${escapeHtml(result.comparison.sourceLabel)}${result.comparison.selectedLot?` · Lot ${escapeHtml(result.comparison.selectedLot)}`:''}</h3><button id="export-gaussian-comparison-png" class="command" type="button">Export PNG</button></div><p>N ${formatInteger(result.comparison.fit.n)} · Mu ${formatNumber(result.comparison.fit.mean,3)} · Sigma ${formatNumber(result.comparison.fit.sigma,3)}</p><canvas id="gaussian-comparison-chart" aria-label="Comparison parameter Gaussian plot"></canvas></article>`:''}
       </div>
-      ${result.comparison&&!result.sameParameter?'<p class="gaussian-comparison-note">Each parameter uses its own automatic bin width and fitting range. The overlap plot uses normalized density and a shared X-axis.</p>':''}
+      ${result.comparison&&!result.sameParameter?'<p class="gaussian-comparison-note">Each parameter uses its own automatic bin width, fitting range and X-axis. The dual-axis overlap uses normalized density to compare distribution shape.</p>':''}
       ${result.comparison?`<div class="gaussian-overlay-control"><label class="choice-row"><input id="gaussian-overlay-toggle" type="checkbox" ${result.overlayVisible?'checked':''}>Show both distributions in one plot</label></div>
         <section id="gaussian-overlay-section" class="chart-card gaussian-overlay-card" ${result.overlayVisible?'':'hidden'}>
           <div class="assessment-plot-toolbar"><h3>Distribution overlap · ${escapeHtml(result.parameter)} vs ${escapeHtml(result.comparison.parameter)}</h3><button id="export-gaussian-overlay-png" class="command" type="button">Export PNG</button></div>
@@ -2634,22 +2634,19 @@ function drawGaussianCharts() {
   if (!state.lastGaussian) return;
   drawGaussian(byId("gaussian-chart"), { ...state.lastGaussian.fit, ...state.lastGaussian.viewRange }, "combined");
   if(state.lastGaussian.comparison)drawGaussian(byId('gaussian-comparison-chart'),{...state.lastGaussian.comparison.fit,...(state.lastGaussian.sameParameter?state.lastGaussian.viewRange:state.lastGaussian.comparison.viewRange)},'combined');
-  if(state.lastGaussian.comparison&&state.lastGaussian.overlayVisible){const range=gaussianOverlayRange(state.lastGaussian);drawGaussianOverlay(
-    byId('gaussian-overlay-chart'),
-    {...state.lastGaussian.fit,...range},
-    {...state.lastGaussian.comparison.fit,...range},
-    gaussianOverlayDetails(state.lastGaussian)
-  );}
-}
-
-function gaussianOverlayRange(current) {
-  if(current.sameParameter)return current.viewRange;
-  return {start:Math.min(current.fit.start,current.comparison.fit.start),end:Math.max(current.fit.end,current.comparison.fit.end)};
+  if(state.lastGaussian.comparison&&state.lastGaussian.overlayVisible){
+    const primary={...state.lastGaussian.fit,...state.lastGaussian.viewRange};
+    const comparison=state.lastGaussian.sameParameter?{...state.lastGaussian.comparison.fit,...state.lastGaussian.viewRange}:{...state.lastGaussian.comparison.fit,...state.lastGaussian.comparison.viewRange};
+    drawGaussianOverlay(byId('gaussian-overlay-chart'),primary,comparison,gaussianOverlayDetails(state.lastGaussian));
+  }
 }
 
 function gaussianOverlayDetails(current) {
   return {
     parameter:current.parameter===current.comparison.parameter?current.parameter:`${current.parameter} vs ${current.comparison.parameter}`,
+    primaryParameter:current.parameter,
+    comparisonParameter:current.comparison.parameter,
+    independentAxes:!current.sameParameter,
     zones:current.zones,
     primary:`${current.parameter} · ${current.sourceLabel || current.source}${current.selectedLot?` · Lot ${current.selectedLot}`:''}`,
     comparison:`${current.comparison.parameter} · ${current.comparison.sourceLabel || current.comparison.source}${current.comparison.selectedLot?` · Lot ${current.comparison.selectedLot}`:''}`
@@ -2786,8 +2783,9 @@ function saveGaussianOverlaySnapshot() {
   const current=state.lastGaussian;
   if(!current?.comparison)throw new Error("Select a comparison Lot or worksheet before exporting an overlap plot.");
   const canvas=document.createElement("canvas");
-  const range=gaussianOverlayRange(current);
-  drawGaussianOverlay(canvas,{...current.fit,...range},{...current.comparison.fit,...range},gaussianOverlayDetails(current),{width:1400,height:820});
+  const primary={...current.fit,...current.viewRange};
+  const comparison=current.sameParameter?{...current.comparison.fit,...current.viewRange}:{...current.comparison.fit,...current.comparison.viewRange};
+  drawGaussianOverlay(canvas,primary,comparison,gaussianOverlayDetails(current),{width:1400,height:820});
   const fileName=`${baseFileName()}_${safeFilePart(current.parameter)}_vs_${safeFilePart(current.comparison.parameter)}_${safeFilePart(current.selectedLot || 'Primary')}_vs_${safeFilePart(current.comparison.selectedLot || 'Comparison')}_Gaussian_Overlap_${fileDateStamp(new Date())}.png`;
   const link=document.createElement("a");link.href=canvas.toDataURL("image/png");link.download=fileName;document.body.append(link);link.click();link.remove();
   setStatus(`Saved ${fileName}.`,false,true);
@@ -5201,10 +5199,12 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
 
 function drawGaussianOverlay(canvas, primary, comparison, details={}, dimensions) {
   if(!canvas||!primary?.bins?.length||!comparison?.bins?.length)return;
-  const xAxis=integerChartAxis([Math.min(primary.start,comparison.start),Math.max(primary.end,comparison.end)]);
-  const start=xAxis.min,end=xAxis.max;
+  const independentAxes=Boolean(details.independentAxes);
+  const sharedAxis=integerChartAxis([Math.min(primary.start,comparison.start),Math.max(primary.end,comparison.end)]);
+  const primaryAxis=independentAxes?integerChartAxis([primary.start,primary.end]):sharedAxis;
+  const comparisonAxis=independentAxes?integerChartAxis([comparison.start,comparison.end]):sharedAxis;
   const {ctx,width,height,colors}=setupCanvas(canvas,dimensions);
-  const fontSize=dimensions?18:14,pad={left:58,right:16,top:126,bottom:38};
+  const fontSize=dimensions?18:14,pad={left:58,right:16,top:independentAxes?156:126,bottom:independentAxes?62:38};
   const percent=(value,fit)=>fit.n&&fit.binWidth?value/fit.n/fit.binWidth*100:0;
   const maxValue=Math.max(1,
     ...primary.bins.flatMap(bin=>[percent(bin.observed,primary),percent(bin.gaussian,primary)]),
@@ -5212,31 +5212,40 @@ function drawGaussianOverlay(canvas, primary, comparison, details={}, dimensions
   const yAxis=integerChartAxis([0,maxValue]);
   ctx.font=`${fontSize}px sans-serif`;
   pad.left=Math.max(pad.left,...yAxis.ticks.map(value=>ctx.measureText(`${formatInteger(value)}%`).width+14));
-  if(width<760)pad.top=178;
+  if(width<760)pad.top=independentAxes?212:178;
   const plotWidth=width-pad.left-pad.right,plotHeight=height-pad.top-pad.bottom,maxY=yAxis.max;
-  const xScale=value=>pad.left+(value-start)/(end-start)*plotWidth;
+  const xScale=(value,axis)=>pad.left+(value-axis.min)/(axis.max-axis.min)*plotWidth;
   const yScale=value=>pad.top+plotHeight-value/maxY*plotHeight;
   ctx.clearRect(0,0,width,height);ctx.fillStyle="#fff";ctx.fillRect(0,0,width,height);
   ctx.strokeStyle=colors.line;ctx.lineWidth=1;ctx.fillStyle=colors.muted;ctx.textAlign="right";
   yAxis.ticks.forEach(value=>{const y=yScale(value);ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(width-pad.right,y);ctx.stroke();ctx.fillText(`${formatInteger(value)}%`,pad.left-8,y+5);});
   ctx.textAlign="center";
-  const tickWidth=Math.max(...xAxis.ticks.map(value=>ctx.measureText(formatNumber(value,2)).width))+12;
-  const tickStride=Math.max(1,Math.ceil(tickWidth/(plotWidth/(xAxis.ticks.length-1))));
-  xAxis.ticks.forEach((value,index)=>{const x=xScale(value);ctx.beginPath();ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();if(index%tickStride===0)ctx.fillText(formatNumber(value,2),x,height-12);});
+  const primaryTickWidth=Math.max(...primaryAxis.ticks.map(value=>ctx.measureText(formatNumber(value,2)).width))+12;
+  const primaryStride=Math.max(1,Math.ceil(primaryTickWidth/(plotWidth/Math.max(1,primaryAxis.ticks.length-1))));
+  primaryAxis.ticks.forEach((value,index)=>{const x=xScale(value,primaryAxis);ctx.beginPath();ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();if(index%primaryStride===0){ctx.fillStyle=independentAxes?'#195d8d':colors.muted;ctx.fillText(formatNumber(value,2),x,height-pad.bottom+20);}});
+  if(independentAxes){
+    const comparisonTickWidth=Math.max(...comparisonAxis.ticks.map(value=>ctx.measureText(formatNumber(value,2)).width))+12;
+    const comparisonStride=Math.max(1,Math.ceil(comparisonTickWidth/(plotWidth/Math.max(1,comparisonAxis.ticks.length-1))));
+    ctx.strokeStyle='#c55418';ctx.fillStyle='#c55418';
+    comparisonAxis.ticks.forEach((value,index)=>{const x=xScale(value,comparisonAxis);ctx.beginPath();ctx.moveTo(x,pad.top);ctx.lineTo(x,pad.top-6);ctx.stroke();if(index%comparisonStride===0)ctx.fillText(formatNumber(value,2),x,pad.top-11);});
+    ctx.font=`bold ${fontSize}px sans-serif`;ctx.fillText(`Comparison X · ${details.comparisonParameter || 'Comparison'}`,pad.left+plotWidth/2,pad.top-34,plotWidth);
+    ctx.fillStyle='#195d8d';ctx.fillText(`Primary X · ${details.primaryParameter || 'Primary'}`,pad.left+plotWidth/2,height-7,plotWidth);
+    ctx.font=`${fontSize}px sans-serif`;
+  }
   drawFrame(ctx,pad,width,height,colors);
   const series=[
-    {fit:primary,bar:"rgba(25,93,141,0.30)",line:"#195d8d",label:"Primary",source:details.primary || "Primary"},
-    {fit:comparison,bar:"rgba(216,103,35,0.30)",line:"#c55418",label:"Comparison",source:details.comparison || "Comparison"}
+    {fit:primary,axis:primaryAxis,bar:"rgba(25,93,141,0.30)",line:"#195d8d",label:"Primary",source:details.primary || "Primary"},
+    {fit:comparison,axis:comparisonAxis,bar:"rgba(216,103,35,0.30)",line:"#c55418",label:"Comparison",source:details.comparison || "Comparison"}
   ];
   ctx.save();ctx.beginPath();ctx.rect(pad.left,pad.top,plotWidth,plotHeight);ctx.clip();
-  series.forEach(({fit,bar})=>fit.bins.forEach(bin=>{const x0=xScale(bin.lower),x1=xScale(bin.upper),barHeight=percent(bin.observed,fit)/maxY*plotHeight;ctx.fillStyle=bar;ctx.fillRect(x0+1,pad.top+plotHeight-barHeight,Math.max(1,x1-x0-2),barHeight);}));
-  series.forEach(({fit,line})=>{ctx.beginPath();fit.bins.forEach((bin,index)=>{const x=xScale(bin.center),y=yScale(percent(bin.gaussian,fit));if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.strokeStyle=line;ctx.lineWidth=3;ctx.stroke();});
-  series.forEach(({fit,line})=>{if(fit.mean<start||fit.mean>end)return;const x=xScale(fit.mean);ctx.beginPath();ctx.setLineDash([6,4]);ctx.strokeStyle=line;ctx.lineWidth=1.5;ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();ctx.setLineDash([]);});
+  series.forEach(({fit,axis,bar})=>fit.bins.forEach(bin=>{const x0=xScale(bin.lower,axis),x1=xScale(bin.upper,axis),barHeight=percent(bin.observed,fit)/maxY*plotHeight;ctx.fillStyle=bar;ctx.fillRect(x0+1,pad.top+plotHeight-barHeight,Math.max(1,x1-x0-2),barHeight);}));
+  series.forEach(({fit,axis,line})=>{ctx.beginPath();fit.bins.forEach((bin,index)=>{const x=xScale(bin.center,axis),y=yScale(percent(bin.gaussian,fit));if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.strokeStyle=line;ctx.lineWidth=3;ctx.stroke();});
+  series.forEach(({fit,axis,line})=>{if(fit.mean<axis.min||fit.mean>axis.max)return;const x=xScale(fit.mean,axis);ctx.beginPath();ctx.setLineDash([6,4]);ctx.strokeStyle=line;ctx.lineWidth=1.5;ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();ctx.setLineDash([]);});
   ctx.restore();
   ctx.textAlign="left";ctx.fillStyle="#172231";ctx.font=`bold ${fontSize+2}px sans-serif`;
   ctx.fillText(`Parameter: ${details.parameter || "—"} · Zones: ${(details.zones || []).join(", ") || "—"}`,pad.left,26,plotWidth);
   ctx.font=`${fontSize}px sans-serif`;ctx.fillStyle=colors.muted;
-  ctx.fillText(`Normalized density · Fitted Gaussian overlap: ${formatNumber(gaussianOverlapCoefficient(primary.mean,primary.sigma,comparison.mean,comparison.sigma)*100,1)}%`,pad.left,52,plotWidth);
+  ctx.fillText(independentAxes?'Normalized density · Independent X-axes · Compare distribution shape':`Normalized density · Fitted Gaussian overlap: ${formatNumber(gaussianOverlapCoefficient(primary.mean,primary.sigma,comparison.mean,comparison.sigma)*100,1)}%`,pad.left,52,plotWidth);
   series.forEach(({bar,line,label,source,fit},index)=>{
     const stacked=width<760,columnWidth=stacked?plotWidth:plotWidth/2-12,x=stacked?pad.left:pad.left+index*plotWidth/2,y=stacked?82+index*48:80;
     ctx.fillStyle=bar;ctx.fillRect(x,y-14,24,14);ctx.strokeStyle=line;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+24,y-7);ctx.stroke();
