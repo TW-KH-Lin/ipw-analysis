@@ -165,6 +165,11 @@
 #compare-result table { width:max-content; min-width:100%; }
 #compare-result th, #compare-result td { padding:5px 9px; font-size:13px; white-space:nowrap; }
 .gaussian-source-controls { margin:8px 0 12px; padding:10px; border:1px solid var(--line); border-radius:7px; background:#f7fafb; }
+.gaussian-settings-layout { display:block; }
+.gaussian-settings-row { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:12px; }
+.gaussian-lot-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.gaussian-visible-row { display:inline-flex !important; align-items:center; gap:7px !important; margin:0; }
+.gaussian-visible-row input { flex:0 0 18px; width:18px; min-height:18px; margin:0; padding:0; }
 .gaussian-comparison-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; }
 .gaussian-comparison-grid.has-comparison { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .gaussian-comparison-grid .chart-card { min-width:0; margin:0; }
@@ -211,3 +216,5 @@
 .assessment-side-options { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
 .assessment-side-options label { min-width:190px; }
 @media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:900px) { .gaussian-settings-row { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:520px) { .gaussian-settings-row { grid-template-columns:minmax(0,1fr); } }

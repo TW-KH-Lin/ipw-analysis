@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="../icons/ipw-180.png">
     <link rel="stylesheet" href="../iphone.css?v=27">
     <link rel="stylesheet" href="../workspace/workspace.css?v=2">
-    <link rel="stylesheet" href="workspace2.css?v=30">
+    <link rel="stylesheet" href="workspace2.css?v=31">
     <script defer src="../vendor/xlsx.full.min.js"></script>
     <script defer src="../vendor/exceljs.min.js"></script>
     <script type="module" src="../iphone-app.js?v=128"></script>
@@ -241,22 +241,30 @@
       </section>
 
       <section id="gaussian-panel" class="panel" aria-label="Gaussian fit">
-        <div class="form-grid">
-          <label>Data scope<select id="gaussian-data-scope" disabled><option value="all">All lots</option><option value="filtered">Filtered lots</option><option value="single">Single lot</option></select></label>
-          <label id="gaussian-lot-field" hidden>Primary lot<select id="gaussian-lot" disabled></select></label>
-          <label id="gaussian-compare-lot-field" hidden>Comparison lot (optional)<select id="gaussian-compare-lot" disabled><option value="">One lot</option></select></label>
-          <label>Parameter<select id="gaussian-parameter" disabled></select></label>
-          <label>Comparison parameter (optional)<select id="gaussian-compare-parameter" disabled><option value="">Same as primary</option></select></label>
-          <label>Fit method<select id="gaussian-method" disabled><option value="standard">Standard Gaussian</option><option value="robust-huber">Robust Gaussian (Huber)</option><option value="nacl-truncated">NaCl truncated (legacy), limit 1.0</option></select></label>
-          <label>Bin width<input id="gaussian-bin-width" inputmode="decimal" placeholder="Auto" disabled></label>
-          <label>Start<input id="gaussian-start" inputmode="decimal" placeholder="Auto" disabled></label>
-          <label>End<input id="gaussian-end" inputmode="decimal" placeholder="Auto" disabled></label>
-          <label id="gaussian-compare-bin-width-field" hidden>Comparison bin width<input id="gaussian-compare-bin-width" inputmode="decimal" placeholder="Auto" disabled></label>
-          <label id="gaussian-compare-start-field" hidden>Comparison start<input id="gaussian-compare-start" inputmode="decimal" placeholder="Auto" disabled></label>
-          <label id="gaussian-compare-end-field" hidden>Comparison end<input id="gaussian-compare-end" inputmode="decimal" placeholder="Auto" disabled></label>
-          <label>Extreme boundary (sigma)<input id="gaussian-extreme-sigma" type="number" min="0.001" step="any" value="3" disabled></label>
-          <label>Extreme side<select id="gaussian-extreme-side" disabled><option>Both</option><option>High</option><option>Low</option></select></label>
-          <label class="choice-row"><input id="gaussian-visible-rows" type="checkbox" disabled>Visible Excel rows only</label>
+        <div class="form-grid gaussian-settings-layout">
+          <div class="gaussian-settings-row">
+            <label>Data scope<select id="gaussian-data-scope" disabled><option value="all">All lots</option><option value="filtered">Filtered lots</option><option value="single">Single lot</option></select></label>
+            <label>Fit method<select id="gaussian-method" disabled><option value="standard">Standard Gaussian</option><option value="robust-huber">Robust Gaussian (Huber)</option><option value="nacl-truncated">NaCl truncated (legacy), limit 1.0</option></select></label>
+            <label>Extreme boundary (sigma)<input id="gaussian-extreme-sigma" type="number" min="0.001" step="any" value="3" disabled></label>
+            <label>Extreme side<select id="gaussian-extreme-side" disabled><option>Both</option><option>High</option><option>Low</option></select></label>
+          </div>
+          <div id="gaussian-lot-row" class="gaussian-settings-row gaussian-lot-row" hidden>
+            <label id="gaussian-lot-field" hidden>Primary lot<select id="gaussian-lot" disabled></select></label>
+            <label id="gaussian-compare-lot-field" hidden>Comparison lot (optional)<select id="gaussian-compare-lot" disabled><option value="">One lot</option></select></label>
+          </div>
+          <div class="gaussian-settings-row">
+            <label>Parameter<select id="gaussian-parameter" disabled></select></label>
+            <label>Bin width<input id="gaussian-bin-width" inputmode="decimal" placeholder="Auto" disabled></label>
+            <label>Start<input id="gaussian-start" inputmode="decimal" placeholder="Auto" disabled></label>
+            <label>End<input id="gaussian-end" inputmode="decimal" placeholder="Auto" disabled></label>
+          </div>
+          <div class="gaussian-settings-row">
+            <label>Comparison parameter (optional)<select id="gaussian-compare-parameter" disabled><option value="">Same as primary</option></select></label>
+            <label id="gaussian-compare-bin-width-field" hidden>Bin width<input id="gaussian-compare-bin-width" inputmode="decimal" placeholder="Auto" disabled></label>
+            <label id="gaussian-compare-start-field" hidden>Start<input id="gaussian-compare-start" inputmode="decimal" placeholder="Auto" disabled></label>
+            <label id="gaussian-compare-end-field" hidden>End<input id="gaussian-compare-end" inputmode="decimal" placeholder="Auto" disabled></label>
+          </div>
+          <label class="choice-row gaussian-visible-row"><input id="gaussian-visible-rows" type="checkbox" disabled>Visible Excel rows only</label>
         </div>
         <div id="gaussian-source-controls" class="form-grid gaussian-source-controls" hidden>
           <label>Primary dataset<select id="gaussian-source"><option value="all">Combined selected workbooks</option></select></label>

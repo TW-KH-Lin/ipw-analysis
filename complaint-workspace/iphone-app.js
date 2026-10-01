@@ -2417,6 +2417,7 @@ function gaussianLotsForSource(sourceId) {
 
 function syncGaussianLotChoices() {
   const single=byId('gaussian-data-scope').value==='single';
+  byId('gaussian-lot-row').hidden=!single;
   byId('gaussian-lot-field').hidden=!single;
   const primarySource=byId('gaussian-source')?.value || 'all',comparisonSource=byId('gaussian-compare-source')?.value || '';
   const primaryLots=gaussianLotsForSource(primarySource),primaryValue=byId('gaussian-lot').value;
