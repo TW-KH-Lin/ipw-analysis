@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v35-gaussian-dual-x-axis";
+const CACHE_NAME = "ipw-complaint-workspace-v36-gaussian-comparison-settings";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -25,7 +25,7 @@ const APP_SHELL = [
   "./workbook-comparison.js?v=2",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=127",
+  "../iphone-app.js?v=128",
   "./zone-profile.js?v=1",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",
