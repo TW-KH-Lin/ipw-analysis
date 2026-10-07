@@ -15,7 +15,7 @@ export function mapAuswertungHeader(value) {
   if (/Temperatur/i.test(header)) return "Temp.";
   if (/Raumfeuchte/i.test(header)) return "Humidity";
 
-  const match = header.match(/(?:^|\s)([1-6])$/);
+  const match = header.match(/(?:^|[\s_-])([1-6])$/);
   if (!match) return "";
   const zone = match[1];
   if (/Dicke/i.test(header)) return `Thick_${zone}`;
@@ -27,8 +27,9 @@ export function mapAuswertungHeader(value) {
   if (/Migrationszeit/i.test(header)) return `Wicking_${zone}`;
   if (/NaCl/i.test(header)) return `NaCl_${zone}`;
   if (/Durchfluss/i.test(header)) return `Flow_${zone}`;
-  if (/Bandseite/i.test(header)) return `Ref_B_${zone}`;
-  if (/Luftseite/i.test(header)) return `Ref_A_${zone}`;
+  if (/Glanz(?:wert|v).*Luftseite/i.test(header)) return `Glanz_L_${zone}`;
+  if (/Bandseite/i.test(header) && !/Glanz(?:wert|v)/i.test(header)) return `Ref_B_${zone}`;
+  if (/Luftseite/i.test(header) && !/Glanz(?:wert|v)/i.test(header)) return `Ref_A_${zone}`;
   if (/Migr auto quer/i.test(header)) return `Wicking_Q_${zone}`;
   if (/Doppelfront/i.test(header)) return `DPfront_${zone}`;
 
@@ -56,7 +57,7 @@ function mapAuswertungHeaders(rawHeaders) {
 
 function auswertungParameterBase(header) {
   return String(header ?? "")
-    .replace(/\s+[1-6]$/, "")
+    .replace(/(?:\s+|[_-])[1-6]$/, "")
     .replace(/\b(?:IPW|FuE)_?/gi, "")
     .trim()
     .replace(/\s+/g, "_");
