@@ -33,7 +33,7 @@ import {
   buildFullSummary,
   classificationMaps,
   correctCleanData
-} from "./clean-data.js?v=5";
+} from "./clean-data.js?v=6";
 import {
   buildDataLabel,
   buildDataLabelsTable,

@@ -29,7 +29,7 @@ export function mapAuswertungHeader(value) {
   if (/Durchfluss/i.test(header)) return `Flow_${zone}`;
   if (/Glanz(?:wert|v).*Luftseite/i.test(header)) {
     const prefix = auswertungMeasurementPrefix(header);
-    return `${prefix ? `${prefix}_` : ""}Glanz_L_${zone}`;
+    return /^IPW$/i.test(prefix) ? `Ref_A_${zone}` : `Glanz_L_${zone}`;
   }
   if (/Bandseite/i.test(header) && !/Glanz(?:wert|v)/i.test(header)) return `Ref_B_${zone}`;
   if (/Luftseite/i.test(header) && !/Glanz(?:wert|v)/i.test(header)) return `Ref_A_${zone}`;
