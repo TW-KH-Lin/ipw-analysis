@@ -170,6 +170,7 @@
 .gaussian-lot-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .gaussian-visible-row { display:inline-flex !important; align-items:center; gap:7px !important; margin:0; }
 .gaussian-visible-row input { flex:0 0 18px; width:18px; min-height:18px; margin:0; padding:0; }
+.gaussian-display-options { display:flex; flex-wrap:wrap; align-items:center; gap:10px 22px; }
 .gaussian-comparison-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; }
 .gaussian-comparison-grid.has-comparison { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .gaussian-comparison-grid .chart-card { min-width:0; margin:0; }
@@ -198,6 +199,12 @@
 .gaussian-overlay-card { margin:8px 0 0; }
 .gaussian-overlay-card canvas { display:block; width:100%; height:400px; min-height:320px; }
 .gaussian-overlay-card > p { margin:2px 0 8px; color:var(--muted); font-size:12px; }
+.gaussian-zone-section { margin-top:14px; }
+.gaussian-zone-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:10px; }
+.gaussian-zone-card { min-width:0; margin:0; padding:10px; }
+.gaussian-zone-card h3 { margin:0 0 4px; font-size:14px; }
+.gaussian-zone-card p { margin:0 0 6px; color:var(--muted); font-size:11px; }
+.gaussian-zone-card canvas { display:block; width:100%; height:290px; min-height:240px; }
 .gaussian-sigma-section { margin-top:14px; }
 .gaussian-sigma-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; margin-top:10px; }
 .gaussian-sigma-grid.has-comparison { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -217,4 +224,6 @@
 .assessment-side-options label { min-width:190px; }
 @media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:900px) { .gaussian-settings-row { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:900px) { .gaussian-zone-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:520px) { .gaussian-settings-row { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:520px) { .gaussian-zone-grid { grid-template-columns:minmax(0,1fr); } }
