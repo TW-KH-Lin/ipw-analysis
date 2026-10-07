@@ -27,7 +27,10 @@ export function mapAuswertungHeader(value) {
   if (/Migrationszeit/i.test(header)) return `Wicking_${zone}`;
   if (/NaCl/i.test(header)) return `NaCl_${zone}`;
   if (/Durchfluss/i.test(header)) return `Flow_${zone}`;
-  if (/Glanz(?:wert|v).*Luftseite/i.test(header)) return `Glanz_L_${zone}`;
+  if (/Glanz(?:wert|v).*Luftseite/i.test(header)) {
+    const prefix = auswertungMeasurementPrefix(header);
+    return `${prefix ? `${prefix}_` : ""}Glanz_L_${zone}`;
+  }
   if (/Bandseite/i.test(header) && !/Glanz(?:wert|v)/i.test(header)) return `Ref_B_${zone}`;
   if (/Luftseite/i.test(header) && !/Glanz(?:wert|v)/i.test(header)) return `Ref_A_${zone}`;
   if (/Migr auto quer/i.test(header)) return `Wicking_Q_${zone}`;
@@ -58,9 +61,12 @@ function mapAuswertungHeaders(rawHeaders) {
 function auswertungParameterBase(header) {
   return String(header ?? "")
     .replace(/(?:\s+|[_-])[1-6]$/, "")
-    .replace(/\b(?:IPW|FuE)_?/gi, "")
     .trim()
     .replace(/\s+/g, "_");
+}
+
+function auswertungMeasurementPrefix(header) {
+  return /^(IPW|FuE)(?:\s|_)/i.exec(String(header ?? "").trim())?.[1] || "";
 }
 
 export function buildCleanDataFromAuswertung(table, options = {}) {
