@@ -32,20 +32,42 @@ export function mapAuswertungHeader(value) {
   if (/Migr auto quer/i.test(header)) return `Wicking_Q_${zone}`;
   if (/Doppelfront/i.test(header)) return `DPfront_${zone}`;
 
-  const base = header
+  const base = auswertungParameterBase(header);
+  return base ? `${base}_${zone}` : "";
+}
+
+function mapAuswertungHeaders(rawHeaders) {
+  const names = rawHeaders.map(mapAuswertungHeader);
+  const repeated = new Map();
+  rawHeaders.forEach((header, index) => {
+    if (names[index] || !/^(?:IPW|FuE)(?:\s|_)/i.test(header)) return;
+    const key = header.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+    if (!repeated.has(key)) repeated.set(key, []);
+    repeated.get(key).push(index);
+  });
+  for (const indexes of repeated.values()) {
+    if (indexes.length !== ZONES.length) continue;
+    const base = auswertungParameterBase(rawHeaders[indexes[0]]);
+    if (!base) continue;
+    indexes.forEach((index, offset) => { names[index] = `${base}_${ZONES[offset]}`; });
+  }
+  return names;
+}
+
+function auswertungParameterBase(header) {
+  return String(header ?? "")
     .replace(/\s+[1-6]$/, "")
     .replace(/\b(?:IPW|FuE)_?/gi, "")
     .trim()
     .replace(/\s+/g, "_");
-  return base ? `${base}_${zone}` : "";
 }
 
 export function buildCleanDataFromAuswertung(table, options = {}) {
   const headerRowIndex = findAuswertungHeaderRow(table);
   if (headerRowIndex < 0) throw new Error("Auswertung headers Nummer and ChargenNr were not found.");
   const rawHeaders = table[headerRowIndex].map((value) => String(value ?? "").trim());
-  const mapped = rawHeaders
-    .map((header, index) => ({ index, name: mapAuswertungHeader(header) }))
+  const mapped = mapAuswertungHeaders(rawHeaders)
+    .map((name, index) => ({ index, name }))
     .filter((item) => item.name);
   if (!mapped.some((item) => item.name === "N") || !mapped.some((item) => item.name === "Lot")) {
     throw new Error("Auswertung must contain Nummer and ChargenNr.");
