@@ -21,6 +21,8 @@ const ZM_LAYOUTS = {
   ZM10_25mm: { totalWidth: 1200, segmentWidth: 360, zonesPerSegment: 2, zoneRollCounts: [8, 7, 8, 7, 8, 7] }
 };
 
+const ZM_MACHINE_WIDTHS = { ZM9: 1200, ZM10: 1200, ZM17: 1580 };
+
 export function assessmentBatchIndexes(grid, query = "") {
   const value = text(query).trim();
   if (!value) return grid.map((_, index) => index);
@@ -46,6 +48,53 @@ export function getZmPlanSpecification(layoutName) {
   const specification = ZM_LAYOUTS[layoutName];
   if (!specification) throw new Error("Select a supported ZM layout.");
   return { ...specification, zoneRollCounts: [...specification.zoneRollCounts] };
+}
+
+export function getZmMachineWidth(machineNumber) {
+  const machine = normalizeZmMachine(machineNumber);
+  return ZM_MACHINE_WIDTHS[machine] || null;
+}
+
+export function buildCustomZmPlanSpecification(machineNumber, requestedRollWidth) {
+  const machine = normalizeZmMachine(machineNumber);
+  const totalWidth = ZM_MACHINE_WIDTHS[machine];
+  if (!totalWidth) throw new Error("Enter a supported machine number: ZM9, ZM10, or ZM17.");
+  const rollWidth = Number(requestedRollWidth);
+  if (!(rollWidth > 0) || !Number.isFinite(rollWidth)) throw new Error("Enter a positive roll width in mm.");
+  const zoneWidth = totalWidth / 6;
+  if (rollWidth > zoneWidth) throw new Error(`Roll width must not exceed one Zone width (${zoneWidth.toFixed(2)} mm).`);
+  const totalRolls = Math.ceil(totalWidth / rollWidth);
+  if (totalRolls > 200) throw new Error("Roll width creates more than 200 rolls. Enter a wider roll width.");
+  const tolerance = Math.max(totalWidth, rollWidth) * 1e-10;
+  const rolls = Array.from({ length: totalRolls }, (_, index) => {
+    const start = index * rollWidth;
+    const end = Math.min(totalWidth, start + rollWidth);
+    const zones = ZONES.filter(zone => {
+      const zoneStart = (zone - 1) * zoneWidth;
+      const zoneEnd = zone * zoneWidth;
+      return Math.min(end, zoneEnd) - Math.max(start, zoneStart) > tolerance;
+    });
+    return { roll: index + 1, start, end, width: end - start, zones };
+  });
+  return {
+    custom: true,
+    machine,
+    totalWidth,
+    rollWidth,
+    zoneWidth,
+    segmentWidth: zoneWidth * 2,
+    zonesPerSegment: 2,
+    totalRolls,
+    rolls,
+    zoneRollCounts: ZONES.map(zone => rolls.filter(roll => roll.zones.includes(zone)).length),
+    crossZoneRolls: rolls.filter(roll => roll.zones.length > 1).map(roll => roll.roll)
+  };
+}
+
+function normalizeZmMachine(value) {
+  const cleaned = text(value).replace(/\s+/g, "").toUpperCase();
+  const match = /^(?:ZM)?(9|10|17)$/.exec(cleaned);
+  return match ? `ZM${match[1]}` : cleaned;
 }
 
 export function getV90Parameters(headers) {

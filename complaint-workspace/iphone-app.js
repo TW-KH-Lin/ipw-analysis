@@ -53,10 +53,12 @@ import {
   buildLotReleaseSummary,
   buildPeriodComparison,
   buildV90LotAssessment,
+  buildCustomZmPlanSpecification,
+  getZmMachineWidth,
   getV90Parameters,
   integerChartAxis,
   getZmPlanSpecification
-} from "./v90-analysis.js?v=6";
+} from "./v90-analysis.js?v=7";
 
 import { classificationIncludesKeyword, updateWorkbookClassifications } from "./lot-classification.js?v=2";
 import { buildStructuredCorrelation, structuredParameters, replayStructuredExclusions, structuredConclusions } from "./structured-correlation.js?v=10";
@@ -165,7 +167,7 @@ const REMEMBERED_CONTROLS = [
   "period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end",
   "assessment-lot", "assessment-parameter", "assessment-reference", "assessment-reference-lot",
   "assessment-granularity", "assessment-monitor", "assessment-outlier", "assessment-mu", "assessment-sigma",
-  "release-lot", "release-reference", "release-monitor", "release-not-ok", "zm-layout",
+  "release-lot", "release-reference", "release-monitor", "release-not-ok", "zm-layout", "zm-custom-machine", "zm-custom-roll-width",
   "correlation-x", "correlation-y", "correlation-scope", "correlation-outliers", "correlation-removal", "export-parameter"
 ];
 
@@ -495,7 +497,8 @@ function bindEvents() {
   byId("save-zm-plan-png").addEventListener("click", () => runAction(saveFullZmPlanPng));
   byId("apply-zm-label").addEventListener("click", () => runAction(() => updateZmPlanLabel(false)));
   byId("remove-zm-label").addEventListener("click", () => runAction(() => updateZmPlanLabel(true)));
-  byId("zm-layout").addEventListener("change", invalidateZmPlan);
+  byId("zm-layout").addEventListener("change",()=>{syncCustomZmControls();invalidateZmPlan();});
+  ["zm-custom-machine","zm-custom-roll-width"].forEach(id=>byId(id).addEventListener("input",()=>{syncCustomZmControls();invalidateZmPlan();}));
   byId("zm-coordinates").addEventListener("input", invalidateZmPlan);
   byId("run-release").addEventListener("click", () => runAction(createReleaseSummary));
   byId("download-release").addEventListener("click", () => runAction(downloadReleaseSummary));
@@ -1936,6 +1939,8 @@ function populateWorkbookControls() {
     "assessment-sigma",
     "run-assessment",
     "zm-layout",
+    "zm-custom-machine",
+    "zm-custom-roll-width",
     "zm-mark-label",
     "zm-coordinates",
     "zm-preset-name",
@@ -1994,6 +1999,7 @@ function populateWorkbookControls() {
   renderLabelParameterChoices();
   syncLabelBatches();
   syncMasterRollControls();
+  syncCustomZmControls();
   syncLabelEditor();
   renderDataLabelsTable();
   renderZmCoordinatePresets();
@@ -3358,6 +3364,21 @@ function downloadReleaseSummary() {
 }
 
 const ZM_COORDINATE_PRESETS_KEY='ipw-zm-coordinate-presets-v1';
+function syncCustomZmControls() {
+  const custom=byId('zm-layout')?.value==='Custom';
+  ['zm-custom-machine-field','zm-custom-roll-width-field','zm-custom-machine-width-field'].forEach(id=>{byId(id).hidden=!custom;});
+  byId('zm-custom-machine').disabled=!custom || !state.workbook;
+  byId('zm-custom-roll-width').disabled=!custom || !state.workbook;
+  const width=custom?getZmMachineWidth(byId('zm-custom-machine').value):null;
+  byId('zm-custom-machine-width').textContent=width
+    ? `${formatNumber(width,2)} mm · each Zone ${formatNumber(width/6,2)} mm`
+    : 'Enter ZM9, ZM10, or ZM17';
+}
+function currentZmPlanSpecification() {
+  return byId('zm-layout').value==='Custom'
+    ? buildCustomZmPlanSpecification(byId('zm-custom-machine').value,byId('zm-custom-roll-width').value)
+    : getZmPlanSpecification(byId('zm-layout').value);
+}
 function readZmCoordinatePresets() {
   try {const parsed=JSON.parse(localStorage.getItem(ZM_COORDINATE_PRESETS_KEY) || '[]');return Array.isArray(parsed)?parsed.filter(item=>item && text(item.name)):[];} catch {return [];}
 }
@@ -3381,9 +3402,9 @@ function saveZmCoordinatePreset() {
   const name=text(byId('zm-preset-name').value),coordinates=text(byId('zm-coordinates').value);
   if(!name)throw new Error('Enter a Coordinate preset name.');
   if(!coordinates)throw new Error('Enter Coordinates to mark before saving.');
-  const layout=byId('zm-layout').value,specification=getZmPlanSpecification(layout),total=specification.zoneRollCounts.reduce((sum,count)=>sum+count,0);
+  const layout=byId('zm-layout').value,specification=currentZmPlanSpecification(),total=specification.totalRolls || specification.zoneRollCounts.reduce((sum,count)=>sum+count,0);
   const checked=parseZmCoordinates(coordinates,total);if(checked.invalid.length)throw new Error(`Correct invalid coordinates before saving: ${checked.invalid.join(', ')}`);
-  const item={name,coordinates,layout,label:text(byId('zm-mark-label').value) || 'X',savedAt:new Date().toISOString()};
+  const item={name,coordinates,layout,label:text(byId('zm-mark-label').value) || 'X',customMachine:text(byId('zm-custom-machine').value),customRollWidth:text(byId('zm-custom-roll-width').value),savedAt:new Date().toISOString()};
   const items=readZmCoordinatePresets(),index=items.findIndex(existing=>existing.name.toLowerCase()===name.toLowerCase());
   if(index>=0)items[index]=item;else items.push(item);
   items.sort((a,b)=>a.name.localeCompare(b.name));writeZmCoordinatePresets(items);renderZmCoordinatePresets(name);
@@ -3394,6 +3415,8 @@ function loadZmCoordinatePreset() {
   if(!item)throw new Error('Choose saved coordinates to load.');
   byId('zm-preset-name').value=item.name;byId('zm-coordinates').value=item.coordinates;
   if([...byId('zm-layout').options].some(option=>option.value===item.layout))byId('zm-layout').value=item.layout;
+  if(item.layout==='Custom'){byId('zm-custom-machine').value=item.customMachine || '';byId('zm-custom-roll-width').value=item.customRollWidth || '';}
+  syncCustomZmControls();
   byId('zm-mark-label').value=item.label || 'X';
   setStatus(`Loaded coordinate preset “${item.name}”.`,false,true);
 }
@@ -3412,11 +3435,11 @@ function showZmPlan() {
     throw new Error("Select and assess one complete Zone 1-6 parameter before showing a ZM plan.");
   }
   const layoutName = byId("zm-layout").value;
-  const specification = getZmPlanSpecification(layoutName);
+  const specification = currentZmPlanSpecification();
   const lotColumn = headerIndex(state.headers, "Lot");
   const batchColumn = headerIndex(state.headers, "N");
   const lotRows = dataRows().filter((row) => sameDataValue(row[lotColumn], current.lot));
-  const totalRolls = specification.zoneRollCounts.reduce((sum, count) => sum + count, 0);
+  const totalRolls = specification.totalRolls || specification.zoneRollCounts.reduce((sum, count) => sum + count, 0);
   const assessmentRows = new Map(current.assessment.grid.map((row) => [planBatchIndex(row.batch), row]));
   const batchValues = new Map();
   for (const row of lotRows) {
@@ -3438,7 +3461,7 @@ function showZmPlan() {
   const coordinateResult = parseZmCoordinates(byId("zm-coordinates").value, totalRolls);
   const bulkLabel = text(byId("zm-mark-label").value) || "X";
   state.lastZmPlan = {
-    layoutName,
+    layoutName: specification.custom ? `${specification.machine}_Custom_${formatNumber(specification.rollWidth,2)}mm` : layoutName,
     specification,
     totalRolls,
     lot: current.lot,
@@ -3488,6 +3511,7 @@ function renderZmPlan() {
   const plan = state.lastZmPlan;
   if (!plan) return;
   const { specification } = plan;
+  if(specification.custom){renderCustomZmPlan(plan);return;}
   const viewZone = [0, 1, 3, 5].includes(plan.viewZone) ? plan.viewZone : 1;
   const allZones = viewZone === 0;
   const zoneStarts = specification.zoneRollCounts.map((_, zoneIndex) => (
@@ -3565,6 +3589,48 @@ function renderZmPlan() {
   });
 }
 
+function renderCustomZmPlan(plan) {
+  const {specification}=plan,viewZone=[0,1,3,5].includes(plan.viewZone)?plan.viewZone:1,allZones=viewZone===0;
+  const visibleZones=allZones?ZONES:[viewZone,viewZone+1];
+  const visibleRolls=specification.rolls.filter(roll=>roll.zones.some(zone=>visibleZones.includes(zone)));
+  const tableWidth=50+visibleRolls.length*58;
+  const measurementRows=Array.from({length:50},(_,index)=>{
+    const measurement=index+1,zones=plan.batchValues.get(measurement) || Array.from({length:6},()=>({value:null,status:'NO HISTORY',signedScore:null}));
+    return `<tr class="zm-coordinate-row"><th rowspan="2">M${measurement}</th>${visibleRolls.map(roll=>{
+      const coordinate=`${measurement}/${roll.roll}`,label=plan.labels.get(coordinate) || '';
+      return `<td class="${label?'is-marked':''}"><button type="button" class="zm-mark-button" data-measurement="${measurement}" data-roll="${roll.roll}" aria-label="M${measurement} / R${roll.roll}">${escapeHtml(label)}</button></td>`;
+    }).join('')}</tr><tr class="zm-value-row zm-custom-value-row">${visibleRolls.map(roll=>`<td class="zm-custom-value-cell ${roll.zones.length>1?'is-cross-zone':''}">${roll.zones.map(zone=>{
+      const item=zones[zone-1],style=Number.isFinite(item.signedScore)?directionalAssessmentStyle(item.signedScore,plan.monitorLimit,plan.outlierLimit):'';
+      return `<span class="${statusClass(item.status)}"${style?` style="${style}"`:''}>Z${zone} ${formatCell(item.value)}</span>`;
+    }).join('')}</td>`).join('')}</tr>`;
+  }).join('');
+  byId('zm-plan-result').innerHTML=`
+    <div class="section-heading"><h2>ZM Plan</h2></div>
+    <div class="metric-grid">
+      ${metric('Layout',plan.layoutName)}${metric('Machine width',`${formatNumber(specification.totalWidth,2)} mm`)}${metric('Zone width',`${formatNumber(specification.zoneWidth,2)} mm`)}${metric('Roll width',`${formatNumber(specification.rollWidth,2)} mm`)}
+      ${metric('Total rolls',formatInteger(specification.totalRolls))}${metric('Cross-Zone rolls',formatInteger(specification.crossZoneRolls.length))}${metric('Lot',plan.lot)}${metric('Parameter',plan.parameter)}
+    </div>
+    <p class="result-note">Each Zone is machine width ÷ 6. Cross-Zone rolls remain assigned to every Zone they physically overlap.${specification.crossZoneRolls.length?` Cross-Zone rolls: ${specification.crossZoneRolls.join(', ')}.`:''}</p>
+    ${plan.invalidCoordinates.length?`<p class="mapping-result is-error">Invalid coordinates: ${plan.invalidCoordinates.map(escapeHtml).join(', ')}</p>`:''}
+    <div class="zm-view-tabs zm-plan-tabs" role="tablist" aria-label="ZM plan Zone view">
+      ${[1,3,5].map(zone=>`<button type="button" class="zm-view-tab ${viewZone===zone?'is-active':''}" data-zm-view-zone="${zone}" role="tab" aria-selected="${viewZone===zone}">Zones ${zone}-${zone+1}</button>`).join('')}
+      <button type="button" class="zm-view-tab ${allZones?'is-active':''}" data-zm-view-zone="0" role="tab" aria-selected="${allZones}">All Zones</button>
+    </div>
+    <div class="table-wrap zm-plan-wrap ${allZones?'':'is-zone-view'}">
+      <table class="zm-plan-table zm-custom-plan-table ${allZones?'is-all-zones':'is-zone-view'}" style="min-width:${tableWidth}px;width:${tableWidth}px">
+        <colgroup><col class="zm-m-col">${visibleRolls.map(()=>'<col class="zm-custom-roll-col">').join('')}</colgroup>
+        <thead>
+          <tr><th></th><th colspan="${visibleRolls.length}" class="zm-plan-title">${escapeHtml(plan.layoutName)} - Lot ${escapeHtml(plan.lot)} - ${escapeHtml(plan.parameter)}</th></tr>
+          <tr><th></th><th colspan="${visibleRolls.length}" class="zm-plan-width">Machine ${formatNumber(specification.totalWidth,2)} mm · Zone ${formatNumber(specification.zoneWidth,2)} mm · Roll ${formatNumber(specification.rollWidth,2)} mm</th></tr>
+          <tr><th></th>${visibleRolls.map(roll=>`<th class="${roll.zones.length>1?'is-cross-zone':''}" title="${formatNumber(roll.start,2)}–${formatNumber(roll.end,2)} mm">${roll.zones.map(zone=>`Z${zone}`).join('/')}</th>`).join('')}</tr>
+          <tr><th>M</th>${visibleRolls.map(roll=>`<th>${roll.roll}</th>`).join('')}</tr>
+        </thead><tbody>${measurementRows}</tbody>
+      </table>
+    </div>`;
+  byId('zm-plan-result').querySelectorAll('.zm-mark-button').forEach(button=>button.addEventListener('click',handleZmPlanLabelClick));
+  byId('zm-plan-result').querySelectorAll('.zm-view-tab').forEach(button=>button.addEventListener('click',handleZmViewClick));
+}
+
 function handleZmViewClick(event) {
   const plan = state.lastZmPlan;
   const zone = Number(event.currentTarget.dataset.zmViewZone);
@@ -3587,6 +3653,7 @@ async function saveFullZmPlanPng() {
 }
 
 function renderFullZmPlanCanvas(plan) {
+  if(plan.specification.custom)return renderCustomZmPlanCanvas(plan);
   const rollWidth = 30;
   const measurementWidth = 72;
   const rowHeight = 25;
@@ -3670,6 +3737,36 @@ function renderFullZmPlanCanvas(plan) {
       valueOffset += rollCount;
     });
     y += rowHeight * 2;
+  }
+  return canvas;
+}
+
+function renderCustomZmPlanCanvas(plan) {
+  const specification=plan.specification,rollColumnWidth=44,measurementWidth=72,rowHeight=25,headerRows=4;
+  const width=measurementWidth+specification.totalRolls*rollColumnWidth+1,height=headerRows*rowHeight+50*rowHeight*2+1;
+  const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+  const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
+  let y=0;
+  drawZmCanvasCell(ctx,0,y,width,rowHeight,`${plan.layoutName} | Lot ${plan.lot} | ${plan.parameter}`,'#123f61','#fff',true,13);y+=rowHeight;
+  drawZmCanvasCell(ctx,0,y,measurementWidth,rowHeight,'','#edf4f8');
+  drawZmCanvasCell(ctx,measurementWidth,y,specification.totalRolls*rollColumnWidth,rowHeight,`Machine ${formatNumber(specification.totalWidth,2)} mm | Zone ${formatNumber(specification.zoneWidth,2)} mm | Roll ${formatNumber(specification.rollWidth,2)} mm`,'#fff','#172231',true);y+=rowHeight;
+  drawZmCanvasCell(ctx,0,y,measurementWidth,rowHeight,'Zone','#edf4f8','#123f61',true);
+  specification.rolls.forEach((roll,index)=>drawZmCanvasCell(ctx,measurementWidth+index*rollColumnWidth,y,rollColumnWidth,rowHeight,roll.zones.map(zone=>`Z${zone}`).join('/'),roll.zones.length>1?'#d9d9d9':'#edf4f8','#172231',true,8));y+=rowHeight;
+  drawZmCanvasCell(ctx,0,y,measurementWidth,rowHeight,'M','#edf4f8','#123f61',true);
+  specification.rolls.forEach((roll,index)=>drawZmCanvasCell(ctx,measurementWidth+index*rollColumnWidth,y,rollColumnWidth,rowHeight,roll.roll,'#edf4f8','#123f61',true,9));y+=rowHeight;
+  for(let measurement=1;measurement<=50;measurement+=1){
+    const zones=plan.batchValues.get(measurement) || Array.from({length:6},()=>({value:null,status:'NO HISTORY',signedScore:null}));
+    drawZmCanvasCell(ctx,0,y,measurementWidth,rowHeight*2,`M${measurement}`,'#edf4f8','#123f61',true);
+    specification.rolls.forEach((roll,index)=>{
+      const label=plan.labels.get(`${measurement}/${roll.roll}`) || '';
+      drawZmCanvasCell(ctx,measurementWidth+index*rollColumnWidth,y,rollColumnWidth,rowHeight,label,label?'#fff36b':'#fff',label?'#b3261e':'#172231',Boolean(label),8);
+      const partWidth=rollColumnWidth/roll.zones.length;
+      roll.zones.forEach((zone,partIndex)=>{
+        const item=zones[zone-1],colors=zmPlanValueColors(item,plan),value=Number.isFinite(item.value)?formatNumber(item.value,4):'';
+        drawZmCanvasCell(ctx,measurementWidth+index*rollColumnWidth+partIndex*partWidth,y+rowHeight,partWidth,rowHeight,value,colors.background,colors.text,true,8);
+      });
+    });
+    y+=rowHeight*2;
   }
   return canvas;
 }
