@@ -103,7 +103,6 @@ const state = {
   lastAssessment: null,
   assessmentBatchQuery: "",
   assessmentSecondaryBatchQuery: "",
-  zmBatchQuery: "",
   equalReferenceLots: new Set(),
   lastRelease: null,
   lastZoneProfile: null,
@@ -397,9 +396,11 @@ function bindEvents() {
       return;
     }
     if (event.target.id !== "assessment-batch-filter" && event.target.id !== "assessment-secondary-batch-filter") return;
-    if (event.target.id === "assessment-batch-filter") state.assessmentBatchQuery = event.target.value;
-    else state.assessmentSecondaryBatchQuery = event.target.value;
+    if (event.target.id === "assessment-batch-filter") {
+      state.assessmentBatchQuery = event.target.value;
+    } else state.assessmentSecondaryBatchQuery = event.target.value;
     renderAssessmentBatchTables();
+    if (event.target.id === "assessment-batch-filter") syncZmMeasurementsFromAssessmentFilter();
   });
   byId("assessment-equal-search").addEventListener("input", renderEqualReferenceChoices);
   byId("assessment-equal-options").addEventListener("change", (event) => {
@@ -500,7 +501,6 @@ function bindEvents() {
   byId("remove-zm-label").addEventListener("click", () => runAction(() => updateZmPlanLabel(true)));
   byId("zm-layout").addEventListener("change",()=>{syncCustomZmControls();invalidateZmPlan();});
   ["zm-custom-machine","zm-custom-roll-width"].forEach(id=>byId(id).addEventListener("input",()=>{syncCustomZmControls();invalidateZmPlan();}));
-  byId('zm-mr-filter').addEventListener('input',updateZmMeasurementSelection);
   byId("zm-coordinates").addEventListener("input", invalidateZmPlan);
   byId("run-release").addEventListener("click", () => runAction(createReleaseSummary));
   byId("download-release").addEventListener("click", () => runAction(downloadReleaseSummary));
@@ -868,8 +868,6 @@ async function parseWorkbook(data, fileName) {
   state.equalReferenceLots.clear();
   state.assessmentBatchQuery = "";
   state.assessmentSecondaryBatchQuery = "";
-  state.zmBatchQuery = "";
-  byId('zm-mr-filter').value = "";
   state.lastBuild = null;
   state.gaussianSnapshots = [];
   state.gaussianExtremeExports = [];
@@ -1945,7 +1943,6 @@ function populateWorkbookControls() {
     "zm-layout",
     "zm-custom-machine",
     "zm-custom-roll-width",
-    "zm-mr-filter",
     "zm-mark-label",
     "zm-coordinates",
     "zm-preset-name",
@@ -3384,21 +3381,20 @@ function currentZmPlanSpecification() {
     ? buildCustomZmPlanSpecification(byId('zm-custom-machine').value,byId('zm-custom-roll-width').value)
     : getZmPlanSpecification(byId('zm-layout').value);
 }
-function selectedZmMeasurements(assessment,query=byId('zm-mr-filter').value) {
+function selectedZmMeasurements(assessment,query=state.assessmentBatchQuery) {
   const indexes=assessmentBatchIndexes(assessment.grid,query);
   const measurements=[...new Set(indexes.map(index=>planBatchIndex(assessment.grid[index].batch)).filter(value=>value>=1 && value<=50))].sort((a,b)=>a-b);
   if(!measurements.length)throw new Error('No matching MR N from M1 through M50.');
   return measurements;
 }
-function updateZmMeasurementSelection() {
-  const input=byId('zm-mr-filter'),status=byId('zm-mr-status');
-  state.zmBatchQuery=input.value;
-  if(!state.lastAssessment){input.setAttribute('aria-invalid','false');status.textContent='Run Lot Assessment first';return;}
+function syncZmMeasurementsFromAssessmentFilter() {
+  if(!state.lastAssessment || !state.lastZmPlan)return;
   try{
-    const measurements=selectedZmMeasurements(state.lastAssessment.assessment,state.zmBatchQuery);
-    input.setAttribute('aria-invalid','false');status.textContent=`${measurements.length} MR${measurements.length===1?'':'s'} selected`;
-    if(state.lastZmPlan){state.lastZmPlan.measurementNumbers=measurements;renderZmPlan();}
-  }catch(error){input.setAttribute('aria-invalid','true');status.textContent=error?.message || String(error);}
+    state.lastZmPlan.measurementNumbers=selectedZmMeasurements(state.lastAssessment.assessment,state.assessmentBatchQuery);
+    renderZmPlan();
+  }catch{
+    // The primary table reports invalid MR syntax; keep the last valid ZM selection.
+  }
 }
 function readZmCoordinatePresets() {
   try {const parsed=JSON.parse(localStorage.getItem(ZM_COORDINATE_PRESETS_KEY) || '[]');return Array.isArray(parsed)?parsed.filter(item=>item && text(item.name)):[];} catch {return [];}
@@ -3425,7 +3421,7 @@ function saveZmCoordinatePreset() {
   if(!coordinates)throw new Error('Enter Coordinates to mark before saving.');
   const layout=byId('zm-layout').value,specification=currentZmPlanSpecification(),total=specification.totalRolls || specification.zoneRollCounts.reduce((sum,count)=>sum+count,0);
   const checked=parseZmCoordinates(coordinates,total);if(checked.invalid.length)throw new Error(`Correct invalid coordinates before saving: ${checked.invalid.join(', ')}`);
-  const item={name,coordinates,layout,label:text(byId('zm-mark-label').value) || 'X',customMachine:text(byId('zm-custom-machine').value),customRollWidth:text(byId('zm-custom-roll-width').value),mrFilter:text(byId('zm-mr-filter').value),savedAt:new Date().toISOString()};
+  const item={name,coordinates,layout,label:text(byId('zm-mark-label').value) || 'X',customMachine:text(byId('zm-custom-machine').value),customRollWidth:text(byId('zm-custom-roll-width').value),savedAt:new Date().toISOString()};
   const items=readZmCoordinatePresets(),index=items.findIndex(existing=>existing.name.toLowerCase()===name.toLowerCase());
   if(index>=0)items[index]=item;else items.push(item);
   items.sort((a,b)=>a.name.localeCompare(b.name));writeZmCoordinatePresets(items);renderZmCoordinatePresets(name);
@@ -3437,9 +3433,7 @@ function loadZmCoordinatePreset() {
   byId('zm-preset-name').value=item.name;byId('zm-coordinates').value=item.coordinates;
   if([...byId('zm-layout').options].some(option=>option.value===item.layout))byId('zm-layout').value=item.layout;
   if(item.layout==='Custom'){byId('zm-custom-machine').value=item.customMachine || '';byId('zm-custom-roll-width').value=item.customRollWidth || '';}
-  byId('zm-mr-filter').value=item.mrFilter || '';state.zmBatchQuery=byId('zm-mr-filter').value;
   syncCustomZmControls();
-  updateZmMeasurementSelection();
   byId('zm-mark-label').value=item.label || 'X';
   setStatus(`Loaded coordinate preset “${item.name}”.`,false,true);
 }
@@ -3463,8 +3457,7 @@ function showZmPlan() {
   const batchColumn = headerIndex(state.headers, "N");
   const lotRows = dataRows().filter((row) => sameDataValue(row[lotColumn], current.lot));
   const totalRolls = specification.totalRolls || specification.zoneRollCounts.reduce((sum, count) => sum + count, 0);
-  state.zmBatchQuery=byId('zm-mr-filter').value;
-  const measurementNumbers=selectedZmMeasurements(current.assessment,state.zmBatchQuery);
+  const measurementNumbers=selectedZmMeasurements(current.assessment,state.assessmentBatchQuery);
   const assessmentRows = new Map(current.assessment.grid.map((row) => [planBatchIndex(row.batch), row]));
   const batchValues = new Map();
   for (const row of lotRows) {
@@ -3506,8 +3499,6 @@ function showZmPlan() {
   byId("remove-zm-label").disabled = false;
   byId("save-zm-plan-png").disabled = false;
   renderZmPlan();
-  byId('zm-mr-filter').setAttribute('aria-invalid','false');
-  byId('zm-mr-status').textContent=`${measurementNumbers.length} MR${measurementNumbers.length===1?'':'s'} selected`;
   setStatus(
     `${layoutName}: ${measurementNumbers.length} of ${batchValues.size} Lot MR row(s) shown, ${coordinateResult.marked.size} M/R area(s) labeled${coordinateResult.invalid.length ? `; invalid: ${coordinateResult.invalid.join(", ")}` : ""}.`,
     Boolean(coordinateResult.invalid.length),
