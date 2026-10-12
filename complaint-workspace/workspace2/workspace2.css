@@ -212,6 +212,10 @@
 .gaussian-zone-card h3 { margin:0 0 4px; font-size:14px; }
 .gaussian-zone-card p { margin:0 0 6px; color:var(--muted); font-size:11px; }
 .gaussian-zone-card canvas { display:block; width:100%; height:290px; min-height:240px; }
+.gaussian-zone-scale-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px 20px; margin:8px 0; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:#f7fafb; }
+.gaussian-zone-scale-controls .choice-row { display:inline-flex; align-items:center; gap:6px; margin:0; font-size:12px; font-weight:700; }
+.gaussian-zone-scale-controls input { width:17px; min-height:17px; margin:0; }
+.gaussian-zone-scale-controls span { color:var(--muted); font-size:11px; }
 .gaussian-sigma-section { margin-top:14px; }
 .gaussian-sigma-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; margin-top:10px; }
 .gaussian-sigma-grid.has-comparison { grid-template-columns:repeat(2,minmax(0,1fr)); }

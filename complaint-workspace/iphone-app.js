@@ -2580,7 +2580,7 @@ function createGaussian() {
     : [];
   const sourceLabel=combinedContext.active?(byId('gaussian-source')?.selectedOptions[0]?.textContent || state.source):state.source;
   const comparisonLabel=comparisonId?(byId('gaussian-compare-source')?.selectedOptions[0]?.textContent || sourceLabel):sourceLabel;
-  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,overlayVisible:!sameParameter,zoneDistributions,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
+  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,overlayVisible:!sameParameter,zoneDistributions,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
     comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
   if(comparison&&sameParameter)state.lastGaussian.viewRange={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};
   else {state.lastGaussian.viewRange={start:primary.fit.start,end:primary.fit.end};if(comparison)state.lastGaussian.comparison.viewRange={start:comparison.fit.start,end:comparison.fit.end};}
@@ -2675,6 +2675,11 @@ function renderGaussianZoneDistributions(result) {
   const available=result.zoneDistributions.some(item=>item.fit);
   return `<details class="gaussian-zone-section" open><summary>Individual Zone distributions (3 × 2)</summary>
     <div class="assessment-plot-toolbar"><h3>${escapeHtml(result.parameter)} · Zones 1–6</h3><button id="export-gaussian-zones-png" class="command" type="button" ${available?'':'disabled'}>Export 3 × 2 PNG</button></div>
+    <div class="gaussian-zone-scale-controls">
+      <label class="choice-row"><input id="gaussian-zone-shared-y" type="checkbox" ${result.zoneSharedY?'checked':''}>Same Y-axis range</label>
+      <label class="choice-row"><input id="gaussian-zone-normalized" type="checkbox" ${result.zoneNormalized?'checked':''}>Normalize each Zone (%)</label>
+      <span>${result.zoneNormalized?'Y-axis shows percent of each Zone sample.':'Y-axis shows observation counts.'}</span>
+    </div>
     <div class="gaussian-zone-grid">${result.zoneDistributions.map(item=>`<article class="chart-card gaussian-zone-card">
       <h3>Zone ${item.zone}</h3>
       ${item.fit?`<p>N ${formatInteger(item.fit.n)} · Mu ${formatNumber(item.fit.mean,3)} · Sigma ${formatNumber(item.fit.sigma,3)} · Bin ${formatNumber(item.fit.binWidth,3)}</p><canvas id="gaussian-zone-chart-${item.zone}" aria-label="Zone ${item.zone} Gaussian distribution"></canvas>`:`<p class="empty-state">${escapeHtml(item.error || 'No usable numeric data.')}</p>`}
@@ -2754,6 +2759,8 @@ function renderGaussianResult() {
   });
   byId('export-gaussian-overlay-png')?.addEventListener('click',()=>runAction(saveGaussianOverlaySnapshot));
   byId('export-gaussian-zones-png')?.addEventListener('click',()=>runAction(saveGaussianZoneSnapshot));
+  byId('gaussian-zone-shared-y')?.addEventListener('change',event=>{result.zoneSharedY=event.target.checked;requestAnimationFrame(drawGaussianCharts);});
+  byId('gaussian-zone-normalized')?.addEventListener('change',event=>{result.zoneNormalized=event.target.checked;renderGaussianResult();});
   requestAnimationFrame(drawGaussianCharts);
   ["start", "end"].forEach(side => {
     byId(`gaussian-view-${side}`).addEventListener("input", updateGaussianView);
@@ -2779,9 +2786,20 @@ function drawGaussianCharts() {
     const comparison=state.lastGaussian.sameParameter?{...state.lastGaussian.comparison.fit,...state.lastGaussian.viewRange}:{...state.lastGaussian.comparison.fit,...state.lastGaussian.comparison.viewRange};
     drawGaussianOverlay(byId('gaussian-overlay-chart'),primary,comparison,gaussianOverlayDetails(state.lastGaussian));
   }
+  const zoneDisplay=gaussianZoneDisplayOptions(state.lastGaussian);
   state.lastGaussian.zoneDistributions?.forEach(item=>{
-    if(item.fit)drawGaussian(byId(`gaussian-zone-chart-${item.zone}`),item.fit,'combined');
+    if(item.fit)drawGaussian(byId(`gaussian-zone-chart-${item.zone}`),item.fit,'combined',undefined,zoneDisplay);
   });
+}
+
+function gaussianFitPeak(fit,normalized=false) {
+  const scale=normalized?100/Math.max(1,fit.histogramN || fit.n || 1):1;
+  return Math.max(1,...fit.bins.flatMap(bin=>[bin.observed*scale,bin.gaussian*scale]));
+}
+
+function gaussianZoneDisplayOptions(current) {
+  const normalized=Boolean(current?.zoneNormalized),fits=current?.zoneDistributions?.map(item=>item.fit).filter(Boolean) || [];
+  return {normalized,yMax:current?.zoneSharedY&&fits.length?Math.max(...fits.map(fit=>gaussianFitPeak(fit,normalized))):null};
 }
 
 function gaussianOverlayDetails(current) {
@@ -2948,7 +2966,8 @@ function saveGaussianZoneSnapshot() {
   ctx.fillStyle='#172231';ctx.font='bold 24px sans-serif';
   ctx.fillText(`Individual Zone distributions · ${current.parameter}`,margin,32,canvas.width-margin*2);
   ctx.fillStyle='#526579';ctx.font='16px sans-serif';
-  ctx.fillText(`${current.sourceLabel || current.source}${current.selectedLot?` · Lot ${current.selectedLot}`:''} · ${current.scope} · ${current.fit.method}`,margin,60,canvas.width-margin*2);
+  ctx.fillText(`${current.sourceLabel || current.source}${current.selectedLot?` · Lot ${current.selectedLot}`:''} · ${current.scope} · ${current.fit.method} · ${current.zoneNormalized?'Normalized %':'Counts'}${current.zoneSharedY?' · Shared Y-axis':''}`,margin,60,canvas.width-margin*2);
+  const zoneDisplay=gaussianZoneDisplayOptions(current);
   current.zoneDistributions.forEach((item,index)=>{
     const column=index%columns,row=Math.floor(index/columns),x=margin+column*(cardWidth+gap),y=headerHeight+row*(cardHeight+gap);
     ctx.fillStyle='#fff';ctx.fillRect(x,y,cardWidth,cardHeight);ctx.strokeStyle='#cbd5dc';ctx.lineWidth=1;ctx.strokeRect(x,y,cardWidth,cardHeight);
@@ -2957,7 +2976,7 @@ function saveGaussianZoneSnapshot() {
     ctx.fillStyle='#526579';ctx.font='14px sans-serif';
     ctx.fillText(`N ${formatInteger(item.fit.n)} · Mu ${formatNumber(item.fit.mean,3)} · Sigma ${formatNumber(item.fit.sigma,3)} · Bin ${formatNumber(item.fit.binWidth,3)}`,x+12,y+48,cardWidth-24);
     const chart=document.createElement('canvas');
-    drawGaussian(chart,item.fit,'combined',{width:cardWidth-20,height:cardHeight-66});
+    drawGaussian(chart,item.fit,'combined',{width:cardWidth-20,height:cardHeight-66},zoneDisplay);
     ctx.drawImage(chart,x+10,y+58,cardWidth-20,cardHeight-66);
   });
   const fileName=`${baseFileName()}_${safeFilePart(current.parameter)}_Gaussian_Zones_3x2_${fileDateStamp(new Date())}.png`;
@@ -5568,16 +5587,19 @@ function drawGaussianOverlay(canvas, primary, comparison, details={}, dimensions
   });
 }
 
-function drawGaussian(canvas, fit, mode = "combined", dimensions) {
+function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
   if (!canvas || !fit?.bins?.length) return;
   const xAxis = integerChartAxis([fit.start, fit.end]);
   fit = { ...fit, start: xAxis.min, end: xAxis.max };
   const { ctx, width, height, colors } = setupCanvas(canvas, dimensions);
   const fontSize = dimensions ? 18 : 14;
   const pad = { left: 48, right: 12, top: fit.components?.length ? (dimensions ? 170 : 154) : (dimensions ? 136 : 120), bottom: 34 };
-  const yAxis = integerChartAxis([0, Math.max(1, ...fit.bins.flatMap(bin => [bin.observed, bin.gaussian]))]);
+  const normalized=Boolean(display.normalized),valueScale=normalized?100/Math.max(1,fit.histogramN || fit.n || 1):1;
+  const observedPeak=Math.max(1,...fit.bins.flatMap(bin=>[bin.observed*valueScale,bin.gaussian*valueScale]));
+  const yAxis = integerChartAxis([0, Number.isFinite(display.yMax)&&display.yMax>0?display.yMax:observedPeak]);
   ctx.font = `${fontSize}px sans-serif`;
-  pad.left = Math.max(pad.left, ...yAxis.ticks.map(value => ctx.measureText(formatInteger(value)).width + 14));
+  const yLabel=value=>`${formatInteger(value)}${normalized?'%':''}`;
+  pad.left = Math.max(pad.left, ...yAxis.ticks.map(value => ctx.measureText(yLabel(value)).width + 14));
   pad.right = Math.max(pad.right, ctx.measureText(formatInteger(xAxis.max)).width / 2 + 8);
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
@@ -5592,7 +5614,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
   yAxis.ticks.forEach(value => {
     const y = pad.top + plotHeight - value / maxY * plotHeight;
     ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke();
-    ctx.fillText(formatInteger(value), pad.left - 8, y + 5);
+    ctx.fillText(yLabel(value), pad.left - 8, y + 5);
   });
   ctx.textAlign = "center";
   const tickWidth = Math.max(...xAxis.ticks.map(value => ctx.measureText(formatInteger(value)).width)) + 12;
@@ -5608,7 +5630,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
   if (mode !== "curve") fit.bins.forEach((bin) => {
     const x0 = pad.left + (bin.lower - fit.start) / (fit.end - fit.start) * plotWidth;
     const x1 = pad.left + (bin.upper - fit.start) / (fit.end - fit.start) * plotWidth;
-    const barHeight = bin.observed / maxY * plotHeight;
+    const barHeight = bin.observed*valueScale / maxY * plotHeight;
     ctx.fillStyle = colors.blueSoft;
     ctx.fillRect(x0 + 1, pad.top + plotHeight - barHeight, Math.max(1, x1 - x0 - 2), barHeight);
   });
@@ -5618,7 +5640,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
       ctx.beginPath();
       fit.bins.forEach((bin,index)=>{
         const x=pad.left+(bin.center-fit.start)/(fit.end-fit.start)*plotWidth;
-        const y=pad.top+plotHeight-(bin.components?.[componentIndex] || 0)/maxY*plotHeight;
+        const y=pad.top+plotHeight-(bin.components?.[componentIndex] || 0)*valueScale/maxY*plotHeight;
         if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
       });
       ctx.strokeStyle=componentColors[componentIndex];ctx.lineWidth=1.8;ctx.setLineDash([6,4]);ctx.stroke();ctx.setLineDash([]);
@@ -5626,7 +5648,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
     ctx.beginPath();
     fit.bins.forEach((bin, index) => {
       const x = pad.left + (bin.center - fit.start) / (fit.end - fit.start) * plotWidth;
-      const y = pad.top + plotHeight - bin.gaussian / maxY * plotHeight;
+      const y = pad.top + plotHeight - bin.gaussian*valueScale / maxY * plotHeight;
       if (index === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
@@ -5645,7 +5667,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
   ctx.font = `${fontSize}px sans-serif`;
   ctx.textAlign = "left";
   ctx.fillStyle = "#172231";
-  ctx.fillText(`${fit.components?.length?'Overall mean':'Mean'}: ${fit.mean.toFixed(3)}   ${fit.components?.length?'Overall sigma':'Sigma'}: ${fit.sigma.toFixed(3)}`, 8, fontSize + 4, width - 16);
+  ctx.fillText(`${fit.components?.length?'Overall mean':'Mean'}: ${fit.mean.toFixed(3)}   ${fit.components?.length?'Overall sigma':'Sigma'}: ${fit.sigma.toFixed(3)}${normalized?'   ·   Normalized %':''}`, 8, fontSize + 4, width - 16);
   if(fit.components?.length){
     const colors=['#195d8d','#c55418','#7c3aed'];
     fit.components.forEach((component,index)=>{
