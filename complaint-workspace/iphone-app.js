@@ -2316,14 +2316,23 @@ function renderSummaryTable() {
   const categorized=[...rows.slice(0,1).map(header=>[...header.slice(0,6),'Mean group',...header.slice(6)])];
   rows.slice(1).forEach(row=>{
     const mean=Number(row[5]),label=Number.isFinite(mean)?meanGroupLabel(mean,cutoffs):'No numeric mean';
-    if(!groups.has(label))groups.set(label,[]);groups.get(label).push(mean);
+    if(!groups.has(label))groups.set(label,[]);groups.get(label).push({lot:row[0],mean});
     categorized.push([...row.slice(0,6),label,...row.slice(6)]);
   });
-  const overview=[['Mean group','Lots','Average Lot mean','Minimum Lot mean','Maximum Lot mean'],...groups.entries().map(([label,means])=>{
-    const numeric=means.filter(Number.isFinite),stats=numeric.length?meanAndSigma(numeric):null;
-    return [label,numeric.length,stats?.mean ?? '',stats?.min ?? '',stats?.max ?? ''];
-  })];
-  byId("summary-mean-group-overview").innerHTML=`<div class="section-heading"><h3>Mean groups · ${escapeHtml(parameter)}</h3></div><div class="table-wrap mini-table summary-mean-group-table">${renderTable(overview)}</div>`;
+  const overviewRows=[...groups.entries()].map(([label,items],index)=>{
+    const numeric=items.map(item=>item.mean).filter(Number.isFinite),stats=numeric.length?meanAndSigma(numeric):null;
+    return {label,index,lots:items.map(item=>text(item.lot)).filter(Boolean),stats};
+  });
+  byId("summary-mean-group-overview").innerHTML=`<div class="section-heading"><h3>Mean groups · ${escapeHtml(parameter)}</h3></div><div class="table-wrap mini-table summary-mean-group-table"><table><thead><tr><th>Mean group</th><th>Lots</th><th>Average Lot mean</th><th>Minimum Lot mean</th><th>Maximum Lot mean</th><th>Use for analysis</th></tr></thead><tbody>${overviewRows.map(item=>`<tr><td>${escapeHtml(item.label)}</td><td>${formatInteger(item.lots.length)}</td><td>${item.stats?formatNumber(item.stats.mean,4):''}</td><td>${item.stats?formatNumber(item.stats.min,4):''}</td><td>${item.stats?formatNumber(item.stats.max,4):''}</td><td><button type="button" class="command summary-use-mean-group" data-mean-group-index="${item.index}" ${item.lots.length?'':'disabled'}>Select these Lots</button></td></tr>`).join('')}</tbody></table></div>`;
+  byId("summary-mean-group-overview").querySelectorAll('.summary-use-mean-group').forEach(button=>button.addEventListener('click',()=>{
+    const selected=overviewRows[Number(button.dataset.meanGroupIndex)];
+    if(!selected?.lots.length)return;
+    byId('filter-mode').value='lots';
+    state.filterSelections.lots=new Set(selected.lots);
+    state.filterInitialized.lots=true;
+    renderFilterOptions();invalidateAnalyses();renderCurrentData();
+    setStatus(`Selected ${selected.lots.length} Lots from mean group ${selected.label}. Use Filtered lots in analysis Data scope.`,false,true);
+  }));
   byId("summary-mean-group-status").textContent=`${formatInteger(categorized.length-1)} Lots categorized from the entire loaded dataset.`;
   byId("summary-table").innerHTML=renderTable(categorized,{empty:"No summary rows."});
 }
