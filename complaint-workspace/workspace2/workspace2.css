@@ -227,9 +227,15 @@
 .gaussian-sigma-table th:nth-child(1),.gaussian-sigma-table td:nth-child(1) { width:24%; }
 .gaussian-sigma-table th:nth-child(2),.gaussian-sigma-table td:nth-child(2) { width:46%; }
 .gaussian-sigma-table th:nth-child(3),.gaussian-sigma-table td:nth-child(3) { text-align:right; }
+.gaussian-mixture-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; margin:10px 0; }
+.gaussian-mixture-grid.has-comparison { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.gaussian-mixture-summary { min-width:0; padding:9px; border:1px solid var(--line); border-radius:7px; background:#f8fafb; }
+.gaussian-mixture-summary:empty { display:none; }
+.gaussian-mixture-summary h3,.gaussian-mixture-summary p { margin:0 0 6px; }
+.gaussian-mixture-summary table { width:100%; min-width:0; }
 .assessment-side-options { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
 .assessment-side-options label { min-width:190px; }
-@media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.gaussian-mixture-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:900px) { .gaussian-settings-row { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:900px) { .gaussian-zone-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:520px) { .gaussian-settings-row { grid-template-columns:minmax(0,1fr); } }

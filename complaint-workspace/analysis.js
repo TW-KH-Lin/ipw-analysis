@@ -229,6 +229,65 @@ export function fitHuberGaussian(values) {
   throw new Error("Robust fit failed: invalid scale or no convergence within 100 iterations. No fit or extreme export was created.");
 }
 
+export function fitGaussianMixture(values, componentCount = 2, initialMeans = []) {
+  values = values.filter(value => typeof value === "number" && Number.isFinite(value));
+  if (![2, 3].includes(componentCount)) throw new Error("Gaussian mixture supports two or three components.");
+  if (values.length < componentCount * 3) throw new Error(`Gaussian mixture with ${componentCount} components requires at least ${componentCount * 3} numeric observations.`);
+  const sorted = [...values].sort((a, b) => a - b);
+  const overall = meanAndSigma(sorted);
+  if (!(overall.sigma > 0)) throw new Error("Gaussian mixture requires values with non-zero variation.");
+  const supplied = initialMeans.map(Number).filter(Number.isFinite);
+  if (supplied.length && supplied.length !== componentCount) throw new Error(`Enter exactly ${componentCount} initial means, separated by commas.`);
+  if (supplied.length && new Set(supplied).size !== componentCount) throw new Error("Initial means must be distinct.");
+  if (supplied.some(mean => mean < overall.min || mean > overall.max)) throw new Error("Initial means must fall within the selected fit range.");
+  let automaticMeans = Array.from({ length: componentCount }, (_, index) => percentile(sorted, (index + 1) / (componentCount + 1)));
+  if (new Set(automaticMeans).size !== componentCount) automaticMeans = automaticMeans.map((_, index) => overall.min + (index + 1) * (overall.max - overall.min) / (componentCount + 1));
+  let components = Array.from({ length: componentCount }, (_, index) => ({
+    weight: 1 / componentCount,
+    mean: supplied.length ? supplied[index] : automaticMeans[index],
+    sigma: overall.sigma
+  })).sort((a, b) => a.mean - b.mean);
+  const range = Math.max(overall.max - overall.min, overall.sigma);
+  const sigmaFloor = Math.max(range * 1e-6, Number.EPSILON * Math.max(1, Math.abs(overall.mean)));
+  const density = (value, component) => component.weight * Math.exp(-0.5 * ((value - component.mean) / component.sigma) ** 2) /
+    (component.sigma * Math.sqrt(2 * Math.PI));
+  let previousLogLikelihood = -Infinity, logLikelihood = -Infinity, iterations = 0;
+  for (iterations = 1; iterations <= 300; iterations++) {
+    const responsibilities = values.map(value => {
+      const probabilities = components.map(component => density(value, component));
+      const total = probabilities.reduce((sum, probability) => sum + probability, 0);
+      if (!(total > 0) || !Number.isFinite(total)) return components.map(() => 1 / componentCount);
+      return probabilities.map(probability => probability / total);
+    });
+    components = components.map((component, index) => {
+      const effectiveN = responsibilities.reduce((sum, row) => sum + row[index], 0);
+      if (!(effectiveN > 1e-8)) return component;
+      const mean = values.reduce((sum, value, row) => sum + responsibilities[row][index] * value, 0) / effectiveN;
+      const variance = values.reduce((sum, value, row) => sum + responsibilities[row][index] * (value - mean) ** 2, 0) / effectiveN;
+      return { weight: effectiveN / values.length, mean, sigma: Math.max(Math.sqrt(Math.max(0, variance)), sigmaFloor) };
+    }).sort((a, b) => a.mean - b.mean);
+    const weightTotal = components.reduce((sum, component) => sum + component.weight, 0);
+    components.forEach(component => { component.weight /= weightTotal; });
+    logLikelihood = values.reduce((sum, value) => {
+      const probability = components.reduce((total, component) => total + density(value, component), 0);
+      return sum + Math.log(Math.max(probability, Number.MIN_VALUE));
+    }, 0);
+    if (Number.isFinite(previousLogLikelihood) && Math.abs(logLikelihood - previousLogLikelihood) <= 1e-8 * (1 + Math.abs(logLikelihood))) break;
+    previousLogLikelihood = logLikelihood;
+  }
+  if (!components.every(component => component.weight > 0 && Number.isFinite(component.mean) && component.sigma > 0)) {
+    throw new Error("Gaussian mixture fit failed to converge to valid components.");
+  }
+  const parameterCount = 3 * componentCount - 1;
+  return {
+    components,
+    iterations: Math.min(iterations, 300),
+    logLikelihood,
+    aic: 2 * parameterCount - 2 * logLikelihood,
+    bic: parameterCount * Math.log(values.length) - 2 * logLikelihood
+  };
+}
+
 export function gaussianExtremeSnapshot(records, fit, multiplier = 3) {
   if (!Number.isFinite(multiplier) || multiplier <= 0) throw new Error("Extreme sigma multiplier must be greater than zero.");
   if (!Number.isFinite(fit.mean) || !Number.isFinite(fit.sigma) || fit.sigma < 0) throw new Error("Run a successful Gaussian fit first.");
@@ -252,9 +311,10 @@ export function histogramBinIndex(value, start, width, count) {
 export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd, options = {}) {
   const method = options.method || "standard";
   const robust = method === "robust-huber";
+  const mixtureCount = method === "mixture-2" ? 2 : method === "mixture-3" ? 3 : 0;
   values = values.filter(value => typeof value === "number" && Number.isFinite(value));
   const lowerLimit = method === "nacl-truncated" ? Number(options.lowerLimit ?? 1) : null;
-  if (method !== "standard" && method !== "nacl-truncated" && !robust) throw new Error("Select a valid Gaussian fit method.");
+  if (method !== "standard" && method !== "nacl-truncated" && !robust && !mixtureCount) throw new Error("Select a valid Gaussian fit method.");
   if (method === "nacl-truncated" && !(lowerLimit > 0)) throw new Error("The lower detection limit must be positive.");
   if (values.length < 2) throw new Error("At least two numeric visible values are required.");
   const recordedValues = method === "nacl-truncated" ? values.filter((value) => value >= lowerLimit) : values;
@@ -281,6 +341,7 @@ export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd,
   const population = robust ? recordedValues : included;
   const standardStats = meanAndSigma(population);
   const truncatedStats = method === "nacl-truncated" ? fitLowerTruncatedNormal(included, start) : null;
+  const mixture = mixtureCount ? fitGaussianMixture(population, mixtureCount, options.initialMeans || []) : null;
   const stats = robust ? { ...standardStats, ...fitHuberGaussian(population) } : truncatedStats
     ? { ...standardStats, mean: truncatedStats.mean, sigma: truncatedStats.sigma }
     : standardStats;
@@ -289,7 +350,7 @@ export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd,
   const bins = Array.from({ length: binCount }, (_, index) => {
     const lower = start + index * binWidth;
     const upper = Math.min(end, lower + binWidth);
-    return { lower, upper, center: (lower + upper) / 2, observed: 0, gaussian: 0 };
+    return { lower, upper, center: (lower + upper) / 2, observed: 0, gaussian: 0, components: [] };
   });
   for (const value of included) {
     const index = histogramBinIndex(value, start, binWidth, binCount);
@@ -307,6 +368,13 @@ export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd,
           start,
           end
         );
+      } else if (mixture) {
+        bin.components = mixture.components.map(component => {
+          const z = (bin.center - component.mean) / component.sigma;
+          return population.length * component.weight * (bin.upper - bin.lower) * Math.exp(-0.5 * z * z) /
+            (component.sigma * Math.sqrt(2 * Math.PI));
+        });
+        bin.gaussian = bin.components.reduce((sum, expected) => sum + expected, 0);
       } else {
         const z = (bin.center - stats.mean) / stats.sigma;
         bin.gaussian = population.length * (bin.upper - bin.lower) * Math.exp(-0.5 * z * z) /
@@ -336,7 +404,12 @@ export function gaussianFitWithOptions(values, userBinWidth, userStart, userEnd,
     high15: percentile(population, 0.85),
     method,
     lowerLimit,
-    correctionApplied: Boolean(truncatedStats?.correctionApplied)
+    correctionApplied: Boolean(truncatedStats?.correctionApplied),
+    components: mixture?.components || [],
+    mixtureIterations: mixture?.iterations || null,
+    logLikelihood: mixture?.logLikelihood ?? null,
+    aic: mixture?.aic ?? null,
+    bic: mixture?.bic ?? null
   };
 }
 
