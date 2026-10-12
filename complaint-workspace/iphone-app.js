@@ -24,10 +24,12 @@ import {
   isNumeric,
   meanAndSigma,
   number,
+  numericCutoffGroupIndex,
+  parseNumericCutoffs,
   recommendGaussianSettings,
   text,
   zoneColumns
-} from "./analysis.js?v=19";
+} from "./analysis.js?v=20";
 import {
   buildCleanDataFromAuswertung,
   buildFullSummary,
@@ -103,6 +105,7 @@ const state = {
   lastAssessment: null,
   assessmentBatchQuery: "",
   assessmentSecondaryBatchQuery: "",
+  summaryMeanCutoffs: [],
   equalReferenceLots: new Set(),
   lastRelease: null,
   lastZoneProfile: null,
@@ -426,6 +429,9 @@ function bindEvents() {
     byId(id).addEventListener("input", invalidateAssessment);
   });
   byId("summary-parameter").addEventListener("change", renderCurrentData);
+  byId("apply-summary-mean-groups").addEventListener("click",()=>runAction(applySummaryMeanGroups));
+  byId("clear-summary-mean-groups").addEventListener("click",clearSummaryMeanGroups);
+  byId("summary-mean-cutoffs").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();runAction(applySummaryMeanGroups);}});
   ["preview-lot", "preview-parameter"].forEach(id => byId(id).addEventListener("change", renderPreviewTable));
   byId("generated-summary-parameter").addEventListener("change", renderGeneratedSummaryTable);
   byId("gaussian-parameter").addEventListener("change", () => {
@@ -869,6 +875,8 @@ async function parseWorkbook(data, fileName) {
   state.equalReferenceLots.clear();
   state.assessmentBatchQuery = "";
   state.assessmentSecondaryBatchQuery = "";
+  state.summaryMeanCutoffs = [];
+  byId("summary-mean-cutoffs").value = "";
   state.lastBuild = null;
   state.gaussianSnapshots = [];
   state.gaussianExtremeExports = [];
@@ -1882,6 +1890,9 @@ function populateWorkbookControls() {
     "label-notes",
     "save-data-label",
     "summary-parameter",
+    "summary-mean-cutoffs",
+    "apply-summary-mean-groups",
+    "clear-summary-mean-groups",
     "gaussian-data-scope",
     "gaussian-lot",
     "gaussian-compare-lot",
@@ -2293,8 +2304,54 @@ function renderDataMetrics() {
 
 function renderSummaryTable() {
   const parameter = byId("summary-parameter").value || state.parameters[0];
-  const rows = buildSummaryRows(parameter);
-  byId("summary-table").innerHTML = renderTable(rows, { empty: "No summary rows." });
+  const cutoffs=state.summaryMeanCutoffs;
+  if(!cutoffs.length){
+    byId("summary-mean-group-overview").innerHTML="";
+    byId("summary-mean-group-status").textContent="No mean groups applied.";
+    byId("summary-table").innerHTML = renderTable(buildSummaryRows(parameter), { empty: "No summary rows." });
+    return;
+  }
+  const rows=buildParameterSummaryRows(state.headers,dataRows(),parameter);
+  const labels=meanGroupLabels(cutoffs),groups=new Map(labels.map(label=>[label,[]]));
+  const categorized=[...rows.slice(0,1).map(header=>[...header.slice(0,6),'Mean group',...header.slice(6)])];
+  rows.slice(1).forEach(row=>{
+    const mean=Number(row[5]),label=Number.isFinite(mean)?meanGroupLabel(mean,cutoffs):'No numeric mean';
+    if(!groups.has(label))groups.set(label,[]);groups.get(label).push(mean);
+    categorized.push([...row.slice(0,6),label,...row.slice(6)]);
+  });
+  const overview=[['Mean group','Lots','Average Lot mean','Minimum Lot mean','Maximum Lot mean'],...groups.entries().map(([label,means])=>{
+    const numeric=means.filter(Number.isFinite),stats=numeric.length?meanAndSigma(numeric):null;
+    return [label,numeric.length,stats?.mean ?? '',stats?.min ?? '',stats?.max ?? ''];
+  })];
+  byId("summary-mean-group-overview").innerHTML=`<div class="section-heading"><h3>Mean groups · ${escapeHtml(parameter)}</h3></div><div class="table-wrap mini-table summary-mean-group-table">${renderTable(overview)}</div>`;
+  byId("summary-mean-group-status").textContent=`${formatInteger(categorized.length-1)} Lots categorized from the entire loaded dataset.`;
+  byId("summary-table").innerHTML=renderTable(categorized,{empty:"No summary rows."});
+}
+
+function parseSummaryMeanCutoffs(value) {
+  try{return parseNumericCutoffs(value);}
+  catch(error){throw new Error((error?.message || String(error)).replace('cutoff','mean cutoff').replace('Cutoffs','Mean cutoffs'));}
+}
+
+function meanGroupLabels(cutoffs) {
+  const display=value=>formatNumber(value,4);
+  return [`< ${display(cutoffs[0])}`,...cutoffs.slice(0,-1).map((value,index)=>`${display(value)} – < ${display(cutoffs[index+1])}`),`≥ ${display(cutoffs.at(-1))}`];
+}
+
+function meanGroupLabel(value,cutoffs) {
+  return meanGroupLabels(cutoffs)[numericCutoffGroupIndex(value,cutoffs)];
+}
+
+function applySummaryMeanGroups() {
+  state.summaryMeanCutoffs=parseSummaryMeanCutoffs(byId('summary-mean-cutoffs').value);
+  byId('summary-mean-cutoffs').value=state.summaryMeanCutoffs.map(value=>inputNumber(value)).join(', ');
+  renderSummaryTable();
+  setStatus(`Applied ${state.summaryMeanCutoffs.length+1} mean groups to the entire dataset.`,false,true);
+}
+
+function clearSummaryMeanGroups() {
+  state.summaryMeanCutoffs=[];byId('summary-mean-cutoffs').value='';renderSummaryTable();
+  setStatus('Cleared Summary mean groups.',false,true);
 }
 
 function renderPreviewTable() {
@@ -6007,6 +6064,8 @@ function drawEmptyState() {
     metric("Parameters", "-")
   ].join("");
   byId("summary-table").innerHTML = `<p class="empty-state">No workbook loaded.</p>`;
+  byId("summary-mean-group-overview").innerHTML = "";
+  byId("summary-mean-group-status").textContent = "No mean groups applied.";
   byId("preview-table").innerHTML = `<p class="empty-state">No workbook loaded.</p>`;
   byId("build-result").innerHTML = `<p class="empty-state">No generated data.</p>`;
   byId("generated-summary-table").innerHTML = `<p class="empty-state">No generated summary.</p>`;

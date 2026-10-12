@@ -198,6 +198,22 @@ export function recommendGaussianSettings(values, options = {}) {
   return { n: recordedValues.length, q1, q3, iqr, binWidth, start, end };
 }
 
+export function parseNumericCutoffs(input) {
+  const tokens = text(input).split(/[,;\s]+/).filter(Boolean);
+  if (!tokens.length) throw new Error("Enter at least one numeric cutoff.");
+  const values = tokens.map(Number);
+  if (values.some(value => !Number.isFinite(value))) throw new Error("Cutoffs must contain only finite numbers separated by commas.");
+  return [...new Set(values)].sort((a, b) => a - b);
+}
+
+export function numericCutoffGroupIndex(value, cutoffs) {
+  if (!Number.isFinite(value) || !Array.isArray(cutoffs) || !cutoffs.length || cutoffs.some(cutoff => !Number.isFinite(cutoff))) {
+    throw new Error("A finite value and at least one finite cutoff are required.");
+  }
+  const index = cutoffs.findIndex(cutoff => value < cutoff);
+  return index < 0 ? cutoffs.length : index;
+}
+
 export function gaussianFit(values, userBinWidth, userStart, userEnd) {
   return gaussianFitWithOptions(values, userBinWidth, userStart, userEnd, {});
 }

@@ -233,10 +233,18 @@
 .gaussian-mixture-summary:empty { display:none; }
 .gaussian-mixture-summary h3,.gaussian-mixture-summary p { margin:0 0 6px; }
 .gaussian-mixture-summary table { width:100%; min-width:0; }
+.summary-mean-controls { display:grid; grid-template-columns:minmax(240px,2fr) auto auto minmax(220px,1fr); align-items:end; gap:8px; margin:8px 0 10px; padding:9px; border:1px solid var(--line); border-radius:7px; background:#f7fafb; }
+.summary-mean-controls label { margin:0; }
+.summary-mean-controls .command { width:auto; min-height:34px; margin:0; padding:5px 10px; }
+.summary-mean-controls output { align-self:center; color:var(--muted); font-size:12px; }
+.summary-mean-group-table { margin-bottom:10px; }
+.summary-mean-group-table table { width:100%; min-width:0; }
 .assessment-side-options { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
 .assessment-side-options label { min-width:190px; }
 @media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.gaussian-mixture-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:900px) { .gaussian-settings-row { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:900px) { .summary-mean-controls { grid-template-columns:minmax(0,1fr) auto auto; } .summary-mean-controls output { grid-column:1/-1; } }
 @media (max-width:900px) { .gaussian-zone-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:520px) { .gaussian-settings-row { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:520px) { .summary-mean-controls { grid-template-columns:minmax(0,1fr); } .summary-mean-controls output { grid-column:auto; } }
 @media (max-width:520px) { .gaussian-zone-grid { grid-template-columns:minmax(0,1fr); } }
