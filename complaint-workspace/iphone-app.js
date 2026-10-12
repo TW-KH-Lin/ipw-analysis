@@ -2724,13 +2724,13 @@ function renderGaussianResult() {
         ${result.comparison?renderGaussianSigmaCounts(result.comparison,`${result.comparison.parameter} · ${result.comparison.sourceLabel}${result.comparison.selectedLot?` · Lot ${result.comparison.selectedLot}`:''}`):''}
       </div>
     </details>
-    <div class="table-wrap mini-table compact-table cutoff-table">${renderTable([
+    ${fit.components?.length?'':`<div class="table-wrap mini-table compact-table cutoff-table">${renderTable([
       ["Percentile cutoff", "Value"],
       ["2.5%", fit.low25],
       ["15%", fit.low15],
       ["85%", fit.high15],
       ["97.5%", fit.high25]
-    ])}</div>
+    ])}</div>`}
     <div class="table-wrap mini-table">${renderTable([
       ["Bin", "Observed", "Gaussian total",...fit.components.map((_,index)=>`Component ${index+1}`)],
       ...fit.bins.slice(0, 40).map((bin) => [bin.center, bin.observed, bin.gaussian,...(bin.components || [])])
@@ -5626,7 +5626,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
     ctx.stroke();
   }
   ctx.restore();
-  const cutoffs = [
+  const cutoffs = fit.components?.length ? [] : [
     { label: "2.5%", value: fit.low25, color: "#9f1239" },
     { label: "15%", value: fit.low15, color: "#92400e" },
     { label: "85%", value: fit.high15, color: "#0f766e" },
@@ -5641,9 +5641,10 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions) {
     const colors=['#195d8d','#c55418','#7c3aed'];
     fit.components.forEach((component,index)=>{
       const label=`C${index+1}: ${formatNumber(component.weight*100,1)}% · μ ${formatNumber(component.mean,3)} · σ ${formatNumber(component.sigma,3)}`;
-      const columnWidth=width/fit.components.length,x=8+index*columnWidth;
-      ctx.fillStyle=colors[index];ctx.fillText(label,x,fontSize*2+8,columnWidth-16);
+      ctx.fillStyle=colors[index];ctx.font=`bold ${fontSize+2}px sans-serif`;
+      ctx.fillText(label,8,(index+2)*(fontSize+6),width-16);
     });
+    ctx.font=`${fontSize}px sans-serif`;
   }
   const labelLanes = [[], [], [], []];
   const cutoffLabels = [];
