@@ -253,6 +253,8 @@
 .summary-mean-group-table { margin-bottom:10px; }
 .summary-mean-group-table table { width:100%; min-width:0; }
 .summary-mean-group-table .summary-use-mean-group { width:auto; min-height:28px; margin:0; padding:3px 8px; white-space:nowrap; font-size:11px; }
+.summary-mean-group-table tr.is-selected td { background:#edf7f1; }
+.summary-mean-group-table .summary-use-mean-group.is-selected { border-color:#2e7d4f; background:#2e7d4f; color:#fff; }
 .assessment-side-options { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
 .assessment-side-options label { min-width:190px; }
 @media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.gaussian-mixture-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }

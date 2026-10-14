@@ -107,6 +107,7 @@ const state = {
   assessmentBatchQuery: "",
   assessmentSecondaryBatchQuery: "",
   summaryMeanCutoffs: [],
+  summaryMeanSelectedGroups: new Set(),
   equalReferenceLots: new Set(),
   lastRelease: null,
   lastZoneProfile: null,
@@ -429,7 +430,7 @@ function bindEvents() {
   ["assessment-monitor", "assessment-outlier", "assessment-mu", "assessment-sigma"].forEach((id) => {
     byId(id).addEventListener("input", invalidateAssessment);
   });
-  byId("summary-parameter").addEventListener("change", renderCurrentData);
+  byId("summary-parameter").addEventListener("change",()=>{state.summaryMeanSelectedGroups.clear();renderCurrentData();});
   byId("apply-summary-mean-groups").addEventListener("click",()=>runAction(applySummaryMeanGroups));
   byId("clear-summary-mean-groups").addEventListener("click",clearSummaryMeanGroups);
   byId("summary-mean-cutoffs").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();runAction(applySummaryMeanGroups);}});
@@ -877,6 +878,7 @@ async function parseWorkbook(data, fileName) {
   state.assessmentBatchQuery = "";
   state.assessmentSecondaryBatchQuery = "";
   state.summaryMeanCutoffs = [];
+  state.summaryMeanSelectedGroups.clear();
   byId("summary-mean-cutoffs").value = "";
   state.lastBuild = null;
   state.gaussianSnapshots = [];
@@ -2324,17 +2326,24 @@ function renderSummaryTable() {
     const numeric=items.map(item=>item.mean).filter(Number.isFinite),stats=numeric.length?meanAndSigma(numeric):null;
     return {label,index,lots:items.map(item=>text(item.lot)).filter(Boolean),stats};
   });
-  byId("summary-mean-group-overview").innerHTML=`<div class="section-heading"><h3>Mean groups · ${escapeHtml(parameter)}</h3></div><div class="table-wrap mini-table summary-mean-group-table"><table><thead><tr><th>Mean group</th><th>Lots</th><th>Average Lot mean</th><th>Minimum Lot mean</th><th>Maximum Lot mean</th><th>Use for analysis</th></tr></thead><tbody>${overviewRows.map(item=>`<tr><td>${escapeHtml(item.label)}</td><td>${formatInteger(item.lots.length)}</td><td>${item.stats?formatNumber(item.stats.mean,4):''}</td><td>${item.stats?formatNumber(item.stats.min,4):''}</td><td>${item.stats?formatNumber(item.stats.max,4):''}</td><td><button type="button" class="command summary-use-mean-group" data-mean-group-index="${item.index}" ${item.lots.length?'':'disabled'}>Select these Lots</button></td></tr>`).join('')}</tbody></table></div>`;
+  for(const index of [...state.summaryMeanSelectedGroups])if(!overviewRows[index]?.lots.length)state.summaryMeanSelectedGroups.delete(index);
+  const selectedItems=overviewRows.filter(item=>state.summaryMeanSelectedGroups.has(item.index));
+  const combinedLots=[...new Set(selectedItems.flatMap(item=>item.lots))];
+  byId("summary-mean-group-overview").innerHTML=`<div class="section-heading"><h3>Mean groups · ${escapeHtml(parameter)}</h3></div><div class="table-wrap mini-table summary-mean-group-table"><table><thead><tr><th>Mean group</th><th>Lots</th><th>Average Lot mean</th><th>Minimum Lot mean</th><th>Maximum Lot mean</th><th>Use for analysis</th></tr></thead><tbody>${overviewRows.map(item=>{const active=state.summaryMeanSelectedGroups.has(item.index);return `<tr class="${active?'is-selected':''}"><td>${escapeHtml(item.label)}</td><td>${formatInteger(item.lots.length)}</td><td>${item.stats?formatNumber(item.stats.mean,4):''}</td><td>${item.stats?formatNumber(item.stats.min,4):''}</td><td>${item.stats?formatNumber(item.stats.max,4):''}</td><td><button type="button" class="command summary-use-mean-group ${active?'is-selected':''}" data-mean-group-index="${item.index}" aria-pressed="${active}" ${item.lots.length?'':'disabled'}>${active?'Remove these Lots':'Add these Lots'}</button></td></tr>`;}).join('')}</tbody></table></div>`;
   byId("summary-mean-group-overview").querySelectorAll('.summary-use-mean-group').forEach(button=>button.addEventListener('click',()=>{
     const selected=overviewRows[Number(button.dataset.meanGroupIndex)];
     if(!selected?.lots.length)return;
-    byId('filter-mode').value='lots';
-    state.filterSelections.lots=new Set(selected.lots);
-    state.filterInitialized.lots=true;
+    if(state.summaryMeanSelectedGroups.has(selected.index))state.summaryMeanSelectedGroups.delete(selected.index);
+    else state.summaryMeanSelectedGroups.add(selected.index);
+    const activeGroups=overviewRows.filter(item=>state.summaryMeanSelectedGroups.has(item.index));
+    const lots=[...new Set(activeGroups.flatMap(item=>item.lots))];
+    byId('filter-mode').value=lots.length?'lots':'all';
+    state.filterSelections.lots=new Set(lots);
+    state.filterInitialized.lots=Boolean(lots.length);
     renderFilterOptions();invalidateAnalyses();renderCurrentData();
-    setStatus(`Selected ${selected.lots.length} Lots from mean group ${selected.label}. Use Filtered lots in analysis Data scope.`,false,true);
+    setStatus(lots.length?`Combined ${activeGroups.length} mean group(s): ${lots.length} Lots selected. Use Filtered lots in analysis Data scope.`:'Mean-group Lot selection cleared.',false,true);
   }));
-  byId("summary-mean-group-status").textContent=`${formatInteger(categorized.length-1)} Lots categorized from the entire loaded dataset.`;
+  byId("summary-mean-group-status").textContent=`${formatInteger(categorized.length-1)} Lots categorized from the entire loaded dataset.${selectedItems.length?` ${selectedItems.length} groups selected · ${formatInteger(combinedLots.length)} combined Lots.`:''}`;
   byId("summary-table").innerHTML=renderTable(categorized,{empty:"No summary rows."});
 }
 
@@ -2354,13 +2363,14 @@ function meanGroupLabel(value,cutoffs) {
 
 function applySummaryMeanGroups() {
   state.summaryMeanCutoffs=parseSummaryMeanCutoffs(byId('summary-mean-cutoffs').value);
+  state.summaryMeanSelectedGroups.clear();
   byId('summary-mean-cutoffs').value=state.summaryMeanCutoffs.map(value=>inputNumber(value)).join(', ');
   renderSummaryTable();
   setStatus(`Applied ${state.summaryMeanCutoffs.length+1} mean groups to the entire dataset.`,false,true);
 }
 
 function clearSummaryMeanGroups() {
-  state.summaryMeanCutoffs=[];byId('summary-mean-cutoffs').value='';renderSummaryTable();
+  state.summaryMeanCutoffs=[];state.summaryMeanSelectedGroups.clear();byId('summary-mean-cutoffs').value='';renderSummaryTable();
   setStatus('Cleared Summary mean groups.',false,true);
 }
 
