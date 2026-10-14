@@ -2701,19 +2701,21 @@ function gaussianMixtureBatchRows(current) {
     const scores=fit.components.map(component=>density(record.value,component)),total=scores.reduce((sum,value)=>sum+value,0);
     if(!(total>0))return;
     const key=record.lot || '';
-    if(!groups.has(key))groups.set(key,{lot:key,n:0,shares:fit.components.map(()=>0)});
-    const group=groups.get(key);group.n+=1;scores.forEach((score,index)=>group.shares[index]+=score/total);
+    if(!groups.has(key))groups.set(key,{lot:key,n:0,batches:new Set(),shares:fit.components.map(()=>0)});
+    const group=groups.get(key);group.n+=1;
+    if(record.batch)group.batches.add(`${record.source || ''}\u0000${record.batch}`);
+    scores.forEach((score,index)=>group.shares[index]+=score/total);
   });
   return [...groups.values()].map(group=>{
     const shares=group.shares.map(value=>value/group.n*100),dominant=shares.indexOf(Math.max(...shares));
-    return {...group,shares,dominant};
+    return {...group,mrCount:group.batches.size,shares,dominant};
   }).sort((a,b)=>a.lot.localeCompare(b.lot,undefined,{numeric:true}));
 }
 
 function renderGaussianMixtureBatchContent(current) {
   const rows=gaussianMixtureBatchRows(current),components=current?.fit?.components || [];
   return `<p>${formatInteger(rows.length)} Lots. Each row combines all MR and Zone measurements in that Lot. Component means: ${components.map((component,index)=>`C${index+1} μ ${formatNumber(component.mean,3)}`).join(' · ')}.</p>
-    <div class="table-wrap mini-table"><table><thead><tr><th>Lot</th><th>Values</th>${components.map((_,index)=>`<th>C${index+1}</th>`).join('')}<th>Primary component</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${escapeHtml(row.lot)}</td><td>${formatInteger(row.n)}</td>${row.shares.map(value=>`<td>${formatNumber(value,1)}%</td>`).join('')}<td>C${row.dominant+1}</td></tr>`).join('')}</tbody></table></div>
+    <div class="table-wrap mini-table"><table><thead><tr><th>Lot</th><th>MRs</th><th>Values</th>${components.map((_,index)=>`<th>C${index+1}</th>`).join('')}<th>Primary component</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${escapeHtml(row.lot)}</td><td>${formatInteger(row.mrCount)}</td><td>${formatInteger(row.n)}</td>${row.shares.map(value=>`<td>${formatNumber(value,1)}%</td>`).join('')}<td>C${row.dominant+1}</td></tr>`).join('')}</tbody></table></div>
   `;
 }
 
