@@ -2700,25 +2700,25 @@ function gaussianMixtureBatchRows(current) {
     if(!Number.isFinite(record.value)||record.value<fit.start||record.value>fit.end)return;
     const scores=fit.components.map(component=>density(record.value,component)),total=scores.reduce((sum,value)=>sum+value,0);
     if(!(total>0))return;
-    const key=`${record.source || ''}\u0000${record.lot || ''}\u0000${record.batch || ''}`;
-    if(!groups.has(key))groups.set(key,{source:record.source || '',lot:record.lot || '',batch:record.batch || '',n:0,shares:fit.components.map(()=>0)});
+    const key=record.lot || '';
+    if(!groups.has(key))groups.set(key,{lot:key,n:0,shares:fit.components.map(()=>0)});
     const group=groups.get(key);group.n+=1;scores.forEach((score,index)=>group.shares[index]+=score/total);
   });
   return [...groups.values()].map(group=>{
     const shares=group.shares.map(value=>value/group.n*100),dominant=shares.indexOf(Math.max(...shares));
     return {...group,shares,dominant};
-  }).sort((a,b)=>a.source.localeCompare(b.source,undefined,{numeric:true})||a.lot.localeCompare(b.lot,undefined,{numeric:true})||a.batch.localeCompare(b.batch,undefined,{numeric:true}));
+  }).sort((a,b)=>a.lot.localeCompare(b.lot,undefined,{numeric:true}));
 }
 
 function renderGaussianMixtureBatchContent(current) {
   const rows=gaussianMixtureBatchRows(current),components=current?.fit?.components || [];
-  return `<p>${formatInteger(rows.length)} batches. Estimated from each measurement's Gaussian-mixture probability. Component means: ${components.map((component,index)=>`C${index+1} μ ${formatNumber(component.mean,3)}`).join(' · ')}.</p>
-    <div class="table-wrap mini-table"><table><thead><tr><th>Source</th><th>Lot</th><th>MR N</th><th>Values</th>${components.map((_,index)=>`<th>C${index+1}</th>`).join('')}<th>Primary component</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${escapeHtml(row.source)}</td><td>${escapeHtml(row.lot)}</td><td>${escapeHtml(row.batch)}</td><td>${formatInteger(row.n)}</td>${row.shares.map(value=>`<td>${formatNumber(value,1)}%</td>`).join('')}<td>C${row.dominant+1}</td></tr>`).join('')}</tbody></table></div>
+  return `<p>${formatInteger(rows.length)} Lots. Each row combines all MR and Zone measurements in that Lot. Component means: ${components.map((component,index)=>`C${index+1} μ ${formatNumber(component.mean,3)}`).join(' · ')}.</p>
+    <div class="table-wrap mini-table"><table><thead><tr><th>Lot</th><th>Values</th>${components.map((_,index)=>`<th>C${index+1}</th>`).join('')}<th>Primary component</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${escapeHtml(row.lot)}</td><td>${formatInteger(row.n)}</td>${row.shares.map(value=>`<td>${formatNumber(value,1)}%</td>`).join('')}<td>C${row.dominant+1}</td></tr>`).join('')}</tbody></table></div>
   `;
 }
 
 function renderGaussianMixtureBatchTable(label,side) {
-  return `<details class="gaussian-mixture-batch" data-mixture-side="${side}"><summary>${escapeHtml(label)} · Lot / MR component proportions</summary><div class="gaussian-mixture-batch-content"><p>Open this tab to calculate the batch table.</p></div></details>`;
+  return `<details class="gaussian-mixture-batch" data-mixture-side="${side}"><summary>${escapeHtml(label)} · Lot component proportions</summary><div class="gaussian-mixture-batch-content"><p>Open this tab to calculate the Lot table.</p></div></details>`;
 }
 
 function gaussianMethodLabel(method) {
