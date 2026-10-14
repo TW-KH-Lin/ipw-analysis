@@ -2594,10 +2594,11 @@ async function createGaussian() {
   const zoneDistributions=byId('gaussian-zone-distributions').checked
     ? buildGaussianZoneDistributionsFromRecords(records,method)
     : [];
+  const zoneViewRange=gaussianZoneFullRange(zoneDistributions);
   const sourceLabel=combinedContext.active?(byId('gaussian-source')?.selectedOptions[0]?.textContent || state.source):state.source;
   const comparisonLabel=comparisonId?(byId('gaussian-compare-source')?.selectedOptions[0]?.textContent || sourceLabel):sourceLabel;
   const dateFilter=gaussianDateFilter([...records,...comparisonRecords]);
-  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,activeRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:!sameParameter,zoneDistributions,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
+  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,activeRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:!sameParameter,zoneDistributions,zoneViewRange,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
     comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,activeRecords:comparisonRecords,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
   if(comparison&&sameParameter)state.lastGaussian.viewRange={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};
   else {state.lastGaussian.viewRange={start:primary.fit.start,end:primary.fit.end};if(comparison)state.lastGaussian.comparison.viewRange={start:comparison.fit.start,end:comparison.fit.end};}
@@ -2764,6 +2765,7 @@ function refitGaussianDateRange(active) {
   current.activeRecords=primaryRecords;
   if(comparison){Object.assign(current.comparison,comparison);current.comparison.activeRecords=comparisonRecords;}
   current.zoneDistributions=current.zoneDistributions?.length?buildGaussianZoneDistributionsFromRecords(primaryRecords,current.method):[];
+  current.zoneViewRange=gaussianZoneFullRange(current.zoneDistributions);
   current.dateFilter={...range,active,start,end};
   if(comparison&&current.sameParameter)current.viewRange={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};
   else {current.viewRange={start:primary.fit.start,end:primary.fit.end};if(comparison)current.comparison.viewRange={start:comparison.fit.start,end:comparison.fit.end};}
@@ -2774,12 +2776,23 @@ function refitGaussianDateRange(active) {
 function renderGaussianZoneDistributions(result) {
   if(!result.zoneDistributions?.length)return '';
   const available=result.zoneDistributions.some(item=>item.fit);
+  const fullRange=gaussianZoneFullRange(result.zoneDistributions),viewRange=result.zoneViewRange || fullRange;
+  const step=gaussianZoneAxisStep(fullRange);
   return `<details class="gaussian-zone-section" open><summary>Individual Zone distributions (3 × 2)</summary>
     <div class="assessment-plot-toolbar"><h3>${escapeHtml(result.parameter)} · Zones 1–6</h3><button id="export-gaussian-zones-png" class="command" type="button" ${available?'':'disabled'}>Export 3 × 2 PNG</button></div>
     <div class="gaussian-zone-scale-controls">
       <label class="choice-row"><input id="gaussian-zone-shared-y" type="checkbox" ${result.zoneSharedY?'checked':''}>Same Y-axis range</label>
       <label class="choice-row"><input id="gaussian-zone-normalized" type="checkbox" ${result.zoneNormalized?'checked':''}>Normalize each Zone (%)</label>
       <span>${result.zoneNormalized?'Y-axis shows percent of each Zone sample.':'Y-axis shows observation counts.'}</span>
+    </div>
+    <div class="gaussian-zone-x-controls">
+      <strong>Shared X-axis range</strong>
+      <label>Start<input id="gaussian-zone-x-start" type="number" step="${step}" min="${fullRange.start}" max="${fullRange.end}" value="${viewRange.start}"></label>
+      <label>End<input id="gaussian-zone-x-end" type="number" step="${step}" min="${fullRange.start}" max="${fullRange.end}" value="${viewRange.end}"></label>
+      <input id="gaussian-zone-x-start-slider" type="range" aria-label="Zone plots X-axis start" min="${fullRange.start}" max="${fullRange.end}" step="${step}" value="${viewRange.start}">
+      <input id="gaussian-zone-x-end-slider" type="range" aria-label="Zone plots X-axis end" min="${fullRange.start}" max="${fullRange.end}" step="${step}" value="${viewRange.end}">
+      <button id="gaussian-zone-x-reset" class="command" type="button">Reset X-axis</button>
+      <span id="gaussian-zone-x-error" role="alert"></span>
     </div>
     <div class="gaussian-zone-grid">${result.zoneDistributions.map(item=>`<article class="chart-card gaussian-zone-card">
       <h3>Zone ${item.zone}</h3>
@@ -2868,6 +2881,15 @@ function renderGaussianResult() {
   byId('gaussian-zone-shared-y')?.addEventListener('change',event=>{result.zoneSharedY=event.target.checked;requestAnimationFrame(drawGaussianCharts);});
   byId('gaussian-zone-normalized')?.addEventListener('change',event=>{result.zoneNormalized=event.target.checked;renderGaussianResult();});
   ['start','end'].forEach(side=>{
+    byId(`gaussian-zone-x-${side}`)?.addEventListener('input',()=>updateGaussianZoneView());
+    byId(`gaussian-zone-x-${side}-slider`)?.addEventListener('input',event=>{
+      byId(`gaussian-zone-x-${side}`).value=event.target.value;updateGaussianZoneView();
+    });
+  });
+  byId('gaussian-zone-x-reset')?.addEventListener('click',()=>{
+    result.zoneViewRange=gaussianZoneFullRange(result.zoneDistributions);renderGaussianResult();
+  });
+  ['start','end'].forEach(side=>{
     byId(`gaussian-time-${side}`)?.addEventListener('change',event=>{
       const value=Date.parse(`${event.target.value}T00:00:00Z`),slider=byId(`gaussian-time-${side}-slider`);
       if(Number.isFinite(value)&&slider)slider.value=String(value);
@@ -2911,8 +2933,29 @@ function drawGaussianCharts() {
   }
   const zoneDisplay=gaussianZoneDisplayOptions(state.lastGaussian);
   state.lastGaussian.zoneDistributions?.forEach(item=>{
-    if(item.fit)drawGaussian(byId(`gaussian-zone-chart-${item.zone}`),item.fit,'combined',undefined,zoneDisplay);
+    if(item.fit)drawGaussian(byId(`gaussian-zone-chart-${item.zone}`),{...item.fit,...state.lastGaussian.zoneViewRange},'combined',undefined,zoneDisplay);
   });
+}
+
+function gaussianZoneFullRange(distributions=[]) {
+  const fits=distributions.map(item=>item.fit).filter(Boolean);
+  return fits.length?{start:Math.min(...fits.map(fit=>fit.start)),end:Math.max(...fits.map(fit=>fit.end))}:{start:0,end:1};
+}
+
+function gaussianZoneAxisStep(range) {
+  const span=Math.max(0.001,range.end-range.start);
+  const raw=span/200,magnitude=10**Math.floor(Math.log10(raw));
+  return Number((Math.ceil(raw/magnitude)*magnitude).toPrecision(8));
+}
+
+function updateGaussianZoneView() {
+  const current=state.lastGaussian;if(!current)return;
+  const start=Number(byId('gaussian-zone-x-start')?.value),end=Number(byId('gaussian-zone-x-end')?.value),error=byId('gaussian-zone-x-error');
+  if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start){if(error)error.textContent='End must be greater than Start.';return;}
+  current.zoneViewRange={start,end};if(error)error.textContent='';
+  const startSlider=byId('gaussian-zone-x-start-slider'),endSlider=byId('gaussian-zone-x-end-slider');
+  if(startSlider)startSlider.value=String(start);if(endSlider)endSlider.value=String(end);
+  requestAnimationFrame(drawGaussianCharts);
 }
 
 function gaussianFitPeak(fit,normalized=false) {
@@ -3090,7 +3133,7 @@ function saveGaussianZoneSnapshot() {
   ctx.fillStyle='#172231';ctx.font='bold 24px sans-serif';
   ctx.fillText(`Individual Zone distributions · ${current.parameter}`,margin,32,canvas.width-margin*2);
   ctx.fillStyle='#526579';ctx.font='16px sans-serif';
-  ctx.fillText(`${current.sourceLabel || current.source}${current.selectedLot?` · Lot ${current.selectedLot}`:''} · ${current.scope} · ${current.fit.method} · ${current.zoneNormalized?'Normalized %':'Counts'}${current.zoneSharedY?' · Shared Y-axis':''}`,margin,60,canvas.width-margin*2);
+  ctx.fillText(`${current.sourceLabel || current.source}${current.selectedLot?` · Lot ${current.selectedLot}`:''} · ${current.scope} · ${current.fit.method} · X ${formatNumber(current.zoneViewRange.start,2)} to ${formatNumber(current.zoneViewRange.end,2)} · ${current.zoneNormalized?'Normalized %':'Counts'}${current.zoneSharedY?' · Shared Y-axis':''}`,margin,60,canvas.width-margin*2);
   const zoneDisplay=gaussianZoneDisplayOptions(current);
   current.zoneDistributions.forEach((item,index)=>{
     const column=index%columns,row=Math.floor(index/columns),x=margin+column*(cardWidth+gap),y=headerHeight+row*(cardHeight+gap);
@@ -3100,7 +3143,7 @@ function saveGaussianZoneSnapshot() {
     ctx.fillStyle='#526579';ctx.font='14px sans-serif';
     ctx.fillText(`N ${formatInteger(item.fit.n)} · Mu ${formatNumber(item.fit.mean,3)} · Sigma ${formatNumber(item.fit.sigma,3)} · Bin ${formatNumber(item.fit.binWidth,3)} · Range ${formatNumber(item.fit.start,2)} to ${formatNumber(item.fit.end,2)}`,x+12,y+48,cardWidth-24);
     const chart=document.createElement('canvas');
-    drawGaussian(chart,item.fit,'combined',{width:cardWidth-20,height:cardHeight-66},zoneDisplay);
+    drawGaussian(chart,{...item.fit,...current.zoneViewRange},'combined',{width:cardWidth-20,height:cardHeight-66},zoneDisplay);
     ctx.drawImage(chart,x+10,y+58,cardWidth-20,cardHeight-66);
   });
   const fileName=`${baseFileName()}_${safeFilePart(current.parameter)}_Gaussian_Zones_3x2_${fileDateStamp(new Date())}.png`;
