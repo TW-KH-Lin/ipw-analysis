@@ -260,6 +260,9 @@
 .gaussian-mixture-batch-content > p { margin:7px 0; color:var(--muted); font-size:11px; }
 .gaussian-mixture-batch table { width:100%; min-width:max-content; }
 .gaussian-mixture-batch th,.gaussian-mixture-batch td { padding:4px 7px; font-size:11px; white-space:nowrap; }
+.gaussian-mixture-batch tbody tr:nth-child(odd) td { background:#f7f9fa; }
+.gaussian-mixture-batch tbody tr:nth-child(even) td { background:#eaf1f5; }
+.gaussian-mixture-batch tbody tr:hover td { background:#dcebf2; }
 .summary-mean-controls { display:grid; grid-template-columns:minmax(240px,2fr) auto auto minmax(220px,1fr); align-items:end; gap:8px; margin:8px 0 10px; padding:9px; border:1px solid var(--line); border-radius:7px; background:#f7fafb; }
 .summary-mean-controls label { margin:0; }
 .summary-mean-controls .command { width:auto; min-height:34px; margin:0; padding:5px 10px; }

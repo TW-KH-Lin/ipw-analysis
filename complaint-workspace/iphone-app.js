@@ -388,6 +388,10 @@ function bindEvents() {
       renderAssessmentBatchTables();
       return;
     }
+    if(event.target.id==='assessment-zone-display'){
+      state.lastAssessment.zoneDisplayMode=event.target.value==='paired'?'paired':'individual';
+      state.lastAssessment.sharedHighlightOnly=false;renderAssessmentBatchTables();return;
+    }
     if (event.target.id === "assessment-secondary-parameter") {updateSecondaryAssessment(event.target.value);return;}
     if (event.target.id === 'assessment-secondary-lot') updateSecondaryLotAssessment(event.target.value);
   });
@@ -2702,21 +2706,26 @@ function gaussianMixtureBatchRows(current) {
     const scores=fit.components.map(component=>density(record.value,component)),total=scores.reduce((sum,value)=>sum+value,0);
     if(!(total>0))return;
     const key=record.lot || '';
-    if(!groups.has(key))groups.set(key,{lot:key,n:0,batches:new Set(),shares:fit.components.map(()=>0)});
+    if(!groups.has(key))groups.set(key,{lot:key,n:0,batches:new Set(),dateMin:null,dateMax:null,shares:fit.components.map(()=>0)});
     const group=groups.get(key);group.n+=1;
     if(record.batch)group.batches.add(`${record.source || ''}\u0000${record.batch}`);
+    if(Number.isFinite(record.date)){
+      group.dateMin=group.dateMin===null?record.date:Math.min(group.dateMin,record.date);
+      group.dateMax=group.dateMax===null?record.date:Math.max(group.dateMax,record.date);
+    }
     scores.forEach((score,index)=>group.shares[index]+=score/total);
   });
   return [...groups.values()].map(group=>{
     const shares=group.shares.map(value=>value/group.n*100),dominant=shares.indexOf(Math.max(...shares));
-    return {...group,mrCount:group.batches.size,shares,dominant};
+    const productionDate=group.dateMin===null?'':group.dateMin===group.dateMax?formatTrendDate(group.dateMin):`${formatTrendDate(group.dateMin)} – ${formatTrendDate(group.dateMax)}`;
+    return {...group,mrCount:group.batches.size,productionDate,shares,dominant};
   }).sort((a,b)=>a.lot.localeCompare(b.lot,undefined,{numeric:true}));
 }
 
 function renderGaussianMixtureBatchContent(current) {
   const rows=gaussianMixtureBatchRows(current),components=current?.fit?.components || [];
   return `<p>${formatInteger(rows.length)} Lots. Each row combines all MR and Zone measurements in that Lot. Component means: ${components.map((component,index)=>`C${index+1} μ ${formatNumber(component.mean,3)}`).join(' · ')}.</p>
-    <div class="table-wrap mini-table"><table><thead><tr><th>Lot</th><th>MRs</th><th>Values</th>${components.map((_,index)=>`<th>C${index+1}</th>`).join('')}<th>Primary component</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${escapeHtml(row.lot)}</td><td>${formatInteger(row.mrCount)}</td><td>${formatInteger(row.n)}</td>${row.shares.map(value=>`<td>${formatNumber(value,1)}%</td>`).join('')}<td>C${row.dominant+1}</td></tr>`).join('')}</tbody></table></div>
+    <div class="table-wrap mini-table"><table><thead><tr><th>Lot</th><th>MRs</th><th>Values</th>${components.map((_,index)=>`<th>C${index+1}</th>`).join('')}<th>Primary component</th><th>Production date</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${escapeHtml(row.lot)}</td><td>${formatInteger(row.mrCount)}</td><td>${formatInteger(row.n)}</td>${row.shares.map(value=>`<td>${formatNumber(value,1)}%</td>`).join('')}<td>C${row.dominant+1}</td><td>${escapeHtml(row.productionDate)}</td></tr>`).join('')}</tbody></table></div>
   `;
 }
 
@@ -4195,6 +4204,7 @@ function createAssessment() {
     secondaryAssessment: null,
     secondaryError: "",
     secondaryManual: { mu: "", sigma: "" },
+    zoneDisplayMode: "individual",
     sharedHighlightOnly: false,
     highlightRanges: { primary: { min: "", max: "" }, secondary: { min: "", max: "" } }
   };
@@ -4339,7 +4349,7 @@ function renderAssessmentResult() {
       <p class="result-note">Reference lots: ${assessment.referenceLots.map(escapeHtml).join(", ")}</p>` : ""}
     <div class="section-heading"><h2>Whole-lot Parameter Summary</h2></div>
     <div class="table-wrap compact-table">${renderV90AssessmentSummary(assessment.summaries)}</div>
-    <div class="section-heading"><h2>MR x Parameter x Zone</h2><div class="assessment-side-options">${result.secondaryParameters.length ? `<label>Second parameter (optional)<select id="assessment-secondary-parameter"><option value="">One parameter</option>${result.secondaryParameters.map((item) => `<option value="${escapeHtml(item)}" ${item === result.secondaryParameter ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>` : ""}<label>Compare another Lot (same parameter)<select id="assessment-secondary-lot"><option value="">One Lot</option>${result.comparisonLots.map(item=>`<option value="${escapeHtml(item)}" ${sameDataValue(item,result.secondaryLot)?'selected':''}>${escapeHtml(item)}</option>`).join('')}</select></label></div></div>
+    <div class="section-heading"><h2>MR x Parameter x Zone</h2><div class="assessment-side-options"><label>Zone display<select id="assessment-zone-display"><option value="individual" ${result.zoneDisplayMode==='individual'?'selected':''}>Individual Zones 1–6</option><option value="paired" ${result.zoneDisplayMode==='paired'?'selected':''}>Paired averages: 1–2, 3–4, 5–6</option></select></label>${result.secondaryParameters.length ? `<label>Second parameter (optional)<select id="assessment-secondary-parameter"><option value="">One parameter</option>${result.secondaryParameters.map((item) => `<option value="${escapeHtml(item)}" ${item === result.secondaryParameter ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>` : ""}<label>Compare another Lot (same parameter)<select id="assessment-secondary-lot"><option value="">One Lot</option>${result.comparisonLots.map(item=>`<option value="${escapeHtml(item)}" ${sameDataValue(item,result.secondaryLot)?'selected':''}>${escapeHtml(item)}</option>`).join('')}</select></label></div></div>
     <p class="result-note">Higher-than-Mu values shade toward red; lower-than-Mu values shade toward green.</p>
     <p class="result-note">Each plot has its own MR filter. Shared highlighting uses only MRs visible in both plots.</p>
     <div class="assessment-shared-control"><label><input id="assessment-shared-highlight" type="checkbox" ${result.sharedHighlightOnly ? "checked" : ""} ${result.secondaryAssessment ? "" : "disabled"} aria-describedby="assessment-shared-status">Highlight only matching MR × Zone cells in both parameter ranges</label><span id="assessment-shared-status" role="status"></span></div>
@@ -4394,7 +4404,7 @@ async function exportAssessmentPng(secondary = false) {
   const scale=Math.min(2,Math.sqrt(24000000/(width*height)));
   canvas.width=Math.ceil(width*scale);canvas.height=Math.ceil(height*scale);
   const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
-  ctx.fillStyle='#172231';ctx.font='bold 17px sans-serif';ctx.fillText('MR × Parameter × Zone',16,26);
+  ctx.fillStyle='#172231';ctx.font='bold 17px sans-serif';ctx.fillText(current.zoneDisplayMode==='paired'?'MR × Paired Zone averages':'MR × Parameter × Zone',16,26);
   ctx.font='13px sans-serif';
   ctx.fillText(`Lot: ${lot} | Parameter: ${parameter} | Source: ${state.source}`,16,48,width-32);
   ctx.fillText(`Reference: ${current.mode} | Matching: ${current.granularity} | ${byId(statusId).textContent}`,16,68,width-32);
@@ -4416,8 +4426,8 @@ async function exportAssessmentPng(secondary = false) {
   });});
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
   if(!blob)throw new Error('The browser could not create the PNG. Select fewer MRs and try again.');
-  downloadBlob(`${baseFileName()}_MR_Parameter_Zone_${safeFilePart(lot)}_${safeFilePart(parameter)}.png`,blob);
-  setStatus('MR × Parameter × Zone PNG downloaded.',false,true);
+  downloadBlob(`${baseFileName()}_${current.zoneDisplayMode==='paired'?'MR_Paired_Zone_Averages':'MR_Parameter_Zone'}_${safeFilePart(lot)}_${safeFilePart(parameter)}.png`,blob);
+  setStatus(`${current.zoneDisplayMode==='paired'?'MR × Paired Zone averages':'MR × Parameter × Zone'} PNG downloaded.`,false,true);
 }
 
 function assessmentPngRangeLegend(current, secondary) {
@@ -4437,6 +4447,7 @@ function renderAssessmentBatchTables() {
   const current = state.lastAssessment;
   if (!current || !byId("assessment-batch-table")) return;
   const { assessment } = current;
+  const primaryView=assessmentDisplayView(assessment,current.zoneDisplayMode);
   let indexes = [];
   let primaryError = "";
   try {
@@ -4448,6 +4459,7 @@ function renderAssessmentBatchTables() {
   byId("assessment-batch-status").textContent = primaryError || `${indexes.length} of ${assessment.grid.length} primary MR rows shown`;
   const primaryRange = parseAssessmentHighlight(current.highlightRanges.primary);
   const second = current.secondaryAssessment;
+  const secondaryView=second?assessmentDisplayView(second,current.zoneDisplayMode):null;
   let secondaryIndexes = [];
   let secondaryFilterError = "";
   if (second) {
@@ -4463,7 +4475,7 @@ function renderAssessmentBatchTables() {
   if(secondaryStatus)secondaryStatus.textContent=secondaryFilterError || (second?`${secondaryIndexes.length} of ${second.grid.length} comparison MR rows shown`:"");
   const secondaryRange = parseAssessmentHighlight(current.highlightRanges.secondary);
   const sharedCheckbox = byId("assessment-shared-highlight");
-  const sharedAvailable = Boolean(second && hasSixAssessmentZones(assessment) && hasSixAssessmentZones(second));
+  const sharedAvailable = Boolean(second && current.zoneDisplayMode==='individual' && hasSixAssessmentZones(assessment) && hasSixAssessmentZones(second));
   sharedCheckbox.disabled = !sharedAvailable;
   if (!sharedAvailable) current.sharedHighlightOnly = false;
   sharedCheckbox.checked = current.sharedHighlightOnly;
@@ -4472,26 +4484,26 @@ function renderAssessmentBatchTables() {
     ? findSharedAssessmentMatches(assessment, second, primaryRange.range, secondaryRange.range, indexes, secondaryIndexes)
     : { primary: new Set(), secondary: new Set(), count: 0 };
   byId("assessment-shared-status").textContent = !sharedAvailable
-    ? second ? "Both plots must have Zone 1-6 values." : "Select a second parameter or another Lot to compare."
+    ? current.zoneDisplayMode==='paired' ? "Shared cell highlighting is available in Individual Zones mode." : second ? "Both plots must have Zone 1-6 values." : "Select a second parameter or another Lot to compare."
     : sharedMode
       ? primaryRange.range && secondaryRange.range ? `${shared.count} shared MR × Zone matches shown` : "Set valid From/To ranges for both parameters."
       : "";
   byId("assessment-range-primary-status").textContent = primaryRange.error || (primaryRange.range
-    ? `${countAssessmentHighlights(assessment, indexes, primaryRange.range)} matching cells` : "");
+    ? `${countAssessmentHighlights(primaryView, indexes, primaryRange.range)} matching cells` : "");
   byId("assessment-batch-table").innerHTML = primaryError
     ? `<p class="empty-state">${escapeHtml(primaryError)}</p>`
     : indexes.length
-    ? renderAssessmentPlotTable(assessment, indexes, primaryRange.range, sharedMode ? shared.primary : null)
+    ? renderAssessmentPlotTable(primaryView, indexes, primaryRange.range, sharedMode ? shared.primary : null)
     : '<p class="empty-state">No matching MRs.</p>';
   const secondaryTable = byId("assessment-secondary-table");
   if (secondaryTable) {
     byId("assessment-range-secondary-status").textContent = secondaryRange.error || (second && secondaryRange.range
-      ? `${countAssessmentHighlights(second, secondaryIndexes, secondaryRange.range)} matching cells` : "");
+      ? `${countAssessmentHighlights(secondaryView, secondaryIndexes, secondaryRange.range)} matching cells` : "");
     secondaryTable.innerHTML = current.secondaryError
       ? `<p class="empty-state">${escapeHtml(current.secondaryError)}</p>`
       : !second ? '<p class="empty-state">Select a second Zone parameter or another Lot.</p>'
         : secondaryFilterError ? `<p class="empty-state">${escapeHtml(secondaryFilterError)}</p>`
-          : secondaryIndexes.length ? renderAssessmentPlotTable(second, secondaryIndexes, secondaryRange.range, sharedMode ? shared.secondary : null)
+          : secondaryIndexes.length ? renderAssessmentPlotTable(secondaryView, secondaryIndexes, secondaryRange.range, sharedMode ? shared.secondary : null)
           : '<p class="empty-state">No matching MRs.</p>';
     byId("export-assessment-secondary-png").disabled = !secondaryIndexes.length || Boolean(secondaryFilterError);
   }
@@ -4503,6 +4515,39 @@ function renderAssessmentBatchTables() {
       ? renderAppliedReferenceTable(references, current.referenceViewZone, assessment.referenceMode === "equal-lots")
       : '<p class="empty-state">No matching MRs.</p>';
   }
+}
+
+function pairedAssessmentReference(first,second) {
+  if(!first||!second)return {n:0,mean:null,sigma:null};
+  const mean=Number.isFinite(first.mean)&&Number.isFinite(second.mean)?(first.mean+second.mean)/2:null;
+  const sigma=Number.isFinite(first.sigma)&&Number.isFinite(second.sigma)?Math.sqrt(first.sigma**2+second.sigma**2)/2:null;
+  return {...first,n:Math.min(first.n || 0,second.n || 0),mean,sigma};
+}
+
+function assessmentDisplayView(assessment,mode) {
+  if(mode!=='paired'||!hasSixAssessmentZones(assessment))return assessment;
+  const zoneIndexes=new Map(assessment.columns.map((column,index)=>[column.zone,index]));
+  const pairs=[[1,2],[3,4],[5,6]];
+  const columns=pairs.map(([first,second])=>{
+    const a=assessment.columns[zoneIndexes.get(first)],b=assessment.columns[zoneIndexes.get(second)];
+    return {...a,zone:`${first}-${second}`,header:`${a.parameter}_${first}-${second} avg`,reference:pairedAssessmentReference(a.reference,b.reference)};
+  });
+  const grid=assessment.grid.map(row=>{
+    const values=[],references=[],signedScores=[],scores=[],states=[];
+    pairs.forEach(([first,second])=>{
+      const a=zoneIndexes.get(first),b=zoneIndexes.get(second),firstValue=row.values[a],secondValue=row.values[b];
+      const value=Number.isFinite(firstValue)&&Number.isFinite(secondValue)?(firstValue+secondValue)/2:null;
+      const reference=pairedAssessmentReference(row.references[a],row.references[b]);
+      values.push(value);references.push(reference);
+      if(value===null){signedScores.push(null);scores.push(null);states.push('NO VALUE');return;}
+      if(reference.n<2||!Number.isFinite(reference.mean)){signedScores.push(null);scores.push(null);states.push('NO HISTORY');return;}
+      const signed=reference.sigma>0?(value-reference.mean)/reference.sigma:Math.abs(value-reference.mean)<1e-7?0:999*Math.sign(value-reference.mean);
+      const score=Math.abs(signed);signedScores.push(signed);scores.push(score);
+      states.push(score>assessment.outlierLimit?'OUT OF RANGE':score>assessment.monitorLimit?'MONITOR':'IN RANGE');
+    });
+    return {...row,values,references,signedScores,scores,states};
+  });
+  return {...assessment,columns,grid,displayPaired:true};
 }
 
 function parseAssessmentHighlight(raw) {
@@ -4660,7 +4705,7 @@ function renderV90AssessmentTable(rows, assessment, gridIndexes, range = null, s
       const direction = Number.isFinite(signedScore)
         ? `${signedScore > 0 ? "Above" : signedScore < 0 ? "Below" : "At"} Mu: ${formatNumber(signedScore, 2)} SD`
         : "";
-      const inspectable = assessment.referenceMode === "equal-lots" && gridRow && columnIndex > 0;
+      const inspectable = assessment.referenceMode === "equal-lots" && !assessment.displayPaired && gridRow && columnIndex > 0;
       const highlighted = Boolean(gridRow && columnIndex > 0 && (sharedKeys
         ? sharedKeys.has(`${gridIndex}:${columnIndex - 1}`)
         : assessmentValueInRange(row[columnIndex], range)));
