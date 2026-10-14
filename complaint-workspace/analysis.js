@@ -532,6 +532,22 @@ export function filterLotsByPeriod(headers, rows, dateLookup = new Map(), option
   };
 }
 
+export function trendDateForRow(headers, row, dateLookup = new Map(), options = {}) {
+  const lotColumn = headerIndex(headers, "Lot");
+  const batchColumn = headerIndex(headers, "N");
+  const typeColumn = headerIndex(headers, "Type");
+  const lot = lotColumn >= 0 ? text(row[lotColumn]) : "";
+  let date = dateLookup.get(trendKey(lot, batchColumn >= 0 ? row[batchColumn] : "", typeColumn >= 0 ? row[typeColumn] : ""));
+  const dateColumns = ["Probenzeit", "Production Date", "Date", "Datum"].map(name => headerIndex(headers, name)).filter(index => index >= 0);
+  if (!Number.isFinite(date)) date = dateColumns.map(column => trendDateValue(row[column])).find(Number.isFinite);
+  let fallback = false;
+  if (!Number.isFinite(date) && options.fallbackLot !== false) {
+    date = trendDateFromLot(lot);
+    fallback = Number.isFinite(date);
+  }
+  return { date: Number.isFinite(date) ? date : null, fallback };
+}
+
 export function buildParameterTrend(headers, rows, parameter, dateLookup = new Map(), options = {}) {
   const lotColumn = headerIndex(headers, "Lot");
   const batchColumn = headerIndex(headers, "N");

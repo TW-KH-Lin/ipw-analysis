@@ -28,8 +28,9 @@ import {
   parseNumericCutoffs,
   recommendGaussianSettings,
   text,
+  trendDateForRow,
   zoneColumns
-} from "./analysis.js?v=20";
+} from "./analysis.js?v=21";
 import {
   buildCleanDataFromAuswertung,
   buildFullSummary,
@@ -2533,6 +2534,7 @@ function collectGaussianRecords(parameter, includedZones, sourceId = 'all',lotOv
     if(sourceId!=='all' && origin?.source.id!==sourceId)continue;
     if (!origin && !location) throw new Error("Source row mapping is unavailable. Reopen the workbook before fitting.");
     if (!combinedContext.active && byId("gaussian-visible-rows").checked && sheet?.["!rows"]?.[location.row - 1]?.hidden) continue;
+    const dateInfo=trendDateForRow(state.headers,row,state.trendDateLookup || new Map());
     for (const zone of includedZones) {
       const column = columns?.[zone - 1];
       if (column === undefined || column < 0) continue;
@@ -2543,13 +2545,13 @@ function collectGaussianRecords(parameter, includedZones, sourceId = 'all',lotOv
       const value = row[column];
       if (cellError || !["number", "string"].includes(typeof value) || text(value) === "" || !Number.isFinite(Number(value))) continue;
       records.push({ value: Number(value), lot: lotColumn >= 0 ? text(row[lotColumn]) : "", batch: batchColumn >= 0 ? text(row[batchColumn]) : "", zone,
-        source: origin ? `${origin.source.name} · ${origin.source.source}` : state.source, sourceRow: origin ? located?.row : location.row, sourceCell, parameter });
+        source: origin ? `${origin.source.name} · ${origin.source.source}` : state.source, sourceRow: origin ? located?.row : location.row, sourceCell, parameter,date:dateInfo.date,dateFallback:dateInfo.fallback });
     }
   }
   return records;
 }
 
-function createGaussian() {
+async function createGaussian() {
   invalidateGaussian();
   const parameter = byId("gaussian-parameter").value;
   const comparisonParameter=byId('gaussian-compare-parameter').value||parameter;
@@ -2569,6 +2571,10 @@ function createGaussian() {
   const effectiveComparisonLot=comparisonLot||(!sameParameter?selectedLot:'');
   const comparisonRequested=Boolean(comparisonId||comparisonLot||!sameParameter);
   const effectiveComparisonId=comparisonRequested?(comparisonId||sourceId):'';
+  if(!(state.trendDateLookup instanceof Map)){
+    try{await loadTrendDateLookup();}
+    catch{state.trendDateLookup=new Map();}
+  }
   const records = collectGaussianRecords(parameter, includedZones,sourceId,selectedLot);
   if(records.length<2)throw new Error(`Primary worksheet${selectedLot?` · Lot ${selectedLot}`:''} has ${records.length} numeric value(s). Choose a Lot with at least two values.`);
   const primary=fitGaussianSelection(records,method);
@@ -2576,11 +2582,12 @@ function createGaussian() {
   if(effectiveComparisonId && comparisonRecords.length<2)throw new Error(`Comparison dataset · ${comparisonParameter}${effectiveComparisonLot?` · Lot ${effectiveComparisonLot}`:''} has ${comparisonRecords.length} numeric value(s). Choose a selection with at least two values.`);
   const comparison=effectiveComparisonId?fitGaussianSelection(comparisonRecords,method,{usePrimaryRange:sameParameter,initialMeansId:'gaussian-compare-initial-means'}):null;
   const zoneDistributions=byId('gaussian-zone-distributions').checked
-    ? buildGaussianZoneDistributions(parameter,method,sourceId,selectedLot)
+    ? buildGaussianZoneDistributionsFromRecords(records,method)
     : [];
   const sourceLabel=combinedContext.active?(byId('gaussian-source')?.selectedOptions[0]?.textContent || state.source):state.source;
   const comparisonLabel=comparisonId?(byId('gaussian-compare-source')?.selectedOptions[0]?.textContent || sourceLabel):sourceLabel;
-  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,overlayVisible:!sameParameter,zoneDistributions,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
+  const dateFilter=gaussianDateFilter([...records,...comparisonRecords]);
+  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:!sameParameter,zoneDistributions,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
     comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
   if(comparison&&sameParameter)state.lastGaussian.viewRange={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};
   else {state.lastGaussian.viewRange={start:primary.fit.start,end:primary.fit.end};if(comparison)state.lastGaussian.comparison.viewRange={start:comparison.fit.start,end:comparison.fit.end};}
@@ -2589,13 +2596,20 @@ function createGaussian() {
   setStatus(`${comparison?`Gaussian comparison: ${parameter} (${sourceLabel} · Lot ${selectedLot || 'all'}) and ${comparisonParameter} (${comparisonLabel} · Lot ${effectiveComparisonLot || 'all'})`:`Gaussian fit: ${sourceLabel}${selectedLot?` · Lot ${selectedLot}`:''}`}. ${formatInteger(primary.fit.n)} primary points used.`,false,true);
 }
 
-function buildGaussianZoneDistributions(parameter,method,sourceId,selectedLot) {
+function buildGaussianZoneDistributionsFromRecords(allRecords,method) {
   return [1,2,3,4,5,6].map(zone=>{
-    const records=collectGaussianRecords(parameter,[zone],sourceId,selectedLot);
+    const records=allRecords.filter(record=>record.zone===zone);
     if(records.length<2)return {zone,records:records.length,error:'At least two numeric values are required.'};
     try{return {zone,records:records.length,...fitGaussianSelection(records,method,{usePrimaryRange:true,useInitialMeans:false})};}
     catch(error){return {zone,records:records.length,error:error?.message || String(error)};}
   });
+}
+
+function gaussianDateFilter(records) {
+  const dates=records.map(record=>record.date).filter(Number.isFinite);
+  if(!dates.length)return {available:false,active:false,datedN:0,undatedN:records.length};
+  const day=86400000,min=Math.floor(Math.min(...dates)/day)*day,max=Math.floor(Math.max(...dates)/day)*day;
+  return {available:max>min,active:false,min,max,start:min,end:max,datedN:dates.length,undatedN:records.length-dates.length};
 }
 
 function gaussianInitialMeans(id,componentCount) {
@@ -2670,6 +2684,60 @@ function gaussianMethodLabel(method) {
   return ({'standard':'Standard Gaussian','robust-huber':'Robust Gaussian (Huber)','mixture-2':'Gaussian mixture · 2 components','mixture-3':'Gaussian mixture · 3 components','nacl-truncated':'NaCl truncated Gaussian'})[method] || method;
 }
 
+function gaussianDateInput(value) {
+  return Number.isFinite(value)?new Date(value).toISOString().slice(0,10):'';
+}
+
+function renderGaussianTimeControls(result) {
+  const range=result.dateFilter;
+  if(!range?.datedN)return '<div class="gaussian-time-controls"><span>No production dates are available for real-time fitting.</span></div>';
+  const disabled=range.available?'':'disabled';
+  return `<details class="gaussian-time-range" open><summary>Production time range · real-time fit</summary><div class="gaussian-time-controls">
+    <label>Start date<input id="gaussian-time-start" type="date" min="${gaussianDateInput(range.min)}" max="${gaussianDateInput(range.max)}" value="${gaussianDateInput(range.start)}" ${disabled}></label>
+    <label>End date<input id="gaussian-time-end" type="date" min="${gaussianDateInput(range.min)}" max="${gaussianDateInput(range.max)}" value="${gaussianDateInput(range.end)}" ${disabled}></label>
+    <input id="gaussian-time-start-slider" type="range" aria-label="Gaussian production start date" min="${range.min}" max="${range.max}" step="86400000" value="${range.start}" ${disabled}>
+    <input id="gaussian-time-end-slider" type="range" aria-label="Gaussian production end date" min="${range.min}" max="${range.max}" step="86400000" value="${range.end}" ${disabled}>
+    <button id="gaussian-time-reset" type="button" class="command" ${disabled}>Use all dates</button>
+    <span id="gaussian-time-status">${range.active?`${formatInteger(result.fit.n)} values fitted in selected period`:`All data · ${formatInteger(range.datedN)} dated values${range.undatedN?` · ${formatInteger(range.undatedN)} undated`:''}`}</span>
+    <span id="gaussian-time-error" role="alert"></span>
+  </div></details>`;
+}
+
+let gaussianDateRefitTimer=null;
+function scheduleGaussianDateRefit() {
+  clearTimeout(gaussianDateRefitTimer);
+  gaussianDateRefitTimer=setTimeout(()=>{
+    try{refitGaussianDateRange(true);}
+    catch(error){const target=byId('gaussian-time-error');if(target)target.textContent=error?.message || String(error);}
+  },140);
+}
+
+function refitGaussianDateRange(active) {
+  const current=state.lastGaussian;if(!current)return;
+  const day=86400000,range=current.dateFilter;
+  let start=range.min,end=range.max;
+  if(active){
+    start=Date.parse(`${byId('gaussian-time-start').value}T00:00:00Z`);
+    end=Date.parse(`${byId('gaussian-time-end').value}T00:00:00Z`);
+    if(!Number.isFinite(start)||!Number.isFinite(end)||end<start)throw new Error('Choose an end date on or after the start date.');
+  }
+  const endInclusive=end+day-1;
+  const select=records=>active?records.filter(record=>Number.isFinite(record.date)&&record.date>=start&&record.date<=endInclusive):records;
+  const primaryRecords=select(current.allRecords),comparisonRecords=select(current.comparisonAllRecords || []);
+  if(primaryRecords.length<2)throw new Error('The selected production period has fewer than two primary values.');
+  if(current.comparison&&comparisonRecords.length<2)throw new Error('The selected production period has fewer than two comparison values.');
+  const primary=fitGaussianSelection(primaryRecords,current.method);
+  const comparison=current.comparison?fitGaussianSelection(comparisonRecords,current.method,{usePrimaryRange:current.sameParameter,initialMeansId:'gaussian-compare-initial-means'}):null;
+  Object.assign(current,primary);
+  if(comparison)Object.assign(current.comparison,comparison);
+  current.zoneDistributions=current.zoneDistributions?.length?buildGaussianZoneDistributionsFromRecords(primaryRecords,current.method):[];
+  current.dateFilter={...range,active,start,end};
+  if(comparison&&current.sameParameter)current.viewRange={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};
+  else {current.viewRange={start:primary.fit.start,end:primary.fit.end};if(comparison)current.comparison.viewRange={start:comparison.fit.start,end:comparison.fit.end};}
+  renderGaussianResult();renderGaussianExtremes();
+  setStatus(`${active?'Real-time Gaussian fit updated':'Gaussian fit reset to all dates'}: ${formatInteger(primary.fit.n)} primary values.`,false,true);
+}
+
 function renderGaussianZoneDistributions(result) {
   if(!result.zoneDistributions?.length)return '';
   const available=result.zoneDistributions.some(item=>item.fit);
@@ -2682,7 +2750,7 @@ function renderGaussianZoneDistributions(result) {
     </div>
     <div class="gaussian-zone-grid">${result.zoneDistributions.map(item=>`<article class="chart-card gaussian-zone-card">
       <h3>Zone ${item.zone}</h3>
-      ${item.fit?`<p>N ${formatInteger(item.fit.n)} · Mu ${formatNumber(item.fit.mean,3)} · Sigma ${formatNumber(item.fit.sigma,3)} · Bin ${formatNumber(item.fit.binWidth,3)}</p><canvas id="gaussian-zone-chart-${item.zone}" aria-label="Zone ${item.zone} Gaussian distribution"></canvas>`:`<p class="empty-state">${escapeHtml(item.error || 'No usable numeric data.')}</p>`}
+      ${item.fit?`<p>N ${formatInteger(item.fit.n)} · Mu ${formatNumber(item.fit.mean,3)} · Sigma ${formatNumber(item.fit.sigma,3)} · Bin ${formatNumber(item.fit.binWidth,3)} · Range ${formatNumber(item.fit.start,2)} to ${formatNumber(item.fit.end,2)}</p><canvas id="gaussian-zone-chart-${item.zone}" aria-label="Zone ${item.zone} Gaussian distribution"></canvas>`:`<p class="empty-state">${escapeHtml(item.error || 'No usable numeric data.')}</p>`}
     </article>`).join('')}</div>
   </details>`;
 }
@@ -2707,6 +2775,7 @@ function renderGaussianResult() {
     </div>
     <details class="gaussian-chart-section" open><summary>Observed Histogram + Fitted Gaussian</summary>
       <button id="export-gaussian-plot-png" class="command" type="button">Export PNG</button>
+      ${renderGaussianTimeControls(result)}
       <details open><summary>${result.comparison&&!result.sameParameter?'Primary X-axis range':'X-axis range'}</summary><div class="gaussian-axis-controls">
         <label>X-axis start<input id="gaussian-view-start" type="number" step="0.1" value="${viewStart}"></label>
         <label>X-axis end<input id="gaussian-view-end" type="number" step="0.1" value="${viewEnd}"></label>
@@ -2716,8 +2785,8 @@ function renderGaussianResult() {
         <span id="gaussian-view-error" role="alert"></span>
       </div></details>
       <div class="gaussian-comparison-grid ${result.comparison?'has-comparison':''}">
-        <article class="chart-card"><h3>${escapeHtml(result.parameter)} · ${escapeHtml(result.sourceLabel || result.source)}${result.selectedLot?` · Lot ${escapeHtml(result.selectedLot)}`:''}</h3><p>N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)}</p><p>Bin ${formatNumber(fit.binWidth,3)} · Range ${formatNumber(fit.start,3)} to ${formatNumber(fit.end,3)}</p><canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></article>
-        ${result.comparison?`<article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(result.comparison.parameter)} · ${escapeHtml(result.comparison.sourceLabel)}${result.comparison.selectedLot?` · Lot ${escapeHtml(result.comparison.selectedLot)}`:''}</h3><button id="export-gaussian-comparison-png" class="command" type="button">Export PNG</button></div><p>N ${formatInteger(result.comparison.fit.n)} · Mu ${formatNumber(result.comparison.fit.mean,3)} · Sigma ${formatNumber(result.comparison.fit.sigma,3)}</p><p>Bin ${formatNumber(result.comparison.fit.binWidth,3)} · Range ${formatNumber(result.comparison.fit.start,3)} to ${formatNumber(result.comparison.fit.end,3)}</p><canvas id="gaussian-comparison-chart" aria-label="Comparison parameter Gaussian plot"></canvas></article>`:''}
+        <article class="chart-card"><h3>${escapeHtml(result.parameter)} · ${escapeHtml(result.sourceLabel || result.source)}${result.selectedLot?` · Lot ${escapeHtml(result.selectedLot)}`:''}</h3><p>N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)} · Bin ${formatNumber(fit.binWidth,3)} · Range ${formatNumber(fit.start,3)} to ${formatNumber(fit.end,3)}</p><canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></article>
+        ${result.comparison?`<article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(result.comparison.parameter)} · ${escapeHtml(result.comparison.sourceLabel)}${result.comparison.selectedLot?` · Lot ${escapeHtml(result.comparison.selectedLot)}`:''}</h3><button id="export-gaussian-comparison-png" class="command" type="button">Export PNG</button></div><p>N ${formatInteger(result.comparison.fit.n)} · Mu ${formatNumber(result.comparison.fit.mean,3)} · Sigma ${formatNumber(result.comparison.fit.sigma,3)} · Bin ${formatNumber(result.comparison.fit.binWidth,3)} · Range ${formatNumber(result.comparison.fit.start,3)} to ${formatNumber(result.comparison.fit.end,3)}</p><canvas id="gaussian-comparison-chart" aria-label="Comparison parameter Gaussian plot"></canvas></article>`:''}
       </div>
       ${result.comparison&&!result.sameParameter?'<p class="gaussian-comparison-note">Each parameter uses its own automatic bin width, fitting range and X-axis. The dual-axis overlap uses normalized density to compare distribution shape.</p>':''}
       ${fit.components?.length?`<div class="gaussian-mixture-grid ${result.comparison?'has-comparison':''}">
@@ -2761,6 +2830,17 @@ function renderGaussianResult() {
   byId('export-gaussian-zones-png')?.addEventListener('click',()=>runAction(saveGaussianZoneSnapshot));
   byId('gaussian-zone-shared-y')?.addEventListener('change',event=>{result.zoneSharedY=event.target.checked;requestAnimationFrame(drawGaussianCharts);});
   byId('gaussian-zone-normalized')?.addEventListener('change',event=>{result.zoneNormalized=event.target.checked;renderGaussianResult();});
+  ['start','end'].forEach(side=>{
+    byId(`gaussian-time-${side}`)?.addEventListener('change',event=>{
+      const value=Date.parse(`${event.target.value}T00:00:00Z`),slider=byId(`gaussian-time-${side}-slider`);
+      if(Number.isFinite(value)&&slider)slider.value=String(value);
+      scheduleGaussianDateRefit();
+    });
+    byId(`gaussian-time-${side}-slider`)?.addEventListener('input',event=>{
+      byId(`gaussian-time-${side}`).value=gaussianDateInput(Number(event.target.value));scheduleGaussianDateRefit();
+    });
+  });
+  byId('gaussian-time-reset')?.addEventListener('click',()=>{clearTimeout(gaussianDateRefitTimer);refitGaussianDateRange(false);});
   requestAnimationFrame(drawGaussianCharts);
   ["start", "end"].forEach(side => {
     byId(`gaussian-view-${side}`).addEventListener("input", updateGaussianView);
@@ -2794,7 +2874,8 @@ function drawGaussianCharts() {
 
 function gaussianFitPeak(fit,normalized=false) {
   const scale=normalized?100/Math.max(1,fit.histogramN || fit.n || 1):1;
-  return Math.max(1,...fit.bins.flatMap(bin=>[bin.observed*scale,bin.gaussian*scale]));
+  const smooth=Array.from({length:241},(_,index)=>gaussianCurveExpected(fit,fit.start+(fit.end-fit.start)*index/240)*scale);
+  return Math.max(1,...fit.bins.map(bin=>bin.observed*scale),...smooth);
 }
 
 function gaussianZoneDisplayOptions(current) {
@@ -2957,7 +3038,7 @@ function saveGaussianOverlaySnapshot() {
 function saveGaussianZoneSnapshot() {
   const current=state.lastGaussian;
   if(!current?.zoneDistributions?.some(item=>item.fit))throw new Error('Run Gaussian fit with Individual Zone distributions selected before exporting.');
-  const columns=3,rows=2,cardWidth=620,cardHeight=440,gap=18,margin=24,headerHeight=82;
+  const columns=3,rows=2,cardWidth=620,cardHeight=500,gap=18,margin=24,headerHeight=82;
   const canvas=document.createElement('canvas');
   canvas.width=margin*2+columns*cardWidth+(columns-1)*gap;
   canvas.height=headerHeight+margin+rows*cardHeight+(rows-1)*gap;
@@ -2974,7 +3055,7 @@ function saveGaussianZoneSnapshot() {
     ctx.fillStyle='#172231';ctx.font='bold 18px sans-serif';ctx.fillText(`Zone ${item.zone}`,x+12,y+25,cardWidth-24);
     if(!item.fit){ctx.fillStyle='#526579';ctx.font='15px sans-serif';ctx.fillText(item.error || 'No usable numeric data.',x+12,y+52,cardWidth-24);return;}
     ctx.fillStyle='#526579';ctx.font='14px sans-serif';
-    ctx.fillText(`N ${formatInteger(item.fit.n)} · Mu ${formatNumber(item.fit.mean,3)} · Sigma ${formatNumber(item.fit.sigma,3)} · Bin ${formatNumber(item.fit.binWidth,3)}`,x+12,y+48,cardWidth-24);
+    ctx.fillText(`N ${formatInteger(item.fit.n)} · Mu ${formatNumber(item.fit.mean,3)} · Sigma ${formatNumber(item.fit.sigma,3)} · Bin ${formatNumber(item.fit.binWidth,3)} · Range ${formatNumber(item.fit.start,2)} to ${formatNumber(item.fit.end,2)}`,x+12,y+48,cardWidth-24);
     const chart=document.createElement('canvas');
     drawGaussian(chart,item.fit,'combined',{width:cardWidth-20,height:cardHeight-66},zoneDisplay);
     ctx.drawImage(chart,x+10,y+58,cardWidth-20,cardHeight-66);
@@ -5587,15 +5668,31 @@ function drawGaussianOverlay(canvas, primary, comparison, details={}, dimensions
   });
 }
 
+function gaussianCurveExpected(fit,value,componentIndex=null) {
+  if(fit.method==='nacl-truncated'){
+    const bin=fit.bins.reduce((nearest,item)=>Math.abs(item.center-value)<Math.abs(nearest.center-value)?item:nearest,fit.bins[0]);
+    return bin?.gaussian || 0;
+  }
+  const density=(mean,sigma)=>sigma>0?Math.exp(-0.5*((value-mean)/sigma)**2)/(sigma*Math.sqrt(2*Math.PI)):0;
+  if(fit.components?.length){
+    if(Number.isInteger(componentIndex)){
+      const component=fit.components[componentIndex];return fit.n*fit.binWidth*component.weight*density(component.mean,component.sigma);
+    }
+    return fit.components.reduce((sum,component)=>sum+fit.n*fit.binWidth*component.weight*density(component.mean,component.sigma),0);
+  }
+  return fit.n*fit.binWidth*density(fit.mean,fit.sigma);
+}
+
 function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
   if (!canvas || !fit?.bins?.length) return;
   const xAxis = integerChartAxis([fit.start, fit.end]);
   fit = { ...fit, start: xAxis.min, end: xAxis.max };
   const { ctx, width, height, colors } = setupCanvas(canvas, dimensions);
   const fontSize = dimensions ? 18 : 14;
-  const pad = { left: 48, right: 12, top: fit.components?.length ? (dimensions ? 170 : 154) : (dimensions ? 136 : 120), bottom: 34 };
+  const pad = { left: 48, right: 12, top: fit.components?.length ? (dimensions ? 112 : 94) : (dimensions ? 136 : 120), bottom: 34 };
   const normalized=Boolean(display.normalized),valueScale=normalized?100/Math.max(1,fit.histogramN || fit.n || 1):1;
-  const observedPeak=Math.max(1,...fit.bins.flatMap(bin=>[bin.observed*valueScale,bin.gaussian*valueScale]));
+  const curveSamples=Array.from({length:361},(_,index)=>({value:fit.start+(fit.end-fit.start)*index/360,expected:gaussianCurveExpected(fit,fit.start+(fit.end-fit.start)*index/360)}));
+  const observedPeak=Math.max(1,...fit.bins.map(bin=>bin.observed*valueScale),...curveSamples.map(point=>point.expected*valueScale));
   const yAxis = integerChartAxis([0, Number.isFinite(display.yMax)&&display.yMax>0?display.yMax:observedPeak]);
   ctx.font = `${fontSize}px sans-serif`;
   const yLabel=value=>`${formatInteger(value)}${normalized?'%':''}`;
@@ -5638,17 +5735,17 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
     const componentColors=['#195d8d','#c55418','#7c3aed'];
     fit.components?.forEach((component,componentIndex)=>{
       ctx.beginPath();
-      fit.bins.forEach((bin,index)=>{
-        const x=pad.left+(bin.center-fit.start)/(fit.end-fit.start)*plotWidth;
-        const y=pad.top+plotHeight-(bin.components?.[componentIndex] || 0)*valueScale/maxY*plotHeight;
+      curveSamples.forEach((point,index)=>{
+        const x=pad.left+(point.value-fit.start)/(fit.end-fit.start)*plotWidth;
+        const y=pad.top+plotHeight-gaussianCurveExpected(fit,point.value,componentIndex)*valueScale/maxY*plotHeight;
         if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
       });
       ctx.strokeStyle=componentColors[componentIndex];ctx.lineWidth=1.8;ctx.setLineDash([6,4]);ctx.stroke();ctx.setLineDash([]);
     });
     ctx.beginPath();
-    fit.bins.forEach((bin, index) => {
-      const x = pad.left + (bin.center - fit.start) / (fit.end - fit.start) * plotWidth;
-      const y = pad.top + plotHeight - bin.gaussian*valueScale / maxY * plotHeight;
+    curveSamples.forEach((point, index) => {
+      const x = pad.left + (point.value - fit.start) / (fit.end - fit.start) * plotWidth;
+      const y = pad.top + plotHeight - point.expected*valueScale / maxY * plotHeight;
       if (index === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
@@ -5670,10 +5767,11 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
   ctx.fillText(`${fit.components?.length?'Overall mean':'Mean'}: ${fit.mean.toFixed(3)}   ${fit.components?.length?'Overall sigma':'Sigma'}: ${fit.sigma.toFixed(3)}${normalized?'   ·   Normalized %':''}`, 8, fontSize + 4, width - 16);
   if(fit.components?.length){
     const colors=['#195d8d','#c55418','#7c3aed'];
+    const columnWidth=(width-16)/fit.components.length;
     fit.components.forEach((component,index)=>{
       const label=`C${index+1}: ${formatNumber(component.weight*100,1)}% · μ ${formatNumber(component.mean,3)} · σ ${formatNumber(component.sigma,3)}`;
-      ctx.fillStyle=colors[index];ctx.font=`bold ${fontSize+2}px sans-serif`;
-      ctx.fillText(label,8,(index+2)*(fontSize+6),width-16);
+      ctx.fillStyle=colors[index];ctx.font=`bold ${fontSize+1}px sans-serif`;
+      ctx.fillText(label,8+index*columnWidth,fontSize*2+12,columnWidth-10);
     });
     ctx.font=`${fontSize}px sans-serif`;
   }
