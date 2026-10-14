@@ -2597,8 +2597,8 @@ async function createGaussian() {
   const sourceLabel=combinedContext.active?(byId('gaussian-source')?.selectedOptions[0]?.textContent || state.source):state.source;
   const comparisonLabel=comparisonId?(byId('gaussian-compare-source')?.selectedOptions[0]?.textContent || sourceLabel):sourceLabel;
   const dateFilter=gaussianDateFilter([...records,...comparisonRecords]);
-  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:!sameParameter,zoneDistributions,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
-    comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
+  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,activeRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:!sameParameter,zoneDistributions,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
+    comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,activeRecords:comparisonRecords,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
   if(comparison&&sameParameter)state.lastGaussian.viewRange={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};
   else {state.lastGaussian.viewRange={start:primary.fit.start,end:primary.fit.end};if(comparison)state.lastGaussian.comparison.viewRange={start:comparison.fit.start,end:comparison.fit.end};}
   renderGaussianResult();renderGaussianExtremes();
@@ -2690,6 +2690,36 @@ function renderGaussianMixture(fit,label='Mixture components') {
   ])}</div><p>EM iterations: ${formatInteger(fit.mixtureIterations)} · Log likelihood: ${formatNumber(fit.logLikelihood,2)} · AIC: ${formatNumber(fit.aic,2)} · BIC: ${formatNumber(fit.bic,2)}. Lower AIC/BIC is better when comparing models fitted to the same data.</p></div>`;
 }
 
+function gaussianMixtureBatchRows(current) {
+  const fit=current?.fit,records=current?.activeRecords || [];
+  if(!fit?.components?.length || !records.length)return [];
+  const density=(value,component)=>component.sigma>0?component.weight*Math.exp(-0.5*((value-component.mean)/component.sigma)**2)/component.sigma:0;
+  const groups=new Map();
+  records.forEach(record=>{
+    if(!Number.isFinite(record.value)||record.value<fit.start||record.value>fit.end)return;
+    const scores=fit.components.map(component=>density(record.value,component)),total=scores.reduce((sum,value)=>sum+value,0);
+    if(!(total>0))return;
+    const key=`${record.source || ''}\u0000${record.lot || ''}\u0000${record.batch || ''}`;
+    if(!groups.has(key))groups.set(key,{source:record.source || '',lot:record.lot || '',batch:record.batch || '',n:0,shares:fit.components.map(()=>0)});
+    const group=groups.get(key);group.n+=1;scores.forEach((score,index)=>group.shares[index]+=score/total);
+  });
+  return [...groups.values()].map(group=>{
+    const shares=group.shares.map(value=>value/group.n*100),dominant=shares.indexOf(Math.max(...shares));
+    return {...group,shares,dominant};
+  }).sort((a,b)=>a.source.localeCompare(b.source,undefined,{numeric:true})||a.lot.localeCompare(b.lot,undefined,{numeric:true})||a.batch.localeCompare(b.batch,undefined,{numeric:true}));
+}
+
+function renderGaussianMixtureBatchContent(current) {
+  const rows=gaussianMixtureBatchRows(current),components=current?.fit?.components || [];
+  return `<p>${formatInteger(rows.length)} batches. Estimated from each measurement's Gaussian-mixture probability. Component means: ${components.map((component,index)=>`C${index+1} μ ${formatNumber(component.mean,3)}`).join(' · ')}.</p>
+    <div class="table-wrap mini-table"><table><thead><tr><th>Source</th><th>Lot</th><th>MR N</th><th>Values</th>${components.map((_,index)=>`<th>C${index+1}</th>`).join('')}<th>Primary component</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${escapeHtml(row.source)}</td><td>${escapeHtml(row.lot)}</td><td>${escapeHtml(row.batch)}</td><td>${formatInteger(row.n)}</td>${row.shares.map(value=>`<td>${formatNumber(value,1)}%</td>`).join('')}<td>C${row.dominant+1}</td></tr>`).join('')}</tbody></table></div>
+  `;
+}
+
+function renderGaussianMixtureBatchTable(label,side) {
+  return `<details class="gaussian-mixture-batch" data-mixture-side="${side}"><summary>${escapeHtml(label)} · Lot / MR component proportions</summary><div class="gaussian-mixture-batch-content"><p>Open this tab to calculate the batch table.</p></div></details>`;
+}
+
 function gaussianMethodLabel(method) {
   return ({'standard':'Standard Gaussian','robust-huber':'Robust Gaussian (Huber)','mixture-2':'Gaussian mixture · 2 components','mixture-3':'Gaussian mixture · 3 components','nacl-truncated':'NaCl truncated Gaussian'})[method] || method;
 }
@@ -2731,7 +2761,8 @@ function refitGaussianDateRange(active) {
   const primary=fitGaussianSelection(primaryRecords,current.method);
   const comparison=current.comparison?fitGaussianSelection(comparisonRecords,current.method,{usePrimaryRange:current.sameParameter,initialMeansId:'gaussian-compare-initial-means'}):null;
   Object.assign(current,primary);
-  if(comparison)Object.assign(current.comparison,comparison);
+  current.activeRecords=primaryRecords;
+  if(comparison){Object.assign(current.comparison,comparison);current.comparison.activeRecords=comparisonRecords;}
   current.zoneDistributions=current.zoneDistributions?.length?buildGaussianZoneDistributionsFromRecords(primaryRecords,current.method):[];
   current.dateFilter={...range,active,start,end};
   if(comparison&&current.sameParameter)current.viewRange={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};
@@ -2795,6 +2826,10 @@ function renderGaussianResult() {
         ${renderGaussianMixture(fit,`${result.parameter} components`)}
         ${result.comparison?renderGaussianMixture(result.comparison.fit,`${result.comparison.parameter} components`):''}
       </div>`:''}
+      ${fit.components?.length?`<div class="gaussian-mixture-batch-grid ${result.comparison?'has-comparison':''}">
+        ${renderGaussianMixtureBatchTable(result.parameter,'primary')}
+        ${result.comparison?renderGaussianMixtureBatchTable(result.comparison.parameter,'comparison'):''}
+      </div>`:''}
       ${result.comparison?`<div class="gaussian-overlay-control"><label class="choice-row"><input id="gaussian-overlay-toggle" type="checkbox" ${result.overlayVisible?'checked':''}>Show both distributions in one plot</label></div>
         <section id="gaussian-overlay-section" class="chart-card gaussian-overlay-card" ${result.overlayVisible?'':'hidden'}>
           <div class="assessment-plot-toolbar"><h3>Distribution overlap · ${escapeHtml(result.parameter)} vs ${escapeHtml(result.comparison.parameter)}</h3><button id="export-gaussian-overlay-png" class="command" type="button">Export PNG</button></div>
@@ -2843,6 +2878,12 @@ function renderGaussianResult() {
   });
   byId('gaussian-time-apply')?.addEventListener('click',()=>runAction(()=>refitGaussianDateRange(true)));
   byId('gaussian-time-reset')?.addEventListener('click',()=>runAction(()=>refitGaussianDateRange(false)));
+  byId('gaussian-result').querySelectorAll('.gaussian-mixture-batch').forEach(details=>details.addEventListener('toggle',()=>{
+    const content=details.querySelector('.gaussian-mixture-batch-content');
+    if(!details.open||content.dataset.loaded)return;
+    const current=details.dataset.mixtureSide==='comparison'?result.comparison:result;
+    content.innerHTML=renderGaussianMixtureBatchContent(current);content.dataset.loaded='true';
+  }));
   requestAnimationFrame(drawGaussianCharts);
   ["start", "end"].forEach(side => {
     byId(`gaussian-view-${side}`).addEventListener("input", updateGaussianView);

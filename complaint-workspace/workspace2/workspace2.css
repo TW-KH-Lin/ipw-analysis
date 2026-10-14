@@ -246,6 +246,13 @@
 .gaussian-mixture-summary:empty { display:none; }
 .gaussian-mixture-summary h3,.gaussian-mixture-summary p { margin:0 0 6px; }
 .gaussian-mixture-summary table { width:100%; min-width:0; }
+.gaussian-mixture-batch-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; margin:10px 0; }
+.gaussian-mixture-batch-grid.has-comparison { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.gaussian-mixture-batch { min-width:0; padding:8px 9px; border:1px solid var(--line); border-radius:7px; background:#f8fafb; }
+.gaussian-mixture-batch > summary { cursor:pointer; color:var(--blue-dark); font-size:13px; font-weight:700; }
+.gaussian-mixture-batch-content > p { margin:7px 0; color:var(--muted); font-size:11px; }
+.gaussian-mixture-batch table { width:100%; min-width:max-content; }
+.gaussian-mixture-batch th,.gaussian-mixture-batch td { padding:4px 7px; font-size:11px; white-space:nowrap; }
 .summary-mean-controls { display:grid; grid-template-columns:minmax(240px,2fr) auto auto minmax(220px,1fr); align-items:end; gap:8px; margin:8px 0 10px; padding:9px; border:1px solid var(--line); border-radius:7px; background:#f7fafb; }
 .summary-mean-controls label { margin:0; }
 .summary-mean-controls .command { width:auto; min-height:34px; margin:0; padding:5px 10px; }
@@ -257,7 +264,7 @@
 .summary-mean-group-table .summary-use-mean-group.is-selected { border-color:#2e7d4f; background:#2e7d4f; color:#fff; }
 .assessment-side-options { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
 .assessment-side-options label { min-width:190px; }
-@media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.gaussian-mixture-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.gaussian-mixture-grid.has-comparison,.gaussian-mixture-batch-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:900px) { .gaussian-settings-row { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:900px) { .gaussian-time-controls { grid-template-columns:repeat(2,minmax(0,1fr)); } .gaussian-time-controls .command,#gaussian-time-status,#gaussian-time-error { grid-column:1/-1; } }
 @media (max-width:900px) { .summary-mean-controls { grid-template-columns:minmax(0,1fr) auto auto; } .summary-mean-controls output { grid-column:1/-1; } }
