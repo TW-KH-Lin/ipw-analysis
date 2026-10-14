@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v57-mixture-lot-counts";
+const CACHE_NAME = "ipw-complaint-workspace-v58-gaussian-year-range";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -21,11 +21,11 @@ const APP_SHELL = [
   "../images/correlation-zone-guide.png",
   "./index.html",
   "../workspace/workspace.css?v=2",
-  "../workspace/workspace-ui.js?v=6", "./workspace2.css?v=43", "./workspace2-ui.js?v=3",
+  "../workspace/workspace-ui.js?v=6", "./workspace2.css?v=44", "./workspace2-ui.js?v=3",
   "./workbook-comparison.js?v=2",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=148",
+  "../iphone-app.js?v=149",
   "./zone-profile.js?v=1",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",
