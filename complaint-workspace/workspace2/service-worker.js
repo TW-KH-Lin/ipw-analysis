@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v51-gaussian-time-smooth";
+const CACHE_NAME = "ipw-complaint-workspace-v52-gaussian-time-apply";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -21,11 +21,11 @@ const APP_SHELL = [
   "../images/correlation-zone-guide.png",
   "./index.html",
   "../workspace/workspace.css?v=2",
-  "../workspace/workspace-ui.js?v=6", "./workspace2.css?v=38", "./workspace2-ui.js?v=3",
+  "../workspace/workspace-ui.js?v=6", "./workspace2.css?v=39", "./workspace2-ui.js?v=3",
   "./workbook-comparison.js?v=2",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=142",
+  "../iphone-app.js?v=143",
   "./zone-profile.js?v=1",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",

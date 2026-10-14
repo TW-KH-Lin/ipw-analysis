@@ -2690,26 +2690,18 @@ function gaussianDateInput(value) {
 
 function renderGaussianTimeControls(result) {
   const range=result.dateFilter;
-  if(!range?.datedN)return '<div class="gaussian-time-controls"><span>No production dates are available for real-time fitting.</span></div>';
+  if(!range?.datedN)return '<div class="gaussian-time-controls"><span>No production dates are available for time-range fitting.</span></div>';
   const disabled=range.available?'':'disabled';
-  return `<details class="gaussian-time-range" open><summary>Production time range · real-time fit</summary><div class="gaussian-time-controls">
+  return `<details class="gaussian-time-range" open><summary>Production time range</summary><div class="gaussian-time-controls">
     <label>Start date<input id="gaussian-time-start" type="date" min="${gaussianDateInput(range.min)}" max="${gaussianDateInput(range.max)}" value="${gaussianDateInput(range.start)}" ${disabled}></label>
     <label>End date<input id="gaussian-time-end" type="date" min="${gaussianDateInput(range.min)}" max="${gaussianDateInput(range.max)}" value="${gaussianDateInput(range.end)}" ${disabled}></label>
     <input id="gaussian-time-start-slider" type="range" aria-label="Gaussian production start date" min="${range.min}" max="${range.max}" step="86400000" value="${range.start}" ${disabled}>
     <input id="gaussian-time-end-slider" type="range" aria-label="Gaussian production end date" min="${range.min}" max="${range.max}" step="86400000" value="${range.end}" ${disabled}>
+    <button id="gaussian-time-apply" type="button" class="command primary" ${disabled}>Apply time range</button>
     <button id="gaussian-time-reset" type="button" class="command" ${disabled}>Use all dates</button>
     <span id="gaussian-time-status">${range.active?`${formatInteger(result.fit.n)} values fitted in selected period`:`All data · ${formatInteger(range.datedN)} dated values${range.undatedN?` · ${formatInteger(range.undatedN)} undated`:''}`}</span>
     <span id="gaussian-time-error" role="alert"></span>
   </div></details>`;
-}
-
-let gaussianDateRefitTimer=null;
-function scheduleGaussianDateRefit() {
-  clearTimeout(gaussianDateRefitTimer);
-  gaussianDateRefitTimer=setTimeout(()=>{
-    try{refitGaussianDateRange(true);}
-    catch(error){const target=byId('gaussian-time-error');if(target)target.textContent=error?.message || String(error);}
-  },140);
 }
 
 function refitGaussianDateRange(active) {
@@ -2834,13 +2826,13 @@ function renderGaussianResult() {
     byId(`gaussian-time-${side}`)?.addEventListener('change',event=>{
       const value=Date.parse(`${event.target.value}T00:00:00Z`),slider=byId(`gaussian-time-${side}-slider`);
       if(Number.isFinite(value)&&slider)slider.value=String(value);
-      scheduleGaussianDateRefit();
     });
     byId(`gaussian-time-${side}-slider`)?.addEventListener('input',event=>{
-      byId(`gaussian-time-${side}`).value=gaussianDateInput(Number(event.target.value));scheduleGaussianDateRefit();
+      byId(`gaussian-time-${side}`).value=gaussianDateInput(Number(event.target.value));
     });
   });
-  byId('gaussian-time-reset')?.addEventListener('click',()=>{clearTimeout(gaussianDateRefitTimer);refitGaussianDateRange(false);});
+  byId('gaussian-time-apply')?.addEventListener('click',()=>runAction(()=>refitGaussianDateRange(true)));
+  byId('gaussian-time-reset')?.addEventListener('click',()=>runAction(()=>refitGaussianDateRange(false)));
   requestAnimationFrame(drawGaussianCharts);
   ["start", "end"].forEach(side => {
     byId(`gaussian-view-${side}`).addEventListener("input", updateGaussianView);
