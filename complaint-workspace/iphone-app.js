@@ -2728,8 +2728,8 @@ function gaussianMethodLabel(method) {
   return ({'standard':'Standard Gaussian','robust-huber':'Robust Gaussian (Huber)','mixture-2':'Gaussian mixture · 2 components','mixture-3':'Gaussian mixture · 3 components','nacl-truncated':'NaCl truncated Gaussian'})[method] || method;
 }
 
-function gaussianYear(value) {
-  return Number.isFinite(value)?new Date(value).getUTCFullYear():'';
+function gaussianDateInput(value) {
+  return Number.isFinite(value)?new Date(value).toISOString().slice(0,10):'';
 }
 
 function renderGaussianTimeControls(result) {
@@ -2737,10 +2737,10 @@ function renderGaussianTimeControls(result) {
   if(!range?.datedN)return '<div class="gaussian-time-controls"><span>No production dates are available for time-range fitting.</span></div>';
   const disabled=range.available?'':'disabled';
   return `<details class="gaussian-time-range" open><summary>Production time range</summary><div class="gaussian-time-controls">
-    <label>Start year · 01/01<input id="gaussian-time-start" type="number" step="1" min="${gaussianYear(range.min)}" max="${gaussianYear(range.max)}" value="${gaussianYear(range.start)}" ${disabled}></label>
-    <label>End year · 31/12<input id="gaussian-time-end" type="number" step="1" min="${gaussianYear(range.min)}" max="${gaussianYear(range.max)}" value="${gaussianYear(range.end)}" ${disabled}></label>
-    <input id="gaussian-time-start-slider" type="range" aria-label="Gaussian production start year" min="${gaussianYear(range.min)}" max="${gaussianYear(range.max)}" step="1" value="${gaussianYear(range.start)}" ${disabled}>
-    <input id="gaussian-time-end-slider" type="range" aria-label="Gaussian production end year" min="${gaussianYear(range.min)}" max="${gaussianYear(range.max)}" step="1" value="${gaussianYear(range.end)}" ${disabled}>
+    <label>Start date<input id="gaussian-time-start" type="date" min="${gaussianDateInput(range.min)}" max="${gaussianDateInput(range.max)}" value="${gaussianDateInput(range.start)}" ${disabled}></label>
+    <label>End date<input id="gaussian-time-end" type="date" min="${gaussianDateInput(range.min)}" max="${gaussianDateInput(range.max)}" value="${gaussianDateInput(range.end)}" ${disabled}></label>
+    <input id="gaussian-time-start-slider" type="range" aria-label="Gaussian production start date" min="${range.min}" max="${range.max}" step="86400000" value="${range.start}" ${disabled}>
+    <input id="gaussian-time-end-slider" type="range" aria-label="Gaussian production end date" min="${range.min}" max="${range.max}" step="86400000" value="${range.end}" ${disabled}>
     <button id="gaussian-time-apply" type="button" class="command primary" ${disabled}>Apply time range</button>
     <button id="gaussian-time-reset" type="button" class="command" ${disabled}>Use all dates</button>
     <span id="gaussian-time-status">${range.active?`${formatInteger(result.fit.n)} values fitted in selected period`:`All data · ${formatInteger(range.datedN)} dated values${range.undatedN?` · ${formatInteger(range.undatedN)} undated`:''}`}</span>
@@ -2753,11 +2753,12 @@ function refitGaussianDateRange(active) {
   const range=current.dateFilter;
   let start=range.min,end=range.max;
   if(active){
-    const startYear=Number(byId('gaussian-time-start').value),endYear=Number(byId('gaussian-time-end').value);
-    if(!Number.isInteger(startYear)||!Number.isInteger(endYear)||endYear<startYear)throw new Error('Choose an end year on or after the start year.');
-    start=Date.UTC(startYear,0,1);end=Date.UTC(endYear,11,31);
+    start=Date.parse(`${byId('gaussian-time-start').value}T00:00:00Z`);
+    end=Date.parse(`${byId('gaussian-time-end').value}T00:00:00Z`);
+    if(!Number.isFinite(start)||!Number.isFinite(end)||end<start)throw new Error('Choose an end date on or after the start date.');
   }
-  const select=records=>active?records.filter(record=>Number.isFinite(record.date)&&record.date>=start&&record.date<=end):records;
+  const endInclusive=end+86400000-1;
+  const select=records=>active?records.filter(record=>Number.isFinite(record.date)&&record.date>=start&&record.date<=endInclusive):records;
   const primaryRecords=select(current.allRecords),comparisonRecords=select(current.comparisonAllRecords || []);
   if(primaryRecords.length<2)throw new Error('The selected production period has fewer than two primary values.');
   if(current.comparison&&comparisonRecords.length<2)throw new Error('The selected production period has fewer than two comparison values.');
@@ -2893,11 +2894,11 @@ function renderGaussianResult() {
   });
   ['start','end'].forEach(side=>{
     byId(`gaussian-time-${side}`)?.addEventListener('change',event=>{
-      const value=Number(event.target.value),slider=byId(`gaussian-time-${side}-slider`);
-      if(Number.isInteger(value)&&slider)slider.value=String(value);
+      const value=Date.parse(`${event.target.value}T00:00:00Z`),slider=byId(`gaussian-time-${side}-slider`);
+      if(Number.isFinite(value)&&slider)slider.value=String(value);
     });
     byId(`gaussian-time-${side}-slider`)?.addEventListener('input',event=>{
-      byId(`gaussian-time-${side}`).value=event.target.value;
+      byId(`gaussian-time-${side}`).value=gaussianDateInput(Number(event.target.value));
     });
   });
   byId('gaussian-time-apply')?.addEventListener('click',()=>runAction(()=>refitGaussianDateRange(true)));
