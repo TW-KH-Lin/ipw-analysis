@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v60-assessment-paired-zones";
+const CACHE_NAME = "ipw-complaint-workspace-v61-independent-gaussian-scopes";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -25,7 +25,7 @@ const APP_SHELL = [
   "./workbook-comparison.js?v=2",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=151",
+  "../iphone-app.js?v=152",
   "./zone-profile.js?v=1",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",

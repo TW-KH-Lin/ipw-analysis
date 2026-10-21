@@ -166,7 +166,7 @@ function registerOfflineApp() {
 const REMEMBERED_CONTROLS = [
   "correlation-analysis", "correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions",
   "reference-temperature", "reference-humidity",
-  "summary-parameter", "gaussian-parameter", "gaussian-compare-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end", "gaussian-compare-bin-width", "gaussian-compare-start", "gaussian-compare-end", "gaussian-initial-means", "gaussian-compare-initial-means", "gaussian-extreme-sigma", "gaussian-extreme-side", "gaussian-zone-distributions",
+  "summary-parameter", "gaussian-data-scope", "gaussian-compare-data-scope", "gaussian-parameter", "gaussian-compare-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end", "gaussian-compare-bin-width", "gaussian-compare-start", "gaussian-compare-end", "gaussian-initial-means", "gaussian-compare-initial-means", "gaussian-extreme-sigma", "gaussian-extreme-side", "gaussian-zone-distributions",
   "trend-parameter", "period-parameter", "period-mode", "period-plot", "period-lot", "period-lot-b",
   "zone-profile-data-scope", "zone-profile-parameter-a", "zone-profile-parameter-b",
   "period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end",
@@ -341,6 +341,14 @@ function bindEvents() {
   byId("zone-profile-parameter-b").addEventListener("change",invalidateZoneProfile);
   byId("run-zone-profile").addEventListener("click",()=>runAction(createZoneProfile));
   byId('gaussian-data-scope').addEventListener('change',()=>{syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();});
+  byId('gaussian-compare-data-scope').addEventListener('change',()=>{
+    if(byId('gaussian-compare-data-scope').value==='none'){
+      byId('gaussian-compare-parameter').value='';
+      if(byId('gaussian-compare-source'))byId('gaussian-compare-source').value='';
+      syncGaussianComparisonParameter();
+    }
+    syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();
+  });
   byId('gaussian-lot').addEventListener('change',()=>{syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();});
   byId('gaussian-compare-lot').addEventListener('change',()=>{syncGaussianMethod();invalidateGaussian();});
   ["period-data-scope", "period-parameter", "period-plot"].forEach((id) => byId(id).addEventListener("change", invalidatePeriod));
@@ -446,10 +454,10 @@ function bindEvents() {
     syncGaussianMethod();
     syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
   });
-  byId("gaussian-compare-parameter").addEventListener("change",()=>{syncGaussianComparisonParameter();syncGaussianMethod();invalidateGaussian();});
+  byId("gaussian-compare-parameter").addEventListener("change",()=>{activateGaussianComparisonScope();syncGaussianComparisonParameter();syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();});
   ["gaussian-compare-bin-width","gaussian-compare-start","gaussian-compare-end"].forEach(id=>byId(id).addEventListener("input",invalidateGaussian));
   byId('gaussian-source')?.addEventListener('change',()=>{syncGaussianSourceChoices();syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();});
-  byId('gaussian-compare-source')?.addEventListener('change',()=>{syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();});
+  byId('gaussian-compare-source')?.addEventListener('change',()=>{activateGaussianComparisonScope();syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();});
   byId("gaussian-method").addEventListener("change",()=>{syncGaussianMethod();invalidateGaussian();});
   byId("gaussian-visible-rows").addEventListener("change", invalidateGaussian);
   byId("gaussian-zone-distributions").addEventListener("change", invalidateGaussian);
@@ -1901,6 +1909,7 @@ function populateWorkbookControls() {
     "apply-summary-mean-groups",
     "clear-summary-mean-groups",
     "gaussian-data-scope",
+    "gaussian-compare-data-scope",
     "gaussian-lot",
     "gaussian-compare-lot",
     "gaussian-parameter",
@@ -2485,7 +2494,8 @@ function recommendGaussian() {
   if (method === "nacl-truncated" && parameter.toLowerCase() !== "nacl") {
     throw new Error("NaCl truncated fitting is available only for the NaCl parameter.");
   }
-  const records = collectGaussianRecords(parameter, includedZones,byId('gaussian-source')?.value || 'all');
+  const scope=byId('gaussian-data-scope').value,lot=scope==='single'?byId('gaussian-lot').value:'';
+  const records = collectGaussianRecords(parameter, includedZones,byId('gaussian-source')?.value || 'all',scope,lot);
   const settings = recommendGaussianSettings(records.map((record) => record.value), { method, lowerLimit: 1 });
   byId("gaussian-bin-width").value = inputNumber(settings.binWidth);
   byId("gaussian-start").value = inputNumber(settings.start);
@@ -2510,39 +2520,45 @@ function gaussianLotsForSource(sourceId) {
 }
 
 function syncGaussianLotChoices() {
-  const single=byId('gaussian-data-scope').value==='single';
-  byId('gaussian-lot-row').hidden=!single;
-  byId('gaussian-lot-field').hidden=!single;
+  const primarySingle=byId('gaussian-data-scope').value==='single';
+  const comparisonScope=byId('gaussian-compare-data-scope').value;
+  const comparisonSingle=comparisonScope==='single';
+  byId('gaussian-lot-field').hidden=!primarySingle;
   const primarySource=byId('gaussian-source')?.value || 'all',comparisonSource=byId('gaussian-compare-source')?.value || '';
   const primaryLots=gaussianLotsForSource(primarySource),primaryValue=byId('gaussian-lot').value;
   fillSelect(byId('gaussian-lot'),primaryLots,primaryLots.includes(primaryValue)?primaryValue:primaryLots[0]);
-  byId('gaussian-lot').disabled=!single || !primaryLots.length;
+  byId('gaussian-lot').disabled=!primarySingle || !primaryLots.length;
   const effectiveComparisonSource=comparisonSource || primarySource;
   const sameSource=!comparisonSource || comparisonSource===primarySource;
+  const sameParameter=!byId('gaussian-compare-parameter').value;
   const comparisonLots=gaussianLotsForSource(effectiveComparisonSource)
-    .filter(lot=>!sameSource || !sameDataValue(lot,byId('gaussian-lot').value));
+    .filter(lot=>!primarySingle || !sameParameter || !sameSource || !sameDataValue(lot,byId('gaussian-lot').value));
   const comparisonValue=byId('gaussian-compare-lot').value;
   const selectedComparison=comparisonLots.some(lot=>sameDataValue(lot,comparisonValue))
     ? comparisonValue
-    : comparisonSource ? comparisonLots[0] : '';
-  fillSelect(byId('gaussian-compare-lot'),['',...comparisonLots],selectedComparison,value=>value || 'One lot');
-  byId('gaussian-compare-lot-field').hidden=!single;
-  byId('gaussian-compare-lot').disabled=!single || !comparisonLots.length;
+    : comparisonLots[0] || '';
+  fillSelect(byId('gaussian-compare-lot'),comparisonLots,selectedComparison);
+  byId('gaussian-compare-lot-field').hidden=!comparisonSingle;
+  byId('gaussian-compare-lot').disabled=!comparisonSingle || !comparisonLots.length;
 }
 
-function gaussianRows(lotOverride='') {
-  const scope=byId('gaussian-data-scope').value;
+function activateGaussianComparisonScope() {
+  const scope=byId('gaussian-compare-data-scope');
+  if(scope.value==='none' && (byId('gaussian-compare-parameter').value || byId('gaussian-compare-source')?.value))scope.value=byId('gaussian-data-scope').value;
+}
+
+function gaussianRows(scope='all',lot='') {
   if(scope==='all')return dataRows();
   if(scope==='filtered')return filteredRows();
-  const lot=lotOverride || byId('gaussian-lot').value,lotColumn=headerIndex(state.headers,'Lot');
+  const lotColumn=headerIndex(state.headers,'Lot');
   return lotColumn<0?[]:dataRows().filter(row=>sameDataValue(row[lotColumn],lot));
 }
 
-function collectGaussianRecords(parameter, includedZones, sourceId = 'all',lotOverride='') {
+function collectGaussianRecords(parameter, includedZones, sourceId = 'all',scope='all',lot='') {
   const columns = zoneColumns(state.headers, parameter), records = [], XLSX = getXlsx();
   const lotColumn = headerIndex(state.headers, "Lot"), batchColumn = headerIndex(state.headers, "N");
   const sheet = combinedContext.active ? null : state.workbook.Sheets[state.source];
-  for (const row of gaussianRows(lotOverride)) {
+  for (const row of gaussianRows(scope,lot)) {
     const location = state.sourceLocations.get(row);
     const origin = combinedContext.active ? combinedContext.origins.get(row) : null;
     if(sourceId!=='all' && origin?.source.id!==sourceId)continue;
@@ -2578,21 +2594,23 @@ async function createGaussian() {
   }
   if(!sameParameter&&method==='nacl-truncated')throw new Error('Use Standard Gaussian or Robust Gaussian when comparing two different parameters.');
   const scope = byId("gaussian-data-scope").value;
+  const requestedComparisonScope=byId('gaussian-compare-data-scope').value;
   const sourceId=byId('gaussian-source')?.value || 'all';
   const comparisonId=byId('gaussian-compare-source')?.value || '';
   const selectedLot=scope==='single'?byId('gaussian-lot').value:'';
-  const comparisonLot=scope==='single'?byId('gaussian-compare-lot').value:'';
-  const effectiveComparisonLot=comparisonLot||(!sameParameter?selectedLot:'');
-  const comparisonRequested=Boolean(comparisonId||comparisonLot||!sameParameter);
+  const comparisonRequested=requestedComparisonScope!=='none';
+  const effectiveComparisonScope=requestedComparisonScope==='none'?scope:requestedComparisonScope;
+  const comparisonLot=effectiveComparisonScope==='single'?byId('gaussian-compare-lot').value:'';
+  const effectiveComparisonLot=effectiveComparisonScope==='single'?(comparisonLot||(requestedComparisonScope==='none'?selectedLot:'')):'';
   const effectiveComparisonId=comparisonRequested?(comparisonId||sourceId):'';
   if(!(state.trendDateLookup instanceof Map)){
     try{await loadTrendDateLookup();}
     catch{state.trendDateLookup=new Map();}
   }
-  const records = collectGaussianRecords(parameter, includedZones,sourceId,selectedLot);
+  const records = collectGaussianRecords(parameter, includedZones,sourceId,scope,selectedLot);
   if(records.length<2)throw new Error(`Primary worksheet${selectedLot?` · Lot ${selectedLot}`:''} has ${records.length} numeric value(s). Choose a Lot with at least two values.`);
   const primary=fitGaussianSelection(records,method);
-  const comparisonRecords=effectiveComparisonId?collectGaussianRecords(comparisonParameter,includedZones,effectiveComparisonId,effectiveComparisonLot):[];
+  const comparisonRecords=effectiveComparisonId?collectGaussianRecords(comparisonParameter,includedZones,effectiveComparisonId,effectiveComparisonScope,effectiveComparisonLot):[];
   if(effectiveComparisonId && comparisonRecords.length<2)throw new Error(`Comparison dataset · ${comparisonParameter}${effectiveComparisonLot?` · Lot ${effectiveComparisonLot}`:''} has ${comparisonRecords.length} numeric value(s). Choose a selection with at least two values.`);
   const comparison=effectiveComparisonId?fitGaussianSelection(comparisonRecords,method,{usePrimaryRange:sameParameter,initialMeansId:'gaussian-compare-initial-means'}):null;
   const zoneDistributions=byId('gaussian-zone-distributions').checked
@@ -2602,13 +2620,14 @@ async function createGaussian() {
   const sourceLabel=combinedContext.active?(byId('gaussian-source')?.selectedOptions[0]?.textContent || state.source):state.source;
   const comparisonLabel=comparisonId?(byId('gaussian-compare-source')?.selectedOptions[0]?.textContent || sourceLabel):sourceLabel;
   const dateFilter=gaussianDateFilter([...records,...comparisonRecords]);
-  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,activeRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:!sameParameter,zoneDistributions,zoneViewRange,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
-    comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,activeRecords:comparisonRecords,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
+  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,activeRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:Boolean(comparison),zoneDistributions,zoneViewRange,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
+    comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope:effectiveComparisonScope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,activeRecords:comparisonRecords,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
   if(comparison&&sameParameter)state.lastGaussian.viewRange={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};
   else {state.lastGaussian.viewRange={start:primary.fit.start,end:primary.fit.end};if(comparison)state.lastGaussian.comparison.viewRange={start:comparison.fit.start,end:comparison.fit.end};}
   renderGaussianResult();renderGaussianExtremes();
   byId("save-gaussian-snapshot").disabled = false;byId("export-gaussian-extremes").disabled = false;
-  setStatus(`${comparison?`Gaussian comparison: ${parameter} (${sourceLabel} · Lot ${selectedLot || 'all'}) and ${comparisonParameter} (${comparisonLabel} · Lot ${effectiveComparisonLot || 'all'})`:`Gaussian fit: ${sourceLabel}${selectedLot?` · Lot ${selectedLot}`:''}`}. ${formatInteger(primary.fit.n)} primary points used.`,false,true);
+  const scopeLabel=(value,lot)=>value==='single'?`Lot ${lot}`:value==='filtered'?'Filtered lots':'All lots';
+  setStatus(`${comparison?`Gaussian comparison: ${parameter} (${sourceLabel} · ${scopeLabel(scope,selectedLot)}) and ${comparisonParameter} (${comparisonLabel} · ${scopeLabel(effectiveComparisonScope,effectiveComparisonLot)})`:`Gaussian fit: ${sourceLabel} · ${scopeLabel(scope,selectedLot)}`}. ${formatInteger(primary.fit.n)} primary points used.`,false,true);
 }
 
 function buildGaussianZoneDistributionsFromRecords(allRecords,method) {
@@ -2813,6 +2832,11 @@ function renderGaussianZoneDistributions(result) {
   </details>`;
 }
 
+function gaussianSelectionLabel(selection) {
+  const scope=selection.scope==='single'?`Lot ${selection.selectedLot}`:selection.scope==='filtered'?'Filtered lots':'All lots';
+  return `${selection.parameter} · ${selection.sourceLabel || selection.source} · ${scope}`;
+}
+
 function renderGaussianResult() {
   const result = state.lastGaussian;
   if (!result) return;
@@ -2843,8 +2867,8 @@ function renderGaussianResult() {
         <span id="gaussian-view-error" role="alert"></span>
       </div></details>
       <div class="gaussian-comparison-grid ${result.comparison?'has-comparison':''}">
-        <article class="chart-card"><h3>${escapeHtml(result.parameter)} · ${escapeHtml(result.sourceLabel || result.source)}${result.selectedLot?` · Lot ${escapeHtml(result.selectedLot)}`:''}</h3><p>N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)} · Bin ${formatNumber(fit.binWidth,3)} · Range ${formatNumber(fit.start,3)} to ${formatNumber(fit.end,3)}</p><canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></article>
-        ${result.comparison?`<article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(result.comparison.parameter)} · ${escapeHtml(result.comparison.sourceLabel)}${result.comparison.selectedLot?` · Lot ${escapeHtml(result.comparison.selectedLot)}`:''}</h3><button id="export-gaussian-comparison-png" class="command" type="button">Export PNG</button></div><p>N ${formatInteger(result.comparison.fit.n)} · Mu ${formatNumber(result.comparison.fit.mean,3)} · Sigma ${formatNumber(result.comparison.fit.sigma,3)} · Bin ${formatNumber(result.comparison.fit.binWidth,3)} · Range ${formatNumber(result.comparison.fit.start,3)} to ${formatNumber(result.comparison.fit.end,3)}</p><canvas id="gaussian-comparison-chart" aria-label="Comparison parameter Gaussian plot"></canvas></article>`:''}
+        <article class="chart-card"><h3>${escapeHtml(gaussianSelectionLabel(result))}</h3><p>N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)} · Bin ${formatNumber(fit.binWidth,3)} · Range ${formatNumber(fit.start,3)} to ${formatNumber(fit.end,3)}</p><canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></article>
+        ${result.comparison?`<article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(gaussianSelectionLabel(result.comparison))}</h3><button id="export-gaussian-comparison-png" class="command" type="button">Export PNG</button></div><p>N ${formatInteger(result.comparison.fit.n)} · Mu ${formatNumber(result.comparison.fit.mean,3)} · Sigma ${formatNumber(result.comparison.fit.sigma,3)} · Bin ${formatNumber(result.comparison.fit.binWidth,3)} · Range ${formatNumber(result.comparison.fit.start,3)} to ${formatNumber(result.comparison.fit.end,3)}</p><canvas id="gaussian-comparison-chart" aria-label="Comparison parameter Gaussian plot"></canvas></article>`:''}
       </div>
       ${result.comparison&&!result.sameParameter?'<p class="gaussian-comparison-note">Each parameter uses its own automatic bin width, fitting range and X-axis. The dual-axis overlap uses normalized density to compare distribution shape.</p>':''}
       ${fit.components?.length?`<div class="gaussian-mixture-grid ${result.comparison?'has-comparison':''}">
@@ -2858,15 +2882,15 @@ function renderGaussianResult() {
       ${result.comparison?`<div class="gaussian-overlay-control"><label class="choice-row"><input id="gaussian-overlay-toggle" type="checkbox" ${result.overlayVisible?'checked':''}>Show both distributions in one plot</label></div>
         <section id="gaussian-overlay-section" class="chart-card gaussian-overlay-card" ${result.overlayVisible?'':'hidden'}>
           <div class="assessment-plot-toolbar"><h3>Distribution overlap · ${escapeHtml(result.parameter)} vs ${escapeHtml(result.comparison.parameter)}</h3><button id="export-gaussian-overlay-png" class="command" type="button">Export PNG</button></div>
-          <p>Blue: ${escapeHtml(result.parameter)} · ${escapeHtml(result.sourceLabel || result.source)}${result.selectedLot?` · Lot ${escapeHtml(result.selectedLot)}`:''} · Orange: ${escapeHtml(result.comparison.parameter)} · ${escapeHtml(result.comparison.sourceLabel)}${result.comparison.selectedLot?` · Lot ${escapeHtml(result.comparison.selectedLot)}`:''}</p>
+          <p>Blue: ${escapeHtml(gaussianSelectionLabel(result))} · Orange: ${escapeHtml(gaussianSelectionLabel(result.comparison))}</p>
           <canvas id="gaussian-overlay-chart" aria-label="Overlaid primary and comparison Gaussian distributions"></canvas>
         </section>`:''}
       </details>
     ${renderGaussianZoneDistributions(result)}
     <details class="gaussian-sigma-section" open><summary>Exact counts by sigma range</summary>
       <div class="gaussian-sigma-grid ${result.comparison?'has-comparison':''}">
-        ${renderGaussianSigmaCounts(result,`${result.parameter} · ${result.sourceLabel || result.source}${result.selectedLot?` · Lot ${result.selectedLot}`:''}`)}
-        ${result.comparison?renderGaussianSigmaCounts(result.comparison,`${result.comparison.parameter} · ${result.comparison.sourceLabel}${result.comparison.selectedLot?` · Lot ${result.comparison.selectedLot}`:''}`):''}
+        ${renderGaussianSigmaCounts(result,gaussianSelectionLabel(result))}
+        ${result.comparison?renderGaussianSigmaCounts(result.comparison,gaussianSelectionLabel(result.comparison)):''}
       </div>
     </details>
     ${fit.components?.length?'':`<div class="table-wrap mini-table compact-table cutoff-table">${renderTable([
@@ -2988,8 +3012,8 @@ function gaussianOverlayDetails(current) {
     comparisonParameter:current.comparison.parameter,
     independentAxes:!current.sameParameter,
     zones:current.zones,
-    primary:`${current.parameter} · ${current.sourceLabel || current.source}${current.selectedLot?` · Lot ${current.selectedLot}`:''}`,
-    comparison:`${current.comparison.parameter} · ${current.comparison.sourceLabel || current.comparison.source}${current.comparison.selectedLot?` · Lot ${current.comparison.selectedLot}`:''}`
+    primary:gaussianSelectionLabel(current),
+    comparison:gaussianSelectionLabel(current.comparison)
   };
 }
 
@@ -5605,7 +5629,7 @@ function syncGaussianMethod() {
   truncatedOption.disabled = parameter !== "nacl";
   if (truncatedOption.disabled && methodSelect.value === "nacl-truncated") methodSelect.value = "standard";
   const mixture=methodSelect.value==='mixture-2'||methodSelect.value==='mixture-3';
-  const comparisonRequested=Boolean(byId('gaussian-compare-parameter').value||byId('gaussian-compare-source')?.value||byId('gaussian-compare-lot').value);
+  const comparisonRequested=Boolean(byId('gaussian-compare-data-scope').value!=='none'||byId('gaussian-compare-parameter').value||byId('gaussian-compare-source')?.value);
   byId('gaussian-mixture-row').hidden=!mixture;
   byId('gaussian-initial-means').disabled=!mixture || !state.workbook;
   byId('gaussian-compare-initial-means-field').hidden=!mixture || !comparisonRequested;
