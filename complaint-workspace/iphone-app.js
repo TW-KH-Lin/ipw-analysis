@@ -5778,9 +5778,18 @@ function drawGaussianOverlay(canvas, primary, comparison, details={}, dimensions
   const {ctx,width,height,colors}=setupCanvas(canvas,dimensions);
   const fontSize=dimensions?18:14,pad={left:58,right:16,top:independentAxes?156:126,bottom:independentAxes?62:38};
   const percent=(value,fit)=>fit.n&&fit.binWidth?value/fit.n/fit.binWidth*100:0;
+  const curveSamples=(fit,axis)=>{
+    const count=Math.max(480,Math.ceil((dimensions?.width || canvas.clientWidth || 900)*1.5));
+    return Array.from({length:count+1},(_,index)=>{
+      const value=axis.min+(axis.max-axis.min)*index/count;
+      return {value,density:percent(gaussianCurveExpected(fit,value),fit)};
+    });
+  };
+  const primaryCurve=curveSamples(primary,primaryAxis),comparisonCurve=curveSamples(comparison,comparisonAxis);
   const maxValue=Math.max(1,
-    ...primary.bins.flatMap(bin=>[percent(bin.observed,primary),percent(bin.gaussian,primary)]),
-    ...comparison.bins.flatMap(bin=>[percent(bin.observed,comparison),percent(bin.gaussian,comparison)]));
+    ...primary.bins.map(bin=>percent(bin.observed,primary)),
+    ...comparison.bins.map(bin=>percent(bin.observed,comparison)),
+    ...primaryCurve.map(point=>point.density),...comparisonCurve.map(point=>point.density));
   const yAxis=integerChartAxis([0,maxValue]);
   ctx.font=`${fontSize}px sans-serif`;
   pad.left=Math.max(pad.left,...yAxis.ticks.map(value=>ctx.measureText(`${formatInteger(value)}%`).width+14));
@@ -5806,12 +5815,16 @@ function drawGaussianOverlay(canvas, primary, comparison, details={}, dimensions
   }
   drawFrame(ctx,pad,width,height,colors);
   const series=[
-    {fit:primary,axis:primaryAxis,bar:"rgba(25,93,141,0.30)",line:"#195d8d",label:"Primary",source:details.primary || "Primary"},
-    {fit:comparison,axis:comparisonAxis,bar:"rgba(216,103,35,0.30)",line:"#c55418",label:"Comparison",source:details.comparison || "Comparison"}
+    {fit:primary,axis:primaryAxis,curve:primaryCurve,bar:"rgba(25,93,141,0.30)",line:"#195d8d",label:"Primary",source:details.primary || "Primary"},
+    {fit:comparison,axis:comparisonAxis,curve:comparisonCurve,bar:"rgba(216,103,35,0.30)",line:"#c55418",label:"Comparison",source:details.comparison || "Comparison"}
   ];
   ctx.save();ctx.beginPath();ctx.rect(pad.left,pad.top,plotWidth,plotHeight);ctx.clip();
   series.forEach(({fit,axis,bar})=>fit.bins.forEach(bin=>{const x0=xScale(bin.lower,axis),x1=xScale(bin.upper,axis),barHeight=percent(bin.observed,fit)/maxY*plotHeight;ctx.fillStyle=bar;ctx.fillRect(x0+1,pad.top+plotHeight-barHeight,Math.max(1,x1-x0-2),barHeight);}));
-  series.forEach(({fit,axis,line})=>{ctx.beginPath();fit.bins.forEach((bin,index)=>{const x=xScale(bin.center,axis),y=yScale(percent(bin.gaussian,fit));if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.strokeStyle=line;ctx.lineWidth=3;ctx.stroke();});
+  series.forEach(({axis,curve,line})=>{
+    ctx.beginPath();
+    curve.forEach((point,index)=>{const x=xScale(point.value,axis),y=yScale(point.density);if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
+    ctx.strokeStyle=line;ctx.lineWidth=3;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
+  });
   series.forEach(({fit,axis,line})=>{if(fit.mean<axis.min||fit.mean>axis.max)return;const x=xScale(fit.mean,axis);ctx.beginPath();ctx.setLineDash([6,4]);ctx.strokeStyle=line;ctx.lineWidth=1.5;ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();ctx.setLineDash([]);});
   ctx.restore();
   ctx.textAlign="left";ctx.fillStyle="#172231";ctx.font=`bold ${fontSize+2}px sans-serif`;
@@ -5826,10 +5839,19 @@ function drawGaussianOverlay(canvas, primary, comparison, details={}, dimensions
   });
 }
 
+function gaussianStandardCdf(value) {
+  const absolute=Math.abs(value),t=1/(1+0.2316419*absolute);
+  const polynomial=t*(0.319381530+t*(-0.356563782+t*(1.781477937+t*(-1.821255978+t*1.330274429))));
+  const upper=Math.exp(-0.5*absolute*absolute)/Math.sqrt(2*Math.PI)*polynomial;
+  return value>=0?1-upper:upper;
+}
+
 function gaussianCurveExpected(fit,value,componentIndex=null) {
   if(fit.method==='nacl-truncated'){
-    const bin=fit.bins.reduce((nearest,item)=>Math.abs(item.center-value)<Math.abs(nearest.center-value)?item:nearest,fit.bins[0]);
-    return bin?.gaussian || 0;
+    if(!(fit.sigma>0)||value<fit.start||value>fit.end)return 0;
+    const lower=gaussianStandardCdf((fit.start-fit.mean)/fit.sigma),upper=gaussianStandardCdf((fit.end-fit.mean)/fit.sigma);
+    const normalization=upper-lower;
+    return normalization>0?(fit.histogramN || fit.n)*fit.binWidth*Math.exp(-0.5*((value-fit.mean)/fit.sigma)**2)/(fit.sigma*Math.sqrt(2*Math.PI)*normalization):0;
   }
   const density=(mean,sigma)=>sigma>0?Math.exp(-0.5*((value-mean)/sigma)**2)/(sigma*Math.sqrt(2*Math.PI)):0;
   if(fit.components?.length){
@@ -5849,7 +5871,8 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
   const fontSize = dimensions ? 18 : 14;
   const pad = { left: 48, right: 12, top: fit.components?.length ? (dimensions ? 112 : 94) : (dimensions ? 136 : 120), bottom: 34 };
   const normalized=Boolean(display.normalized),valueScale=normalized?100/Math.max(1,fit.histogramN || fit.n || 1):1;
-  const curveSamples=Array.from({length:361},(_,index)=>({value:fit.start+(fit.end-fit.start)*index/360,expected:gaussianCurveExpected(fit,fit.start+(fit.end-fit.start)*index/360)}));
+  const curveSampleCount=Math.max(720,Math.ceil(width*1.5));
+  const curveSamples=Array.from({length:curveSampleCount+1},(_,index)=>({value:fit.start+(fit.end-fit.start)*index/curveSampleCount,expected:gaussianCurveExpected(fit,fit.start+(fit.end-fit.start)*index/curveSampleCount)}));
   const observedPeak=Math.max(1,...fit.bins.map(bin=>bin.observed*valueScale),...curveSamples.map(point=>point.expected*valueScale));
   const yAxis = integerChartAxis([0, Number.isFinite(display.yMax)&&display.yMax>0?display.yMax:observedPeak]);
   ctx.font = `${fontSize}px sans-serif`;
@@ -5898,7 +5921,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
         const y=pad.top+plotHeight-gaussianCurveExpected(fit,point.value,componentIndex)*valueScale/maxY*plotHeight;
         if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
       });
-      ctx.strokeStyle=componentColors[componentIndex];ctx.lineWidth=1.8;ctx.setLineDash([6,4]);ctx.stroke();ctx.setLineDash([]);
+      ctx.strokeStyle=componentColors[componentIndex];ctx.lineWidth=1.8;ctx.lineJoin='round';ctx.lineCap='round';ctx.setLineDash([6,4]);ctx.stroke();ctx.setLineDash([]);
     });
     ctx.beginPath();
     curveSamples.forEach((point, index) => {
@@ -5909,6 +5932,8 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
     });
     ctx.strokeStyle = colors.green;
     ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     ctx.stroke();
   }
   ctx.restore();
