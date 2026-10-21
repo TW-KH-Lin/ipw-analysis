@@ -5821,9 +5821,11 @@ function drawGaussianOverlay(canvas, primary, comparison, details={}, dimensions
   ctx.save();ctx.beginPath();ctx.rect(pad.left,pad.top,plotWidth,plotHeight);ctx.clip();
   series.forEach(({fit,axis,bar})=>fit.bins.forEach(bin=>{const x0=xScale(bin.lower,axis),x1=xScale(bin.upper,axis),barHeight=percent(bin.observed,fit)/maxY*plotHeight;ctx.fillStyle=bar;ctx.fillRect(x0+1,pad.top+plotHeight-barHeight,Math.max(1,x1-x0-2),barHeight);}));
   series.forEach(({axis,curve,line})=>{
+    ctx.save();
     ctx.beginPath();
     curve.forEach((point,index)=>{const x=xScale(point.value,axis),y=yScale(point.density);if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
-    ctx.strokeStyle=line;ctx.lineWidth=3;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
+    ctx.strokeStyle=line;ctx.globalAlpha=0.82;ctx.globalCompositeOperation='multiply';ctx.lineWidth=3.4;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
+    ctx.restore();
   });
   series.forEach(({fit,axis,line})=>{if(fit.mean<axis.min||fit.mean>axis.max)return;const x=xScale(fit.mean,axis);ctx.beginPath();ctx.setLineDash([6,4]);ctx.strokeStyle=line;ctx.lineWidth=1.5;ctx.moveTo(x,pad.top);ctx.lineTo(x,height-pad.bottom);ctx.stroke();ctx.setLineDash([]);});
   ctx.restore();
