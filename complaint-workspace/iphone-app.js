@@ -1328,13 +1328,23 @@ async function requestWorkbookSaveHandle(fileName) {
 }
 
 async function saveWorkbookBytes(bytes, fileName, handle) {
+  const payload = workbookPayload(bytes, fileName);
   if (handle) {
-    const writable = await handle.createWritable();
-    await writable.write(bytes);
-    await writable.close();
+    let writable;
+    try {
+      // Preserve the existing file until the complete replacement is ready.
+      // This prevents a failed browser write from leaving a 0-byte workbook.
+      writable = await handle.createWritable({ keepExistingData: true });
+      await writable.write({ type: "write", position: 0, data: payload.blob });
+      await writable.truncate(payload.size);
+      await writable.close();
+    } catch (error) {
+      try { await writable?.abort(); } catch { /* Best-effort rollback. */ }
+      throw new Error(`Workbook could not be written. The existing file was preserved. ${error?.message || error}`);
+    }
     return "direct";
   }
-  const file = new File([bytes], fileName, { type: workbookMime(fileName) });
+  const file = new File([payload.blob], fileName, { type: workbookMime(fileName) });
   if (navigator.share && navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: fileName });
@@ -1345,6 +1355,22 @@ async function saveWorkbookBytes(bytes, fileName, handle) {
   }
   downloadBlob(fileName, file);
   return "download";
+}
+
+function workbookPayload(bytes, fileName) {
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (data.byteLength < 4 || data[0] !== 0x50 || data[1] !== 0x4b) {
+    throw new Error("Workbook generation returned an incomplete Excel file. Nothing was saved.");
+  }
+  try {
+    const verification = getXlsx().read(data.slice(0), { type: "array", bookSheets: true });
+    if (!verification?.SheetNames?.length) throw new Error("No worksheets were found.");
+  } catch (error) {
+    throw new Error(`Workbook validation failed before saving. Nothing was saved. ${error?.message || error}`);
+  }
+  const blob = new Blob([data], { type: workbookMime(fileName) });
+  if (!blob.size) throw new Error("Workbook generation returned 0 bytes. Nothing was saved.");
+  return { blob, size: blob.size };
 }
 
 function writableWorkbookName() {
@@ -6631,6 +6657,7 @@ function downloadText(fileName, content, type) {
 }
 
 function downloadBlob(fileName, blob) {
+  if (!blob?.size) throw new Error("The generated file is empty. Download was cancelled.");
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -6638,7 +6665,8 @@ function downloadBlob(fileName, blob) {
   document.body.append(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  // Keep the object URL alive until the browser has consumed the download.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 function safeSheetName(name) {
