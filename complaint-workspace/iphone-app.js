@@ -123,6 +123,7 @@ const GENERATED_CLEAN = "Generated Clean_Data";
 const GENERATED_CORRECTED = "Generated Clean_Data_Cor";
 const ZONES = [1, 2, 3, 4, 5, 6];
 const TREND_COLORS = ["#195d8d", "#2e7d4f", "#a86a00", "#b3261e", "#7656a1", "#00838f"];
+let pendingWorkbookDownloadUrl = "";
 
 document.addEventListener("DOMContentLoaded", () => {
   bindEvents();
@@ -1369,10 +1370,21 @@ async function saveWorkbookBytes(bytes, fileName, handle) {
     }
     return "direct";
   }
-  // Use the browser download path consistently. Managed share providers may
-  // report success before consuming the file and leave an empty destination.
-  downloadBlob(fileName, payload.blob);
+  // Keep a visible, user-clickable link because managed browsers can block an
+  // automatic download after workbook generation has taken several seconds.
+  offerWorkbookDownload(fileName,payload.blob);
   return "download";
+}
+
+function offerWorkbookDownload(fileName,blob) {
+  const panel=byId("workbook-download-ready"),link=byId("workbook-download-link"),details=byId("workbook-download-details");
+  if(!panel||!link||!details){downloadBlob(fileName,blob);return;}
+  if(pendingWorkbookDownloadUrl)URL.revokeObjectURL(pendingWorkbookDownloadUrl);
+  pendingWorkbookDownloadUrl=URL.createObjectURL(blob);
+  link.href=pendingWorkbookDownloadUrl;link.download=fileName;link.textContent=`Download ${fileName}`;
+  details.textContent=`${formatInteger(blob.size)} bytes · Click the button if the download did not start automatically.`;
+  panel.hidden=false;
+  link.click();
 }
 
 function workbookPayload(bytes, fileName) {
