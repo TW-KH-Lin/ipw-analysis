@@ -1190,7 +1190,7 @@ async function importSelectedParameters() {
   const session=state.parameterImport;if(!session)throw new Error("Choose a parameter workbook first.");
   const current=session.sheets.find(item=>item.name===session.sourceSheet),selected=selectedParameterImportHeaders();
   if(!selected.length)throw new Error("Select at least one parameter to import.");
-  const fileName=writableWorkbookName(),saveHandle=await requestWorkbookSaveHandle(fileName);
+  const fileName=workbookCopyName("parameter_import"),saveHandle=null;
   setStatus("Importing selected parameters into Auswertung...");await yieldToBrowser();
   const XLSX=getXlsx(),workbook=XLSX.read(state.originalData.slice(0),{type:"array",cellDates:true,cellFormula:true,cellHTML:false,cellText:true,cellStyles:true,bookVBA:true,dense:false});
   const existingTable=readWorkbookSheetWithBlankRows(workbook,"Auswertung");
@@ -1207,7 +1207,7 @@ async function importSelectedParameters() {
   const bytes=XLSX.write(workbook,{type:"array",bookType:workbookBookType(fileName),bookVBA:/\.xlsm$/i.test(fileName),cellDates:true,cellStyles:true,compression:true});
   const saveMode=await saveWorkbookBytes(bytes,fileName,saveHandle);
   await parseWorkbook(bytes,fileName);openPanel("merge-panel");
-  setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters imported into Auswertung. ${formatInteger(result.skippedExisting)} existing cells preserved. ${saveMode==="direct"?"Workbook replaced.":"Confirm Replace in Files."}`,false,true);
+  setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters imported into Auswertung. ${formatInteger(result.skippedExisting)} existing cells preserved. Downloaded ${fileName}.`,false,true);
 }
 
 function renderMergePreview() {
@@ -1242,8 +1242,8 @@ function renderMergePreview() {
 async function mergeNewLots() {
   if (!state.newLotImport) throw new Error("Choose a new-lot workbook first.");
   if (state.newLotImport.preview.missingHeaders.length) throw new Error("The new-lot workbook is missing required Auswertung headers.");
-  const fileName = writableWorkbookName();
-  const saveHandle = await requestWorkbookSaveHandle(fileName);
+  const fileName = workbookCopyName("merged_lots");
+  const saveHandle = null;
   setStatus("Merging Auswertung and rebuilding Clean_Data and Summary...");
   await yieldToBrowser();
   const XLSX = getXlsx();
@@ -1285,7 +1285,7 @@ async function mergeNewLots() {
   await parseWorkbook(bytes, fileName);
   openPanel("merge-panel");
   setStatus(
-    `${formatInteger(merged.addedRows)} rows merged into ${fileName}. ${saveMode === "direct" ? "Workbook replaced." : "Confirm Replace in Files."}`,
+    `${formatInteger(merged.addedRows)} rows merged. Downloaded ${fileName}.`,
     false,
     true
   );
@@ -1312,19 +1312,9 @@ function appendWorkbookRows(sheet, rows) {
 }
 
 async function requestWorkbookSaveHandle(fileName) {
-  if (typeof window.showSaveFilePicker !== "function") return null;
-  try {
-    return await window.showSaveFilePicker({
-      suggestedName: fileName,
-      types: [{
-        description: "Excel workbook",
-        accept: { [workbookMime(fileName)]: [fileExtension(fileName)] }
-      }]
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") throw new Error("Workbook save was cancelled.");
-    throw error;
-  }
+  // Always download a verified copy. Some managed Edge/Windows environments
+  // create a 0-byte destination when File System Access replacement fails.
+  return null;
 }
 
 async function saveWorkbookBytes(bytes, fileName, handle) {
@@ -1344,16 +1334,9 @@ async function saveWorkbookBytes(bytes, fileName, handle) {
     }
     return "direct";
   }
-  const file = new File([payload.blob], fileName, { type: workbookMime(fileName) });
-  if (navigator.share && navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: fileName });
-      return "share";
-    } catch (error) {
-      if (error?.name === "AbortError") throw new Error("Workbook save was cancelled.");
-    }
-  }
-  downloadBlob(fileName, file);
+  // Use the browser download path consistently. Managed share providers may
+  // report success before consuming the file and leave an empty destination.
+  downloadBlob(fileName, payload.blob);
   return "download";
 }
 
@@ -1376,6 +1359,11 @@ function workbookPayload(bytes, fileName) {
 function writableWorkbookName() {
   const name = state.workbookName || "IPW_Analysis.xlsx";
   return /\.(?:xlsx|xlsm)$/i.test(name) ? name : name.replace(/\.[^.]+$/, "") + ".xlsx";
+}
+
+function workbookCopyName(suffix) {
+  const name = writableWorkbookName();
+  return name.replace(/(\.(?:xlsx|xlsm))$/i, `_${suffix}$1`);
 }
 
 function workbookBookType(fileName) {
