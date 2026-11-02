@@ -52,7 +52,7 @@ import {
   parseDataLabels,
   removeDataLabel,
   upsertDataLabel
-} from "./data-management.js?v=6";
+} from "./data-management.js?v=7";
 import {
   assessmentBatchIndexes,
   buildLotReleaseSummary,
