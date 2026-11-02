@@ -1120,7 +1120,7 @@ async function openParameterImportWorkbook(file) {
   if(!state.originalData)throw new Error("Open the existing workbook that contains Auswertung first.");
   setStatus(`Checking parameter workbook ${file.name}...`);await yieldToBrowser();
   const XLSX=getXlsx(),data=await file.arrayBuffer();
-  const workbook=XLSX.read(data,{type:"array",cellDates:true,cellFormula:true,cellHTML:false,cellText:true,dense:false});
+  const workbook=XLSX.read(data,{type:"array",cellDates:true,cellFormula:true,cellHTML:false,cellText:true,cellStyles:true,bookVBA:true,dense:false});
   const targetWorkbook=XLSX.read(state.originalData.slice(0),{type:"array",cellDates:true,cellFormula:true,cellHTML:false,cellText:true,dense:false,sheets:["Auswertung"]});
   const existingTable=readWorkbookSheetWithBlankRows(targetWorkbook,"Auswertung");
   const sheets=[];
@@ -1204,10 +1204,45 @@ async function importSelectedParameters() {
   replaceWorkbookSheet(workbook,"Clean_Data",[clean.headers,...clean.rows]);
   const summary=buildFullSummary(clean.headers,clean.rows);replaceWorkbookSheet(workbook,"Summary",[summary.headers,...summary.rows]);
   writeDataLabelsToWorkbook(workbook,clean.headers,clean.rows);
+  const rawSheetName=copyImportedRawWorksheet(workbook,session.workbook,session.sourceSheet);
+  appendParameterImportLog(workbook,{
+    sourceFile:session.fileName,sourceSheet:session.sourceSheet,rawSheetName,
+    parameters:result.selectedHeaders,updatedCells:result.updatedCells,matchedRows:result.matchedRows
+  });
   const bytes=XLSX.write(workbook,{type:"array",bookType:workbookBookType(fileName),bookVBA:/\.xlsm$/i.test(fileName),cellDates:true,cellStyles:true,compression:true});
   const saveMode=await saveWorkbookBytes(bytes,fileName,saveHandle);
   await parseWorkbook(bytes,fileName);openPanel("merge-panel");
-  setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters imported into Auswertung. ${formatInteger(result.skippedExisting)} existing cells preserved. Downloaded ${fileName}.`,false,true);
+  setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters imported into Auswertung. Raw source retained in ${rawSheetName}. Downloaded ${fileName}.`,false,true);
+}
+
+function copyImportedRawWorksheet(targetWorkbook,sourceWorkbook,sourceSheetName) {
+  const sourceSheet=sourceWorkbook?.Sheets?.[sourceSheetName];
+  if(!sourceSheet)throw new Error("The selected raw source worksheet is unavailable.");
+  const stem=safeSheetName(`Imported_Raw_${sourceSheetName}`).slice(0,31);
+  let name=stem,counter=2;
+  while(targetWorkbook.SheetNames.includes(name)){
+    const suffix=`_${counter++}`;name=`${stem.slice(0,31-suffix.length)}${suffix}`;
+  }
+  targetWorkbook.Sheets[name]=cloneWorkbookValue(sourceSheet);
+  targetWorkbook.SheetNames.push(name);
+  return name;
+}
+
+function cloneWorkbookValue(value) {
+  if(value instanceof Date)return new Date(value.getTime());
+  if(Array.isArray(value))return value.map(cloneWorkbookValue);
+  if(value&&typeof value==="object")return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,cloneWorkbookValue(item)]));
+  return value;
+}
+
+function appendParameterImportLog(workbook,entry) {
+  const XLSX=getXlsx(),name="Parameter_Import_Log";
+  if(!workbook.Sheets[name]){
+    workbook.Sheets[name]=XLSX.utils.aoa_to_sheet([["Imported at","Source file","Source worksheet","Raw worksheet","Parameters","Matched rows","Updated cells"]],{cellDates:true});
+    workbook.SheetNames.push(name);
+  }
+  const sheet=workbook.Sheets[name],range=sheet["!ref"]?XLSX.utils.decode_range(sheet["!ref"]):{s:{r:0,c:0},e:{r:0,c:6}};
+  XLSX.utils.sheet_add_aoa(sheet,[[new Date(),entry.sourceFile,entry.sourceSheet,entry.rawSheetName,entry.parameters.join(", "),entry.matchedRows,entry.updatedCells]],{origin:{r:range.e.r+1,c:0},cellDates:true});
 }
 
 function renderMergePreview() {
