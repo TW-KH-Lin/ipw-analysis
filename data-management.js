@@ -119,6 +119,123 @@ export function mergeAuswertungTables(existingTable, importTable) {
   };
 }
 
+const PARAMETER_IMPORT_IDENTIFIERS = new Set([
+  "messungid", "probenzeit", "nummer", "probentyp", "probetype", "type",
+  "ziehmaschinenname", "chargennr", "ziehart", "filtertypnr"
+]);
+
+function parameterImportColumns(headers) {
+  const lot = rawHeaderIndex(headers, "ChargenNr");
+  const batch = rawHeaderIndex(headers, "Nummer");
+  const sampleType = ["Probentyp", "ProbeType", "Type"].map(name => rawHeaderIndex(headers, name)).find(index => index >= 0) ?? -1;
+  if (lot < 0 || batch < 0 || sampleType < 0) throw new Error("Both workbooks need ChargenNr, Nummer and Probentyp (Probe Type) columns.");
+  return { lot, batch, sampleType };
+}
+
+function parameterImportRowKey(row, columns) {
+  const lot=text(row[columns.lot]),batch=text(row[columns.batch]),sampleType=text(row[columns.sampleType]);
+  return lot&&batch&&sampleType?importKey(lot,batch,sampleType):"";
+}
+
+function parameterImportValuesEqual(first,second) {
+  const comparableNumber=value=>{
+    if(isNumeric(value))return number(value);
+    const rendered=text(value);
+    return /^[-+]?\d+(?:,\d+)?$/.test(rendered)?Number(rendered.replace(",",".")):null;
+  };
+  const a=comparableNumber(first),b=comparableNumber(second);
+  if(a!==null&&b!==null){
+    const scale=Math.max(1,Math.abs(a),Math.abs(b));
+    return Math.abs(a-b)<=1e-9*scale;
+  }
+  return text(first)===text(second);
+}
+
+function uniqueImportRows(rows, columns) {
+  const map=new Map(),duplicates=new Set();
+  for(const row of rows){
+    const key=parameterImportRowKey(row,columns);if(!key)continue;
+    if(map.has(key)){duplicates.add(key);map.delete(key);}
+    else if(!duplicates.has(key))map.set(key,row);
+  }
+  return {map,duplicates};
+}
+
+export function analyzeAuswertungParameterImport(existingTable, importTable) {
+  const existingHeader=findRawHeaderRow(existingTable),importHeader=findRawHeaderRow(importTable);
+  if(!existingHeader)throw new Error("The current workbook has no readable Auswertung headers.");
+  if(!importHeader)throw new Error("The parameter workbook needs ChargenNr and Nummer headers.");
+  const existingHeaders=existingHeader.headers,importHeaders=importHeader.headers;
+  const existingColumns=parameterImportColumns(existingHeaders),importColumns=parameterImportColumns(importHeaders);
+  const existingByKey=new Map();
+  for(const [offset,row] of existingTable.slice(existingHeader.index+1).entries()){
+    const key=parameterImportRowKey(row,existingColumns);if(!key)continue;
+    if(!existingByKey.has(key))existingByKey.set(key,[]);
+    existingByKey.get(key).push({row,index:existingHeader.index+1+offset});
+  }
+  const importRows=importTable.slice(importHeader.index+1),unique=uniqueImportRows(importRows,importColumns);
+  const parameters=importHeaders.flatMap((header,sourceColumn)=>{
+    const name=text(header),key=rawHeaderKey(name);
+    if(!name||PARAMETER_IMPORT_IDENTIFIERS.has(key))return [];
+    const targetColumn=existingHeaders.findIndex(value=>rawHeaderKey(value)===key);
+    let sourceValues=0,matchedValues=0,targetValues=0,conflicts=0;
+    for(const [rowKey,sourceRow] of unique.map){
+      const sourceValue=sourceRow[sourceColumn];if(text(sourceValue)==="")continue;
+      sourceValues++;
+      const targets=existingByKey.get(rowKey)||[];
+      for(const target of targets){
+        matchedValues++;
+        if(targetColumn<0||text(target.row[targetColumn])==="")continue;
+        targetValues++;
+        if(!parameterImportValuesEqual(target.row[targetColumn],sourceValue))conflicts++;
+      }
+    }
+    return [{name,key,sourceColumn,targetColumn,sourceValues,matchedValues,targetValues,conflicts,exists:targetColumn>=0}];
+  });
+  const matchedKeys=[...unique.map.keys()].filter(key=>existingByKey.has(key));
+  return {
+    existingHeaderIndex:existingHeader.index,importHeaderIndex:importHeader.index,
+    matchedRows:matchedKeys.reduce((sum,key)=>sum+existingByKey.get(key).length,0),
+    matchedKeys:matchedKeys.length,sourceKeys:unique.map.size,duplicateSourceKeys:unique.duplicates.size,
+    unmatchedSourceKeys:unique.map.size-matchedKeys.length,
+    parameters:parameters.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true})),
+    existingHeaders,importHeaders
+  };
+}
+
+export function applyAuswertungParameterImport(existingTable, importTable, selectedHeaders, options={}) {
+  const analysis=analyzeAuswertungParameterImport(existingTable,importTable);
+  const selectedKeys=new Set((selectedHeaders||[]).map(rawHeaderKey));
+  const selected=analysis.parameters.filter(parameter=>selectedKeys.has(parameter.key));
+  if(!selected.length)throw new Error("Select at least one parameter to import.");
+  const table=existingTable.map(row=>[...row]);
+  const existingHeader=findRawHeaderRow(table),importHeader=findRawHeaderRow(importTable);
+  const existingColumns=parameterImportColumns(existingHeader.headers),importColumns=parameterImportColumns(importHeader.headers);
+  const unique=uniqueImportRows(importTable.slice(importHeader.index+1),importColumns);
+  const addedColumns=[];
+  selected.forEach(parameter=>{
+    if(parameter.targetColumn>=0)return;
+    parameter.targetColumn=existingHeader.headers.length;
+    existingHeader.headers.push(parameter.name);table[existingHeader.index]=existingHeader.headers;
+    addedColumns.push(parameter.name);
+  });
+  let updatedCells=0,skippedExisting=0,matchedRows=0;
+  const changes=[];
+  table.slice(existingHeader.index+1).forEach((row,offset)=>{
+    const sourceRow=unique.map.get(parameterImportRowKey(row,existingColumns));if(!sourceRow)return;
+    matchedRows++;
+    selected.forEach(parameter=>{
+      const value=sourceRow[parameter.sourceColumn];if(text(value)==="")return;
+      const current=row[parameter.targetColumn];
+      if(text(current)!==""&&!options.overwrite){skippedExisting++;return;}
+      if(parameterImportValuesEqual(current,value))return;
+      row[parameter.targetColumn]=value;updatedCells++;
+      changes.push({row:existingHeader.index+1+offset,column:parameter.targetColumn,value,newColumn:addedColumns.includes(parameter.name)});
+    });
+  });
+  return {table,changes,updatedCells,skippedExisting,matchedRows,addedColumns,selectedHeaders:selected.map(parameter=>parameter.name),selectedParameters:selected.map(parameter=>({name:parameter.name,column:parameter.targetColumn})),existingHeaderIndex:existingHeader.index,analysis};
+}
+
 export function buildDataLabel(headers, rows, input) {
   const lotColumn = headerIndex(headers, "Lot");
   const batchColumn = headerIndex(headers, "N");

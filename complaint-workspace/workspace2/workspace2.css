@@ -172,6 +172,16 @@
 #compare-result table { width:max-content; min-width:100%; }
 #compare-result th, #compare-result td { padding:5px 9px; font-size:13px; white-space:nowrap; }
 .gaussian-source-controls { margin:8px 0 12px; padding:10px; border:1px solid var(--line); border-radius:7px; background:#f7fafb; }
+.parameter-overwrite-choice { align-self:end; display:flex !important; align-items:center; gap:8px !important; min-height:42px; margin:0; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:#f7fafb; font-weight:700; }
+.parameter-overwrite-choice input { flex:0 0 18px; width:18px; min-height:18px; margin:0; }
+.parameter-import-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin:10px 0 7px; }
+.parameter-import-actions .command { width:auto; min-height:32px; padding:5px 10px; }
+#parameter-import-selected-count { color:var(--muted); font-size:12px; font-weight:700; }
+.parameter-import-table table { width:100%; min-width:760px; }
+.parameter-import-table th,.parameter-import-table td { padding:5px 7px; font-size:12px; white-space:nowrap; }
+.parameter-import-table th:nth-child(n+3),.parameter-import-table td:nth-child(n+3) { text-align:right; }
+.parameter-import-table th:first-child,.parameter-import-table td:first-child { width:54px; text-align:center; }
+.parameter-import-table input { width:17px; min-height:17px; margin:0; }
 .gaussian-settings-layout { display:block; }
 .gaussian-settings-row { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:12px; }
 .gaussian-lot-row { grid-template-columns:repeat(2,minmax(0,1fr)); }

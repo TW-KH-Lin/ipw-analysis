@@ -47,10 +47,12 @@ import {
   getMasterRollWidths,
   getMasterRollZone,
   mergeAuswertungTables,
+  analyzeAuswertungParameterImport,
+  applyAuswertungParameterImport,
   parseDataLabels,
   removeDataLabel,
   upsertDataLabel
-} from "./data-management.js?v=5";
+} from "./data-management.js?v=6";
 import {
   assessmentBatchIndexes,
   buildLotReleaseSummary,
@@ -74,6 +76,7 @@ const state = {
   sheets: [],
   generatedSources: new Map(),
   newLotImport: null,
+  parameterImport: null,
   dataLabels: [],
   source: "",
   headers: [],
@@ -283,6 +286,10 @@ function bindEvents() {
   byId("load-local-workbook").addEventListener("click", () => runAction(loadLocalWorkbook));
   byId("new-lot-file").addEventListener("change", (event) => runAction(() => openNewLotWorkbook(event.target.files[0])));
   byId("merge-new-lots").addEventListener("click", () => runAction(mergeNewLots));
+  byId("parameter-import-file").addEventListener("change",event=>runAction(()=>openParameterImportWorkbook(event.target.files[0])));
+  byId("parameter-import-sheet").addEventListener("change",()=>runAction(()=>selectParameterImportSheet(byId("parameter-import-sheet").value)));
+  byId("parameter-import-preview").addEventListener("change",event=>{if(event.target.matches('input[data-parameter-import]'))updateParameterImportAction();});
+  byId("import-selected-parameters").addEventListener("click",()=>runAction(importSelectedParameters));
   byId("source-sheet").addEventListener("change", () => {invalidateWorkbookComparison();runAction(() => selectSource(byId("source-sheet").value));});
   byId("filter-mode").addEventListener("change", () => {
     invalidateAnalyses();
@@ -665,7 +672,7 @@ async function returnToSingleWorkbook() {
 function applyCombinedControlState() {
   if(!combinedContext.active)return;
   byId('gaussian-visible-rows').checked=false;
-  ['gaussian-visible-rows','build-clean-data','new-lot-file','merge-new-lots','classification-lot','classification-value','apply-classification','save-classifications','label-lot','label-batch','label-machine','label-roll-width','label-roll-number','label-zone','label-text','label-comment','label-notes','save-data-label','download-workbook'].forEach(id=>{const control=byId(id);if(control)control.disabled=true;});
+  ['gaussian-visible-rows','build-clean-data','new-lot-file','merge-new-lots','parameter-import-file','import-selected-parameters','classification-lot','classification-value','apply-classification','save-classifications','label-lot','label-batch','label-machine','label-roll-width','label-roll-number','label-zone','label-text','label-comment','label-notes','save-data-label','download-workbook'].forEach(id=>{const control=byId(id);if(control)control.disabled=true;});
   byId('classification-save-status').textContent='Combined analysis is read-only; switch back to edit a workbook.';
   syncGaussianSourceChoices();
   syncCorrelationSourceChoices();
@@ -876,7 +883,12 @@ async function parseWorkbook(data, fileName) {
   state.originalData = data.slice(0);
   state.generatedSources = new Map();
   state.newLotImport = null;
+  state.parameterImport = null;
   byId("new-lot-file").value = "";
+  byId("parameter-import-file").value = "";
+  byId("parameter-import-controls").hidden=true;
+  byId("parameter-import-preview").innerHTML='<p class="empty-state">No parameter workbook selected.</p>';
+  byId("import-selected-parameters").disabled=true;
   state.dataLabels = [];
   lastComplaintImport=null; complaintMachineTable=null;
   state.lotClassifications = new Map();
@@ -1094,6 +1106,108 @@ function readAuswertungTable(data) {
   const table = readWorkbookSheet(workbook, "Auswertung");
   if (!table.length) throw new Error("The current workbook does not contain a readable Auswertung sheet.");
   return table;
+}
+
+function readWorkbookSheetWithBlankRows(workbook,sheetName) {
+  const XLSX=getXlsx(),sheet=workbook?.Sheets?.[sheetName];if(!sheet)return [];
+  const table=XLSX.utils.sheet_to_json(sheet,{header:1,raw:true,defval:"",blankrows:true});
+  const width=table.reduce((maximum,row)=>Math.max(maximum,row.length),0);
+  return table.map(row=>normalizeRow(row,width));
+}
+
+async function openParameterImportWorkbook(file) {
+  if(!file)return;
+  if(!state.originalData)throw new Error("Open the existing workbook that contains Auswertung first.");
+  setStatus(`Checking parameter workbook ${file.name}...`);await yieldToBrowser();
+  const XLSX=getXlsx(),data=await file.arrayBuffer();
+  const workbook=XLSX.read(data,{type:"array",cellDates:true,cellFormula:true,cellHTML:false,cellText:true,dense:false});
+  const targetWorkbook=XLSX.read(state.originalData.slice(0),{type:"array",cellDates:true,cellFormula:true,cellHTML:false,cellText:true,dense:false,sheets:["Auswertung"]});
+  const existingTable=readWorkbookSheetWithBlankRows(targetWorkbook,"Auswertung");
+  const sheets=[];
+  for(const name of workbook.SheetNames){
+    const table=readWorkbookSheetWithBlankRows(workbook,name);
+    if(!findRawHeaderRow(table))continue;
+    try{sheets.push({name,table,preview:analyzeAuswertungParameterImport(existingTable,table)});}catch{/* Ignore sheets without the three matching keys. */}
+  }
+  if(!sheets.length)throw new Error("No source worksheet contains ChargenNr, Nummer and Probentyp (Probe Type).");
+  sheets.sort((a,b)=>b.preview.matchedRows-a.preview.matchedRows||a.name.localeCompare(b.name,undefined,{numeric:true}));
+  state.parameterImport={fileName:file.name,workbook,sheets,sourceSheet:sheets[0].name,existingTable};
+  fillSelect(byId("parameter-import-sheet"),sheets.map(item=>item.name),sheets[0].name);
+  byId("parameter-import-controls").hidden=false;
+  renderParameterImportPreview();
+  setStatus(`${file.name}: ${sheets[0].name} matched ${formatInteger(sheets[0].preview.matchedRows)} Auswertung rows. Select parameters to import.`,false,true);
+}
+
+function selectParameterImportSheet(name) {
+  if(!state.parameterImport)return;
+  state.parameterImport.sourceSheet=name;renderParameterImportPreview();
+  const current=state.parameterImport.sheets.find(item=>item.name===name);
+  setStatus(`${name}: ${formatInteger(current?.preview.matchedRows||0)} matching Auswertung rows.`,false,true);
+}
+
+function selectedParameterImportHeaders() {
+  return [...byId("parameter-import-preview").querySelectorAll('input[data-parameter-import]:checked')].map(input=>input.value);
+}
+
+function updateParameterImportAction() {
+  const ready=Boolean(state.parameterImport&&selectedParameterImportHeaders().length);
+  byId("import-selected-parameters").disabled=!ready;
+  const count=byId("parameter-import-selected-count");if(count)count.textContent=`${formatInteger(selectedParameterImportHeaders().length)} selected`;
+}
+
+function renderParameterImportPreview() {
+  const container=byId("parameter-import-preview"),session=state.parameterImport;
+  if(!session){container.innerHTML='<p class="empty-state">No parameter workbook selected.</p>';byId("parameter-import-controls").hidden=true;byId("import-selected-parameters").disabled=true;return;}
+  const current=session.sheets.find(item=>item.name===session.sourceSheet)||session.sheets[0],preview=current.preview;
+  const usable=preview.parameters.filter(parameter=>parameter.sourceValues>0&&parameter.matchedValues>parameter.targetValues);
+  container.innerHTML=`
+    <div class="metric-grid">
+      ${metric("File",session.fileName)}${metric("Source sheet",current.name)}${metric("Matched rows",formatInteger(preview.matchedRows))}
+      ${metric("Source keys",formatInteger(preview.sourceKeys))}${metric("Unmatched source rows",formatInteger(preview.unmatchedSourceKeys))}${metric("Duplicate source keys",formatInteger(preview.duplicateSourceKeys))}
+    </div>
+    <div class="compact-actions parameter-import-actions"><button id="parameter-import-select-all" class="command" type="button">Select available</button><button id="parameter-import-clear" class="command" type="button">Clear</button><span id="parameter-import-selected-count"></span></div>
+    <div class="table-wrap compact-table parameter-import-table"><table><thead><tr><th>Import</th><th>Parameter</th><th>Target column</th><th>Source values</th><th>Matched values</th><th>Existing target values</th><th>Different values</th></tr></thead><tbody>
+      ${preview.parameters.map(parameter=>`<tr><td><input type="checkbox" data-parameter-import value="${escapeHtml(parameter.name)}" ${usable.includes(parameter)?'checked':''} ${parameter.matchedValues?'':'disabled'}></td><td>${escapeHtml(parameter.name)}</td><td>${parameter.exists?'Existing':'New'}</td><td>${formatInteger(parameter.sourceValues)}</td><td>${formatInteger(parameter.matchedValues)}</td><td>${formatInteger(parameter.targetValues)}</td><td>${formatInteger(parameter.conflicts)}</td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="result-note">Existing non-empty cells are preserved unless “Overwrite existing non-empty values” is checked.</p>`;
+  byId("parameter-import-select-all").addEventListener("click",()=>{container.querySelectorAll('input[data-parameter-import]:not(:disabled)').forEach(input=>input.checked=true);updateParameterImportAction();});
+  byId("parameter-import-clear").addEventListener("click",()=>{container.querySelectorAll('input[data-parameter-import]').forEach(input=>input.checked=false);updateParameterImportAction();});
+  updateParameterImportAction();
+}
+
+function setSheetCellValue(sheet,row,column,value,styleSourceColumn=column) {
+  const XLSX=getXlsx(),address=XLSX.utils.encode_cell({r:row,c:column}),existing=sheet[address]||{},styleSource=sheet[XLSX.utils.encode_cell({r:row,c:styleSourceColumn})];
+  const cell={...existing};delete cell.f;delete cell.w;
+  if(value instanceof Date){cell.t="d";cell.v=value;}
+  else if(typeof value==="number"){cell.t="n";cell.v=value;}
+  else if(typeof value==="boolean"){cell.t="b";cell.v=value;}
+  else {cell.t="s";cell.v=String(value??"");}
+  if(!cell.s&&styleSource?.s)cell.s=styleSource.s;
+  sheet[address]=cell;
+}
+
+async function importSelectedParameters() {
+  const session=state.parameterImport;if(!session)throw new Error("Choose a parameter workbook first.");
+  const current=session.sheets.find(item=>item.name===session.sourceSheet),selected=selectedParameterImportHeaders();
+  if(!selected.length)throw new Error("Select at least one parameter to import.");
+  const fileName=writableWorkbookName(),saveHandle=await requestWorkbookSaveHandle(fileName);
+  setStatus("Importing selected parameters into Auswertung...");await yieldToBrowser();
+  const XLSX=getXlsx(),workbook=XLSX.read(state.originalData.slice(0),{type:"array",cellDates:true,cellFormula:true,cellHTML:false,cellText:true,cellStyles:true,bookVBA:true,dense:false});
+  const existingTable=readWorkbookSheetWithBlankRows(workbook,"Auswertung");
+  const result=applyAuswertungParameterImport(existingTable,current.table,selected,{overwrite:byId("parameter-import-overwrite").checked});
+  if(!result.updatedCells&&!result.addedColumns.length)throw new Error("The selected parameters contain no new values to write.");
+  const sheet=workbook.Sheets.Auswertung,range=XLSX.utils.decode_range(sheet["!ref"]||"A1");
+  result.selectedParameters.filter(parameter=>result.addedColumns.includes(parameter.name)).forEach(parameter=>setSheetCellValue(sheet,result.existingHeaderIndex,parameter.column,parameter.name,Math.max(0,parameter.column-1)));
+  result.changes.forEach(change=>setSheetCellValue(sheet,change.row,change.column,change.value,Math.max(0,change.column-1)));
+  range.e.c=Math.max(range.e.c,...result.selectedParameters.map(parameter=>parameter.column));sheet["!ref"]=XLSX.utils.encode_range(range);
+  const preserved=classificationMaps(state.headers,dataRows()),clean=buildCleanDataFromAuswertung(result.table,{classificationByLot:state.lotClassifications,classificationByKey:preserved.byKey});
+  replaceWorkbookSheet(workbook,"Clean_Data",[clean.headers,...clean.rows]);
+  const summary=buildFullSummary(clean.headers,clean.rows);replaceWorkbookSheet(workbook,"Summary",[summary.headers,...summary.rows]);
+  writeDataLabelsToWorkbook(workbook,clean.headers,clean.rows);
+  const bytes=XLSX.write(workbook,{type:"array",bookType:workbookBookType(fileName),bookVBA:/\.xlsm$/i.test(fileName),cellDates:true,cellStyles:true,compression:true});
+  const saveMode=await saveWorkbookBytes(bytes,fileName,saveHandle);
+  await parseWorkbook(bytes,fileName);openPanel("merge-panel");
+  setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters imported into Auswertung. ${formatInteger(result.skippedExisting)} existing cells preserved. ${saveMode==="direct"?"Workbook replaced.":"Confirm Replace in Files."}`,false,true);
 }
 
 function renderMergePreview() {
@@ -1891,6 +2005,7 @@ function populateWorkbookControls() {
     "reference-humidity",
     "build-clean-data",
     "new-lot-file",
+    "parameter-import-file",
     "classification-lot",
     "classification-value",
     "apply-classification",
@@ -6386,6 +6501,9 @@ function drawEmptyState() {
   byId("generated-summary-table").innerHTML = `<p class="empty-state">No generated summary.</p>`;
   byId("classification-table").innerHTML = `<p class="empty-state">No lots.</p>`;
   byId("merge-preview").innerHTML = `<p class="empty-state">No new-lot workbook selected.</p>`;
+  byId("parameter-import-preview").innerHTML = `<p class="empty-state">No parameter workbook selected.</p>`;
+  byId("parameter-import-controls").hidden=true;
+  byId("import-selected-parameters").disabled=true;
   byId("data-labels-table").innerHTML = `<p class="empty-state">No saved labels.</p>`;
   byId("label-selection-preview").innerHTML = `<p class="empty-state">No workbook loaded.</p>`;
   byId("master-roll-result").hidden = true;
@@ -6585,6 +6703,7 @@ async function runAction(action) {
     byId("export-gaussian-extremes").disabled = !state.lastGaussian;
     const merge = state.newLotImport?.preview;
     byId("merge-new-lots").disabled = !merge || Boolean(merge.missingHeaders.length || !merge.addedRows);
+    updateParameterImportAction();
     updateLabelActionState();
     renderComparisonControls();
     applyCombinedControlState();
