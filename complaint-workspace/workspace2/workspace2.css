@@ -284,9 +284,6 @@
 .summary-mean-group-table .summary-use-mean-group.is-selected { border-color:#2e7d4f; background:#2e7d4f; color:#fff; }
 .assessment-side-options { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
 .assessment-side-options label { min-width:190px; }
-.workbook-download-ready { margin-top:.75rem; padding:.75rem; border:1px solid #8bb5a0; border-radius:.55rem; background:#eef8f2; display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
-.workbook-download-ready[hidden] { display:none; }
-.workbook-download-ready small { color:#4d6256; }
 @media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.gaussian-mixture-grid.has-comparison,.gaussian-mixture-batch-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:900px) { .gaussian-settings-row { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:900px) { .gaussian-time-controls { grid-template-columns:repeat(2,minmax(0,1fr)); } .gaussian-time-controls .command,#gaussian-time-status,#gaussian-time-error { grid-column:1/-1; } }
