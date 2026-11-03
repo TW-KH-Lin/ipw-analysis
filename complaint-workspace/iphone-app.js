@@ -888,6 +888,7 @@ async function parseWorkbook(data, fileName) {
   state.parameterImport = null;
   byId("new-lot-file").value = "";
   byId("parameter-import-file").value = "";
+  byId("parameter-import-rebuild-derived").checked = false;
   byId("parameter-import-controls").hidden=true;
   byId("parameter-import-preview").innerHTML='<p class="empty-state">No parameter workbook selected.</p>';
   byId("import-selected-parameters").disabled=true;
@@ -1232,12 +1233,17 @@ async function importSelectedParameters() {
     await yieldToBrowser();
   }
   range.e.c=Math.max(range.e.c,...result.selectedParameters.map(parameter=>parameter.column));sheet["!ref"]=XLSX.utils.encode_range(range);
-  setStatus("Rebuilding Clean_Data locally...");await yieldToBrowser();
-  const preserved=classificationMaps(state.headers,dataRows()),clean=buildCleanDataFromAuswertung(result.table,{classificationByLot:state.lotClassifications,classificationByKey:preserved.byKey});
-  replaceWorkbookSheet(workbook,"Clean_Data",[clean.headers,...clean.rows]);
-  await yieldToBrowser();setStatus("Rebuilding Summary locally...");
-  const summary=buildFullSummary(clean.headers,clean.rows);replaceWorkbookSheet(workbook,"Summary",[summary.headers,...summary.rows]);
-  writeDataLabelsToWorkbook(workbook,clean.headers,clean.rows);
+  const rebuildDerived=byId("parameter-import-rebuild-derived").checked;
+  if(rebuildDerived){
+    setStatus("Rebuilding Clean_Data locally...");await yieldToBrowser();
+    const preserved=classificationMaps(state.headers,dataRows()),clean=buildCleanDataFromAuswertung(result.table,{classificationByLot:state.lotClassifications,classificationByKey:preserved.byKey});
+    replaceWorkbookSheet(workbook,"Clean_Data",[clean.headers,...clean.rows]);
+    await yieldToBrowser();setStatus("Rebuilding Summary locally...");
+    const summary=buildFullSummary(clean.headers,clean.rows);replaceWorkbookSheet(workbook,"Summary",[summary.headers,...summary.rows]);
+    writeDataLabelsToWorkbook(workbook,clean.headers,clean.rows);
+  }else{
+    setStatus("Keeping the existing Clean_Data and Summary worksheets...");await yieldToBrowser();
+  }
   await yieldToBrowser();setStatus("Preparing the Excel workbook for download...");
   const bytes=await writeWorkbookWithoutBlocking(workbook,{type:"array",bookType:workbookBookType(fileName),bookVBA:/\.xlsm$/i.test(fileName),cellDates:true,cellStyles:true,compression:false});
   preparePendingWorkbook(bytes,fileName);
@@ -1253,7 +1259,7 @@ async function importSelectedParameters() {
   byId("parameter-import-controls").hidden=false;renderParameterImportPreview();openPanel("merge-panel");
   byId("workbook-save-as").disabled=false;
   byId("workbook-ready-status").textContent=`Workbook ready · ${fileName} · ${formatInteger(pendingWorkbookDownload.blob.size)} bytes`;
-  setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters added. Click Save Workbook As…`,false,true);
+  setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters added.${rebuildDerived?' Clean_Data and Summary rebuilt.':' Existing Clean_Data and Summary kept.'} Click Save Workbook As…`,false,true);
 }
 
 function refreshParameterImportTables(session=state.parameterImport,data=state.originalData,announce=true) {
