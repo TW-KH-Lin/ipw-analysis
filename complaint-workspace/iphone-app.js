@@ -124,6 +124,7 @@ const GENERATED_CORRECTED = "Generated Clean_Data_Cor";
 const ZONES = [1, 2, 3, 4, 5, 6];
 const TREND_COLORS = ["#195d8d", "#2e7d4f", "#a86a00", "#b3261e", "#7656a1", "#00838f"];
 let pendingWorkbookDownloadUrl = "";
+let pendingWorkbookDownload = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   bindEvents();
@@ -291,6 +292,8 @@ function bindEvents() {
   byId("parameter-import-sheet").addEventListener("change",()=>runAction(()=>selectParameterImportSheet(byId("parameter-import-sheet").value)));
   byId("parameter-import-preview").addEventListener("change",event=>{if(event.target.matches('input[data-parameter-import]'))updateParameterImportAction();});
   byId("import-selected-parameters").addEventListener("click",()=>runAction(importSelectedParameters));
+  byId("workbook-save-to-folder")?.addEventListener("click",()=>runAction(savePendingWorkbookToFolder));
+  byId("workbook-share-file")?.addEventListener("click",()=>runAction(sharePendingWorkbook));
   byId("source-sheet").addEventListener("change", () => {invalidateWorkbookComparison();runAction(() => selectSource(byId("source-sheet").value));});
   byId("filter-mode").addEventListener("change", () => {
     invalidateAnalyses();
@@ -1205,45 +1208,10 @@ async function importSelectedParameters() {
   replaceWorkbookSheet(workbook,"Clean_Data",[clean.headers,...clean.rows]);
   const summary=buildFullSummary(clean.headers,clean.rows);replaceWorkbookSheet(workbook,"Summary",[summary.headers,...summary.rows]);
   writeDataLabelsToWorkbook(workbook,clean.headers,clean.rows);
-  const rawSheetName=copyImportedRawWorksheet(workbook,session.workbook,session.sourceSheet);
-  appendParameterImportLog(workbook,{
-    sourceFile:session.fileName,sourceSheet:session.sourceSheet,rawSheetName,
-    parameters:result.selectedHeaders,updatedCells:result.updatedCells,matchedRows:result.matchedRows
-  });
   const bytes=XLSX.write(workbook,{type:"array",bookType:workbookBookType(fileName),bookVBA:/\.xlsm$/i.test(fileName),cellDates:true,cellStyles:true,compression:true});
   const saveMode=await saveWorkbookBytes(bytes,fileName,saveHandle);
   await parseWorkbook(bytes,fileName);openPanel("merge-panel");
-  setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters imported into Auswertung. Raw source retained in ${rawSheetName}. Downloaded ${fileName}.`,false,true);
-}
-
-function copyImportedRawWorksheet(targetWorkbook,sourceWorkbook,sourceSheetName) {
-  const sourceSheet=sourceWorkbook?.Sheets?.[sourceSheetName];
-  if(!sourceSheet)throw new Error("The selected raw source worksheet is unavailable.");
-  const stem=safeSheetName(`Imported_Raw_${sourceSheetName}`).slice(0,31);
-  let name=stem,counter=2;
-  while(targetWorkbook.SheetNames.includes(name)){
-    const suffix=`_${counter++}`;name=`${stem.slice(0,31-suffix.length)}${suffix}`;
-  }
-  targetWorkbook.Sheets[name]=cloneWorkbookValue(sourceSheet);
-  targetWorkbook.SheetNames.push(name);
-  return name;
-}
-
-function cloneWorkbookValue(value) {
-  if(value instanceof Date)return new Date(value.getTime());
-  if(Array.isArray(value))return value.map(cloneWorkbookValue);
-  if(value&&typeof value==="object")return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,cloneWorkbookValue(item)]));
-  return value;
-}
-
-function appendParameterImportLog(workbook,entry) {
-  const XLSX=getXlsx(),name="Parameter_Import_Log";
-  if(!workbook.Sheets[name]){
-    workbook.Sheets[name]=XLSX.utils.aoa_to_sheet([["Imported at","Source file","Source worksheet","Raw worksheet","Parameters","Matched rows","Updated cells"]],{cellDates:true});
-    workbook.SheetNames.push(name);
-  }
-  const sheet=workbook.Sheets[name],range=sheet["!ref"]?XLSX.utils.decode_range(sheet["!ref"]):{s:{r:0,c:0},e:{r:0,c:6}};
-  XLSX.utils.sheet_add_aoa(sheet,[[new Date(),entry.sourceFile,entry.sourceSheet,entry.rawSheetName,entry.parameters.join(", "),entry.matchedRows,entry.updatedCells]],{origin:{r:range.e.r+1,c:0},cellDates:true});
+  setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters imported into Auswertung. Workbook ready: ${fileName}.`,false,true);
 }
 
 function renderMergePreview() {
@@ -1381,10 +1349,38 @@ function offerWorkbookDownload(fileName,blob) {
   if(!panel||!link||!details){downloadBlob(fileName,blob);return;}
   if(pendingWorkbookDownloadUrl)URL.revokeObjectURL(pendingWorkbookDownloadUrl);
   pendingWorkbookDownloadUrl=URL.createObjectURL(blob);
+  pendingWorkbookDownload={fileName,blob};
   link.href=pendingWorkbookDownloadUrl;link.download=fileName;link.textContent=`Download ${fileName}`;
   details.textContent=`${formatInteger(blob.size)} bytes · Click the button if the download did not start automatically.`;
   panel.hidden=false;
   link.click();
+}
+
+async function savePendingWorkbookToFolder() {
+  if(!pendingWorkbookDownload)throw new Error("Build the imported workbook first.");
+  const {fileName,blob}=pendingWorkbookDownload;
+  if(typeof window.showSaveFilePicker!=="function"){
+    byId("workbook-download-link").click();
+    setStatus(`Use the browser download for ${fileName}.`,false,true);
+    return;
+  }
+  const handle=await window.showSaveFilePicker({suggestedName:fileName,types:[{description:"Excel workbook",accept:{[workbookMime(fileName)]:[fileExtension(fileName)]}}]});
+  const writable=await handle.createWritable();
+  try{await writable.write(blob);await writable.close();}
+  catch(error){try{await writable.abort();}catch{}throw error;}
+  setStatus(`Saved ${fileName} (${formatInteger(blob.size)} bytes).`,false,true);
+}
+
+async function sharePendingWorkbook() {
+  if(!pendingWorkbookDownload)throw new Error("Build the imported workbook first.");
+  const {fileName,blob}=pendingWorkbookDownload,file=new File([blob],fileName,{type:workbookMime(fileName)});
+  if(!navigator.share||!navigator.canShare?.({files:[file]})){
+    byId("workbook-download-link").click();
+    throw new Error("File sharing is unavailable in this browser. Use Download or Save workbook to folder.");
+  }
+  try{await navigator.share({files:[file],title:fileName});}
+  catch(error){if(error?.name==="AbortError")return;throw error;}
+  setStatus(`Shared ${fileName}. On iPhone or iPad, choose Save to Files.`,false,true);
 }
 
 function workbookPayload(bytes, fileName) {
