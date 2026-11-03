@@ -2824,6 +2824,8 @@ async function createGaussian() {
   const dateFilter=gaussianDateFilter([...records,...comparisonRecords]);
   state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,activeRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:Boolean(comparison),comparisonSharedX:Boolean(comparison&&sameParameter),comparisonSharedY:false,zoneDistributions,zoneViewRange,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
     comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope:effectiveComparisonScope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,activeRecords:comparisonRecords,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
+  if(primary.fit.components?.length)state.lastGaussian.componentSelection=primary.fit.components.map((_,index)=>index);
+  if(state.lastGaussian.comparison?.fit.components?.length)state.lastGaussian.comparison.componentSelection=state.lastGaussian.comparison.fit.components.map((_,index)=>index);
   if(comparison&&sameParameter){const range={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};state.lastGaussian.viewRange={...range};state.lastGaussian.comparison.viewRange={...range};}
   else {state.lastGaussian.viewRange={start:primary.fit.start,end:primary.fit.end};if(comparison)state.lastGaussian.comparison.viewRange={start:comparison.fit.start,end:comparison.fit.end};}
   renderGaussianResult();renderGaussianExtremes();
@@ -3039,6 +3041,27 @@ function gaussianSelectionLabel(selection) {
   return `${selection.parameter} · ${selection.sourceLabel || selection.source} · ${scope}`;
 }
 
+function gaussianSelectedComponentIndexes(selection) {
+  const count=selection?.fit?.components?.length || 0;
+  const selected=Array.isArray(selection?.componentSelection)?selection.componentSelection.filter(index=>Number.isInteger(index)&&index>=0&&index<count):[];
+  return selected.length?selected:Array.from({length:count},(_,index)=>index);
+}
+
+function gaussianFitWithComponentSelection(selection,viewRange) {
+  if(!selection?.fit)return null;
+  return {...selection.fit,...viewRange,selectedComponentIndexes:gaussianSelectedComponentIndexes(selection)};
+}
+
+function gaussianComponentLineLabel(selection) {
+  return selection?.fit?.components?.length?` · Green ${gaussianSelectedComponentIndexes(selection).map(index=>`C${index+1}`).join(' + ')}`:'';
+}
+
+function renderGaussianComponentSelector(selection,side) {
+  if(!selection?.fit?.components?.length)return '';
+  const selected=new Set(gaussianSelectedComponentIndexes(selection));
+  return `<div class="gaussian-component-selector" role="group" aria-label="${side==='comparison'?'Comparison':'Primary'} solid curve components"><strong>Green solid line</strong>${selection.fit.components.map((_,index)=>`<label><input class="gaussian-component-toggle" data-component-side="${side}" data-component-index="${index}" type="checkbox" ${selected.has(index)?'checked':''}>C${index+1}</label>`).join('')}</div>`;
+}
+
 function renderGaussianResult() {
   const result = state.lastGaussian;
   if (!result) return;
@@ -3070,8 +3093,8 @@ function renderGaussianResult() {
         <div class="compact-actions"><button id="gaussian-view-reset" type="button" class="command">Reset X axes</button><span id="gaussian-view-error" role="alert"></span></div>
       </div></details>
       <div class="gaussian-comparison-grid ${result.comparison?'has-comparison':''}">
-        <article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(gaussianSelectionLabel(result))}</h3><button id="export-gaussian-plot-png" class="command" type="button">Export PNG</button></div><p>N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)} · Bin ${formatNumber(fit.binWidth,3)} · Range ${formatNumber(fit.start,3)} to ${formatNumber(fit.end,3)}</p><canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></article>
-        ${result.comparison?`<article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(gaussianSelectionLabel(result.comparison))}</h3><button id="export-gaussian-comparison-png" class="command" type="button">Export PNG</button></div><p>N ${formatInteger(result.comparison.fit.n)} · Mu ${formatNumber(result.comparison.fit.mean,3)} · Sigma ${formatNumber(result.comparison.fit.sigma,3)} · Bin ${formatNumber(result.comparison.fit.binWidth,3)} · Range ${formatNumber(result.comparison.fit.start,3)} to ${formatNumber(result.comparison.fit.end,3)}</p><canvas id="gaussian-comparison-chart" aria-label="Comparison parameter Gaussian plot"></canvas></article>`:''}
+        <article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(gaussianSelectionLabel(result))}</h3><button id="export-gaussian-plot-png" class="command" type="button">Export PNG</button></div><p>N ${formatInteger(fit.n)} · Mu ${formatNumber(fit.mean,3)} · Sigma ${formatNumber(fit.sigma,3)} · Bin ${formatNumber(fit.binWidth,3)} · Range ${formatNumber(fit.start,3)} to ${formatNumber(fit.end,3)}</p>${renderGaussianComponentSelector(result,'primary')}<canvas id="gaussian-chart" aria-label="Observed histogram with fitted Gaussian curve and percentile cutoffs"></canvas></article>
+        ${result.comparison?`<article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(gaussianSelectionLabel(result.comparison))}</h3><button id="export-gaussian-comparison-png" class="command" type="button">Export PNG</button></div><p>N ${formatInteger(result.comparison.fit.n)} · Mu ${formatNumber(result.comparison.fit.mean,3)} · Sigma ${formatNumber(result.comparison.fit.sigma,3)} · Bin ${formatNumber(result.comparison.fit.binWidth,3)} · Range ${formatNumber(result.comparison.fit.start,3)} to ${formatNumber(result.comparison.fit.end,3)}</p>${renderGaussianComponentSelector(result.comparison,'comparison')}<canvas id="gaussian-comparison-chart" aria-label="Comparison parameter Gaussian plot"></canvas></article>`:''}
       </div>
       ${result.comparison&&!result.sameParameter?'<p class="gaussian-comparison-note">Each parameter uses its own automatic bin width, fitting range and X-axis. The dual-axis overlap uses normalized density to compare distribution shape.</p>':''}
       ${fit.components?.length?`<div class="gaussian-mixture-grid ${result.comparison?'has-comparison':''}">
@@ -3116,6 +3139,15 @@ function renderGaussianResult() {
     if(result.overlayVisible)requestAnimationFrame(drawGaussianCharts);
   });
   byId('export-gaussian-overlay-png')?.addEventListener('click',()=>runAction(saveGaussianOverlaySnapshot));
+  byId('gaussian-result').querySelectorAll('.gaussian-component-toggle').forEach(input=>input.addEventListener('change',event=>{
+    const selection=event.target.dataset.componentSide==='comparison'?result.comparison:result;
+    const index=Number(event.target.dataset.componentIndex);
+    const selected=new Set(gaussianSelectedComponentIndexes(selection));
+    if(event.target.checked)selected.add(index);else selected.delete(index);
+    if(!selected.size){event.target.checked=true;return;}
+    selection.componentSelection=[...selected].sort((a,b)=>a-b);
+    requestAnimationFrame(drawGaussianCharts);
+  }));
   byId('export-gaussian-zones-png')?.addEventListener('click',()=>runAction(saveGaussianZoneSnapshot));
   byId('gaussian-zone-shared-y')?.addEventListener('change',event=>{result.zoneSharedY=event.target.checked;requestAnimationFrame(drawGaussianCharts);});
   byId('gaussian-zone-normalized')?.addEventListener('change',event=>{result.zoneNormalized=event.target.checked;renderGaussianResult();});
@@ -3165,14 +3197,14 @@ function renderGaussianResult() {
 
 function drawGaussianCharts() {
   if (!state.lastGaussian) return;
-  const current=state.lastGaussian,primaryFit={...current.fit,...current.viewRange};
-  const comparisonFit=current.comparison?{...current.comparison.fit,...current.comparison.viewRange}:null;
+  const current=state.lastGaussian,primaryFit=gaussianFitWithComponentSelection(current,current.viewRange);
+  const comparisonFit=current.comparison?gaussianFitWithComponentSelection(current.comparison,current.comparison.viewRange):null;
   const sharedY=current.comparison&&current.comparisonSharedY?Math.max(gaussianFitPeak(primaryFit),gaussianFitPeak(comparisonFit)):null;
   drawGaussian(byId("gaussian-chart"),primaryFit,"combined",undefined,{yMax:sharedY});
   if(current.comparison)drawGaussian(byId('gaussian-comparison-chart'),comparisonFit,'combined',undefined,{yMax:sharedY});
   if(state.lastGaussian.comparison&&state.lastGaussian.overlayVisible){
-    const primary={...state.lastGaussian.fit,...state.lastGaussian.viewRange};
-    const comparison={...state.lastGaussian.comparison.fit,...state.lastGaussian.comparison.viewRange};
+    const primary=gaussianFitWithComponentSelection(state.lastGaussian,state.lastGaussian.viewRange);
+    const comparison=gaussianFitWithComponentSelection(state.lastGaussian.comparison,state.lastGaussian.comparison.viewRange);
     drawGaussianOverlay(byId('gaussian-overlay-chart'),primary,comparison,gaussianOverlayDetails(state.lastGaussian));
   }
   const zoneDisplay=gaussianZoneDisplayOptions(state.lastGaussian);
@@ -3220,8 +3252,8 @@ function gaussianOverlayDetails(current) {
     comparisonParameter:current.comparison.parameter,
     independentAxes:!current.sameParameter,
     zones:current.zones,
-    primary:gaussianSelectionLabel(current),
-    comparison:gaussianSelectionLabel(current.comparison)
+    primary:`${gaussianSelectionLabel(current)}${gaussianComponentLineLabel(current)}`,
+    comparison:`${gaussianSelectionLabel(current.comparison)}${gaussianComponentLineLabel(current.comparison)}`
   };
 }
 
@@ -3306,14 +3338,17 @@ function saveGaussianSnapshot(secondary = false) {
     ["Within Mu +/- 1 Sigma", `${formatInteger(current.sigmaCounts.within1)} (${formatNumber(current.sigmaCounts.within1/current.sigmaCounts.n*100,1)}%)`],
     ["Within Mu +/- 2 Sigma", `${formatInteger(current.sigmaCounts.within2)} (${formatNumber(current.sigmaCounts.within2/current.sigmaCounts.n*100,1)}%)`],
     ["Zones", current.zones.join(", ")],
+    ...(fit.components.length?[["Green solid line",gaussianSelectedComponentIndexes(current).map(index=>`C${index+1}`).join(" + ")]]:[]),
     ...fit.components.flatMap((component,index)=>[[`Component ${index+1} weight`,`${formatNumber(component.weight*100,1)}%`],[`Component ${index+1} mean`,formatNumber(component.mean,3)],[`Component ${index+1} sigma`,formatNumber(component.sigma,3)]]),
     ...(fit.components.length?[["Mixture AIC",formatNumber(fit.aic,2)],["Mixture BIC",formatNumber(fit.bic,2)]]:[])
   ];
   const rowHeight=52,chartHeight = Math.max(900,(rows.length + 1) * rowHeight);
   const exportChart = document.createElement("canvas");
   const exportRange=current.viewRange || root.viewRange;
-  const sharedY=root.comparison&&root.comparisonSharedY?Math.max(gaussianFitPeak({...root.fit,...root.viewRange}),gaussianFitPeak({...root.comparison.fit,...root.comparison.viewRange})):null;
-  drawGaussian(exportChart,{...fit,...exportRange},"combined",{width:chartWidth,height:chartHeight},{yMax:sharedY,highContrast:true});
+  const primaryExportFit=gaussianFitWithComponentSelection(root,root.viewRange);
+  const comparisonExportFit=root.comparison?gaussianFitWithComponentSelection(root.comparison,root.comparison.viewRange):null;
+  const sharedY=root.comparison&&root.comparisonSharedY?Math.max(gaussianFitPeak(primaryExportFit),gaussianFitPeak(comparisonExportFit)):null;
+  drawGaussian(exportChart,gaussianFitWithComponentSelection(current,exportRange),"combined",{width:chartWidth,height:chartHeight},{yMax:sharedY,highContrast:true});
   canvas.width = chartWidth + tableWidth + gap + margin * 2;
   canvas.height = Math.max(chartHeight, (rows.length + 1) * rowHeight) + 110;
   const ctx = canvas.getContext("2d");
@@ -3361,8 +3396,8 @@ function saveGaussianOverlaySnapshot() {
   const current=state.lastGaussian;
   if(!current?.comparison)throw new Error("Select a comparison Lot or worksheet before exporting an overlap plot.");
   const canvas=document.createElement("canvas");
-  const primary={...current.fit,...current.viewRange};
-  const comparison={...current.comparison.fit,...current.comparison.viewRange};
+  const primary=gaussianFitWithComponentSelection(current,current.viewRange);
+  const comparison=gaussianFitWithComponentSelection(current.comparison,current.comparison.viewRange);
   drawGaussianOverlay(canvas,primary,comparison,gaussianOverlayDetails(current),{width:1400,height:820});
   const fileName=`${baseFileName()}_${safeFilePart(current.parameter)}_vs_${safeFilePart(current.comparison.parameter)}_${safeFilePart(current.selectedLot || 'Primary')}_vs_${safeFilePart(current.comparison.selectedLot || 'Comparison')}_Gaussian_Overlap_${fileDateStamp(new Date())}.png`;
   const link=document.createElement("a");link.href=canvas.toDataURL("image/png");link.download=fileName;document.body.append(link);link.click();link.remove();
@@ -5966,7 +6001,7 @@ function renderAssessmentTable(rows, gridRows, availableZones) {
 
 function gaussianModelOverlap(primary,comparison) {
   if(!primary.components?.length && !comparison.components?.length)return gaussianOverlapCoefficient(primary.mean,primary.sigma,comparison.mean,comparison.sigma);
-  const asComponents=fit=>fit.components?.length?fit.components:[{weight:1,mean:fit.mean,sigma:fit.sigma}];
+  const asComponents=fit=>fit.components?.length?fit.components.filter((_,index)=>!Array.isArray(fit.selectedComponentIndexes)||fit.selectedComponentIndexes.includes(index)):[{weight:1,mean:fit.mean,sigma:fit.sigma}];
   const first=asComponents(primary),second=asComponents(comparison),all=[...first,...second];
   const start=Math.min(...all.map(component=>component.mean-6*component.sigma));
   const end=Math.max(...all.map(component=>component.mean+6*component.sigma));
@@ -6072,7 +6107,7 @@ function gaussianCurveExpected(fit,value,componentIndex=null) {
     if(Number.isInteger(componentIndex)){
       const component=fit.components[componentIndex];return fit.n*fit.binWidth*component.weight*density(component.mean,component.sigma);
     }
-    return fit.components.reduce((sum,component)=>sum+fit.n*fit.binWidth*component.weight*density(component.mean,component.sigma),0);
+    return fit.components.reduce((sum,component,index)=>(!Array.isArray(fit.selectedComponentIndexes)||fit.selectedComponentIndexes.includes(index))?sum+fit.n*fit.binWidth*component.weight*density(component.mean,component.sigma):sum,0);
   }
   return fit.n*fit.binWidth*density(fit.mean,fit.sigma);
 }
@@ -6130,6 +6165,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
   if (mode !== "histogram") {
     const componentColors=['#195d8d','#c55418','#7c3aed'];
     fit.components?.forEach((component,componentIndex)=>{
+      if(Array.isArray(fit.selectedComponentIndexes)&&!fit.selectedComponentIndexes.includes(componentIndex))return;
       ctx.beginPath();
       curveSamples.forEach((point,index)=>{
         const x=pad.left+(point.value-fit.start)/(fit.end-fit.start)*plotWidth;
