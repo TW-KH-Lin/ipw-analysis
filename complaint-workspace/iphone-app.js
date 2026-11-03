@@ -1165,16 +1165,33 @@ function renderParameterImportPreview() {
   if(!session){container.innerHTML='<p class="empty-state">No parameter workbook selected.</p>';byId("parameter-import-controls").hidden=true;byId("import-selected-parameters").disabled=true;return;}
   const current=session.sheets.find(item=>item.name===session.sourceSheet)||session.sheets[0],preview=current.preview;
   const usable=preview.parameters.filter(parameter=>parameter.sourceValues>0&&parameter.matchedValues>parameter.targetValues);
+  const identifiers=new Set(["messungid","probenzeit","nummer","probentyp","probetype","type","ziehmaschinenname","chargennr","ziehart","filtertypnr"]);
+  const headerKey=value=>text(value).normalize("NFKC").toLowerCase().replace(/[\s._-]+/g,"");
+  const existingParameters=preview.existingHeaders.map(text).filter(name=>name&&!identifiers.has(headerKey(name)));
   container.innerHTML=`
     <div class="metric-grid">
       ${metric("File",session.fileName)}${metric("Source sheet",current.name)}${metric("Matched rows",formatInteger(preview.matchedRows))}
       ${metric("Source keys",formatInteger(preview.sourceKeys))}${metric("Unmatched source rows",formatInteger(preview.unmatchedSourceKeys))}${metric("Duplicate source keys",formatInteger(preview.duplicateSourceKeys))}
     </div>
-    <div class="compact-actions parameter-import-actions"><button id="parameter-import-select-all" class="command" type="button">Select available</button><button id="parameter-import-clear" class="command" type="button">Clear</button><span id="parameter-import-selected-count"></span></div>
-    <div class="table-wrap compact-table parameter-import-table"><table><thead><tr><th>Import</th><th>Parameter</th><th>Target column</th><th>Source values</th><th>Matched values</th><th>Existing target values</th><th>Different values</th></tr></thead><tbody>
-      ${preview.parameters.map(parameter=>`<tr><td><input type="checkbox" data-parameter-import value="${escapeHtml(parameter.name)}" ${usable.includes(parameter)?'checked':''} ${parameter.matchedValues?'':'disabled'}></td><td>${escapeHtml(parameter.name)}</td><td>${parameter.exists?'Existing':'New'}</td><td>${formatInteger(parameter.sourceValues)}</td><td>${formatInteger(parameter.matchedValues)}</td><td>${formatInteger(parameter.targetValues)}</td><td>${formatInteger(parameter.conflicts)}</td></tr>`).join('')}
-    </tbody></table></div>
-    <p class="result-note">Existing non-empty cells are preserved unless “Overwrite existing non-empty values” is checked.</p>`;
+    <div class="parameter-list-tabs" role="tablist" aria-label="Parameter lists">
+      <button type="button" role="tab" data-parameter-list-tab="current" aria-selected="true">Current Auswertung Parameters <span>${formatInteger(existingParameters.length)}</span></button>
+      <button type="button" role="tab" data-parameter-list-tab="incoming" aria-selected="false">Parameters to Add <span>${formatInteger(preview.parameters.length)}</span></button>
+    </div>
+    <div data-parameter-list-panel="current" role="tabpanel">
+      <div class="table-wrap compact-table parameter-import-table"><table><thead><tr><th>#</th><th>Current parameter</th></tr></thead><tbody>${existingParameters.map((name,index)=>`<tr><td>${index+1}</td><td>${escapeHtml(name)}</td></tr>`).join('')}</tbody></table></div>
+    </div>
+    <div data-parameter-list-panel="incoming" role="tabpanel" hidden>
+      <div class="compact-actions parameter-import-actions"><button id="parameter-import-select-all" class="command" type="button">Select available</button><button id="parameter-import-clear" class="command" type="button">Clear</button><span id="parameter-import-selected-count"></span></div>
+      <div class="table-wrap compact-table parameter-import-table"><table><thead><tr><th>Import</th><th>Parameter</th><th>Target column</th><th>Source values</th><th>Matched values</th><th>Existing target values</th><th>Different values</th></tr></thead><tbody>
+        ${preview.parameters.map(parameter=>`<tr><td><input type="checkbox" data-parameter-import value="${escapeHtml(parameter.name)}" ${usable.includes(parameter)?'checked':''} ${parameter.matchedValues?'':'disabled'}></td><td>${escapeHtml(parameter.name)}</td><td>${parameter.exists?'Existing':'New'}</td><td>${formatInteger(parameter.sourceValues)}</td><td>${formatInteger(parameter.matchedValues)}</td><td>${formatInteger(parameter.targetValues)}</td><td>${formatInteger(parameter.conflicts)}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="result-note">Existing non-empty cells are preserved unless “Overwrite existing non-empty values” is checked.</p>
+    </div>`;
+  container.querySelectorAll('[data-parameter-list-tab]').forEach(button=>button.addEventListener('click',()=>{
+    const selected=button.dataset.parameterListTab;
+    container.querySelectorAll('[data-parameter-list-tab]').forEach(item=>item.setAttribute('aria-selected',String(item.dataset.parameterListTab===selected)));
+    container.querySelectorAll('[data-parameter-list-panel]').forEach(panel=>panel.hidden=panel.dataset.parameterListPanel!==selected);
+  }));
   byId("parameter-import-select-all").addEventListener("click",()=>{container.querySelectorAll('input[data-parameter-import]:not(:disabled)').forEach(input=>input.checked=true);updateParameterImportAction();});
   byId("parameter-import-clear").addEventListener("click",()=>{container.querySelectorAll('input[data-parameter-import]').forEach(input=>input.checked=false);updateParameterImportAction();});
   updateParameterImportAction();

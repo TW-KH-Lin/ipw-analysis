@@ -284,6 +284,11 @@
 .summary-mean-group-table .summary-use-mean-group.is-selected { border-color:#2e7d4f; background:#2e7d4f; color:#fff; }
 .assessment-side-options { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
 .assessment-side-options label { min-width:190px; }
+.parameter-list-tabs { display:flex; gap:4px; margin:10px 0 8px; border-bottom:1px solid var(--line); }
+.parameter-list-tabs button { border:0; border-bottom:3px solid transparent; background:transparent; color:var(--muted); padding:7px 10px; font:inherit; font-weight:700; cursor:pointer; }
+.parameter-list-tabs button[aria-selected="true"] { border-bottom-color:#2e7d4f; color:var(--blue-dark); }
+.parameter-list-tabs button span { display:inline-block; min-width:1.6em; margin-left:4px; padding:1px 5px; border-radius:999px; background:#e7eef2; text-align:center; font-size:11px; }
+[data-parameter-list-panel][hidden] { display:none; }
 @media (max-width:1050px) { .gaussian-comparison-grid.has-comparison,.gaussian-sigma-grid.has-comparison,.gaussian-mixture-grid.has-comparison,.gaussian-mixture-batch-grid.has-comparison,.correlation-comparison-grid.has-comparison,.zone-profile-grid { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:900px) { .gaussian-settings-row { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:900px) { .gaussian-time-controls { grid-template-columns:repeat(2,minmax(0,1fr)); } .gaussian-time-controls .command,#gaussian-time-status,#gaussian-time-error { grid-column:1/-1; } }
