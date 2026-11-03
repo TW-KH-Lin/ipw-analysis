@@ -1219,22 +1219,38 @@ async function importSelectedParameters() {
   const fileName=workbookCopyName("parameter_import");
   setStatus("Importing selected parameters into Auswertung...");await yieldToBrowser();
   const XLSX=getXlsx(),workbook=XLSX.read(state.originalData.slice(0),{type:"array",cellDates:true,cellFormula:true,cellHTML:false,cellText:true,cellStyles:true,bookVBA:true,dense:false});
+  setStatus("Matching selected parameters to Auswertung rows...");await yieldToBrowser();
   const existingTable=readWorkbookSheetWithBlankRows(workbook,"Auswertung");
   const result=applyAuswertungParameterImport(existingTable,current.table,selected,{overwrite:byId("parameter-import-overwrite").checked});
   if(!result.updatedCells&&!result.addedColumns.length)throw new Error("The selected parameters contain no new values to write.");
   const sheet=workbook.Sheets.Auswertung,range=XLSX.utils.decode_range(sheet["!ref"]||"A1");
   result.selectedParameters.filter(parameter=>result.addedColumns.includes(parameter.name)).forEach(parameter=>setSheetCellValue(sheet,result.existingHeaderIndex,parameter.column,parameter.name,Math.max(0,parameter.column-1)));
-  result.changes.forEach(change=>setSheetCellValue(sheet,change.row,change.column,change.value,Math.max(0,change.column-1)));
+  const chunkSize=750;
+  for(let start=0;start<result.changes.length;start+=chunkSize){
+    result.changes.slice(start,start+chunkSize).forEach(change=>setSheetCellValue(sheet,change.row,change.column,change.value,Math.max(0,change.column-1)));
+    setStatus(`Writing Auswertung values… ${formatInteger(Math.min(start+chunkSize,result.changes.length))} / ${formatInteger(result.changes.length)}`);
+    await yieldToBrowser();
+  }
   range.e.c=Math.max(range.e.c,...result.selectedParameters.map(parameter=>parameter.column));sheet["!ref"]=XLSX.utils.encode_range(range);
+  setStatus("Rebuilding Clean_Data locally...");await yieldToBrowser();
   const preserved=classificationMaps(state.headers,dataRows()),clean=buildCleanDataFromAuswertung(result.table,{classificationByLot:state.lotClassifications,classificationByKey:preserved.byKey});
   replaceWorkbookSheet(workbook,"Clean_Data",[clean.headers,...clean.rows]);
+  await yieldToBrowser();setStatus("Rebuilding Summary locally...");
   const summary=buildFullSummary(clean.headers,clean.rows);replaceWorkbookSheet(workbook,"Summary",[summary.headers,...summary.rows]);
   writeDataLabelsToWorkbook(workbook,clean.headers,clean.rows);
-  const bytes=XLSX.write(workbook,{type:"array",bookType:workbookBookType(fileName),bookVBA:/\.xlsm$/i.test(fileName),cellDates:true,cellStyles:true,compression:true});
+  await yieldToBrowser();setStatus("Preparing the Excel workbook for download...");
+  const bytes=await writeWorkbookWithoutBlocking(workbook,{type:"array",bookType:workbookBookType(fileName),bookVBA:/\.xlsm$/i.test(fileName),cellDates:true,cellStyles:true,compression:false});
   preparePendingWorkbook(bytes,fileName);
   const refreshedSession={...session,lastAddedParameters:[...result.selectedHeaders]};
-  await parseWorkbook(bytes,fileName);
-  refreshParameterImportTables(refreshedSession,bytes,false);openPanel("merge-panel");
+  state.originalData=bytes.slice(0);state.workbookName=fileName;
+  if(activeWorkbookId&&workbookLibrary.has(activeWorkbookId)){
+    const entry=workbookLibrary.get(activeWorkbookId);
+    entry.file=new File([bytes],fileName,{type:workbookMime(fileName)});entry.saved=null;
+  }
+  const refreshedSheets=refreshedSession.sheets.map(item=>({name:item.name,table:item.table,preview:analyzeAuswertungParameterImport(result.table,item.table)}));
+  state.parameterImport={...refreshedSession,existingTable:result.table,sheets:refreshedSheets};
+  fillSelect(byId("parameter-import-sheet"),refreshedSheets.map(item=>item.name),refreshedSession.sourceSheet);
+  byId("parameter-import-controls").hidden=false;renderParameterImportPreview();openPanel("merge-panel");
   byId("workbook-save-as").disabled=false;
   byId("workbook-ready-status").textContent=`Workbook ready · ${fileName} · ${formatInteger(pendingWorkbookDownload.blob.size)} bytes`;
   setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters added. Click Save Workbook As…`,false,true);
@@ -1387,6 +1403,22 @@ function preparePendingWorkbook(bytes,fileName) {
   const payload=workbookPayload(bytes,fileName);
   pendingWorkbookDownload={fileName,blob:payload.blob};
   syncPendingWorkbookSaveAction();
+}
+
+async function writeWorkbookWithoutBlocking(workbook,options) {
+  if(typeof Worker!=="function")return getXlsx().write(workbook,options);
+  let worker;
+  try{
+    worker=new Worker(new URL("./xlsx-write-worker.js?v=1",import.meta.url));
+    return await new Promise((resolve,reject)=>{
+      worker.addEventListener("message",event=>event.data?.error?reject(new Error(event.data.error)):resolve(event.data.buffer),{once:true});
+      worker.addEventListener("error",event=>reject(new Error(event.message||"The workbook writer could not start.")),{once:true});
+      worker.postMessage({workbook,options});
+    });
+  }catch(error){
+    setStatus("Background workbook writer unavailable; finishing in this tab...");await yieldToBrowser();
+    return getXlsx().write(workbook,options);
+  }finally{worker?.terminate();}
 }
 
 function syncPendingWorkbookSaveAction() {
