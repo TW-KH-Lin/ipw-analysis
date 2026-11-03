@@ -3290,8 +3290,8 @@ function saveGaussianSnapshot(secondary = false) {
   if (!current || !histogram) throw new Error("Run a Gaussian fit before saving a snapshot.");
   drawGaussianCharts();
   const canvas = document.createElement("canvas");
-  const chartWidth = 1000;
-  const tableWidth = 460, gap = 24, margin = 24;
+  const chartWidth = 1600;
+  const tableWidth = 620, gap = 36, margin = 36;
   const fit = current.fit;
   const rows = [
     ["Parameter", current.parameter],
@@ -3309,30 +3309,31 @@ function saveGaussianSnapshot(secondary = false) {
     ...fit.components.flatMap((component,index)=>[[`Component ${index+1} weight`,`${formatNumber(component.weight*100,1)}%`],[`Component ${index+1} mean`,formatNumber(component.mean,3)],[`Component ${index+1} sigma`,formatNumber(component.sigma,3)]]),
     ...(fit.components.length?[["Mixture AIC",formatNumber(fit.aic,2)],["Mixture BIC",formatNumber(fit.bic,2)]]:[])
   ];
-  const chartHeight = (rows.length + 1) * 42;
+  const rowHeight=52,chartHeight = Math.max(900,(rows.length + 1) * rowHeight);
   const exportChart = document.createElement("canvas");
   const exportRange=current.viewRange || root.viewRange;
-  drawGaussian(exportChart, { ...fit, ...exportRange }, "combined", { width: chartWidth, height: chartHeight });
+  const sharedY=root.comparison&&root.comparisonSharedY?Math.max(gaussianFitPeak({...root.fit,...root.viewRange}),gaussianFitPeak({...root.comparison.fit,...root.comparison.viewRange})):null;
+  drawGaussian(exportChart,{...fit,...exportRange},"combined",{width:chartWidth,height:chartHeight},{yMax:sharedY,highContrast:true});
   canvas.width = chartWidth + tableWidth + gap + margin * 2;
-  canvas.height = Math.max(chartHeight, (rows.length + 1) * 42) + 80;
+  canvas.height = Math.max(chartHeight, (rows.length + 1) * rowHeight) + 110;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#172231"; ctx.font = "18px sans-serif";
-  ctx.fillText("Observed Histogram + Fitted Gaussian", margin, 30);
-  ctx.drawImage(exportChart, margin, 56, chartWidth, chartHeight);
+  ctx.fillStyle = "#101820"; ctx.font = "bold 28px sans-serif";
+  ctx.fillText("Observed Histogram + Fitted Gaussian", margin, 38);
+  ctx.drawImage(exportChart, margin, 70, chartWidth, chartHeight);
   const tableX = margin + chartWidth + gap;
   const tableRows = [["Setting", "Value"], ...rows];
   tableRows.forEach(([label, value], index) => {
-    const y = 56 + index * 42;
+    const y = 70 + index * rowHeight;
     ctx.fillStyle = index === 0 ? "#e8eef1" : index % 2 ? "#ffffff" : "#f5f7f8";
-    ctx.fillRect(tableX, y, tableWidth, 42);
+    ctx.fillRect(tableX, y, tableWidth, rowHeight);
     ctx.strokeStyle = "#cbd5dc";
-    ctx.strokeRect(tableX, y, tableWidth, 42);
-    ctx.beginPath(); ctx.moveTo(tableX + 190, y); ctx.lineTo(tableX + 190, y + 42); ctx.stroke();
-    ctx.fillStyle = "#172231";
-    ctx.font = index === 0 ? "bold 18px sans-serif" : "18px sans-serif";
-    ctx.fillText(label, tableX + 12, y + 27, 166);
-    ctx.fillText(String(value), tableX + 202, y + 27, tableWidth - 214);
+    ctx.strokeRect(tableX, y, tableWidth, rowHeight);
+    ctx.beginPath(); ctx.moveTo(tableX + 250, y); ctx.lineTo(tableX + 250, y + rowHeight); ctx.stroke();
+    ctx.fillStyle = "#101820";
+    ctx.font = index === 0 ? "bold 23px sans-serif" : "22px sans-serif";
+    ctx.fillText(label, tableX + 14, y + 34, 224);
+    ctx.fillText(String(value), tableX + 264, y + 34, tableWidth - 278);
   });
   const stamp = new Date();
   const fileName = `${baseFileName()}_${safeFilePart(current.sourceLabel || current.source)}_${safeFilePart(current.parameter)}_Gaussian_${fileDateStamp(stamp)}.png`;
@@ -6081,14 +6082,15 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
   const xAxis = integerChartAxis([fit.start, fit.end]);
   fit = { ...fit, start: xAxis.min, end: xAxis.max };
   const { ctx, width, height, colors } = setupCanvas(canvas, dimensions);
-  const fontSize = dimensions ? 18 : 14;
-  const pad = { left: 48, right: 12, top: fit.components?.length ? (dimensions ? 112 : 94) : (dimensions ? 136 : 120), bottom: 34 };
+  const exportMode=Boolean(dimensions),fontSize = exportMode ? 26 : 14,fontWeight=exportMode?'700':'400';
+  const axisInk=display.highContrast?'#101820':colors.muted,gridInk=display.highContrast?'#a9b4bc':colors.line;
+  const pad = { left: exportMode?78:48, right: exportMode?26:12, top: fit.components?.length ? (exportMode ? 150 : 94) : (exportMode ? 170 : 120), bottom: exportMode?60:34 };
   const normalized=Boolean(display.normalized),valueScale=normalized?100/Math.max(1,fit.histogramN || fit.n || 1):1;
   const curveSampleCount=Math.max(720,Math.ceil(width*1.5));
   const curveSamples=Array.from({length:curveSampleCount+1},(_,index)=>({value:fit.start+(fit.end-fit.start)*index/curveSampleCount,expected:gaussianCurveExpected(fit,fit.start+(fit.end-fit.start)*index/curveSampleCount)}));
   const observedPeak=Math.max(1,...fit.bins.map(bin=>bin.observed*valueScale),...curveSamples.map(point=>point.expected*valueScale));
   const yAxis = integerChartAxis([0, Number.isFinite(display.yMax)&&display.yMax>0?display.yMax:observedPeak]);
-  ctx.font = `${fontSize}px sans-serif`;
+  ctx.font = `${fontWeight} ${fontSize}px sans-serif`;
   const yLabel=value=>`${formatInteger(value)}${normalized?'%':''}`;
   pad.left = Math.max(pad.left, ...yAxis.ticks.map(value => ctx.measureText(yLabel(value)).width + 14));
   pad.right = Math.max(pad.right, ctx.measureText(formatInteger(xAxis.max)).width / 2 + 8);
@@ -6098,9 +6100,9 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
-  ctx.strokeStyle = colors.line;
-  ctx.lineWidth = 1;
-  ctx.fillStyle = colors.muted;
+  ctx.strokeStyle = gridInk;
+  ctx.lineWidth = exportMode?2:1;
+  ctx.fillStyle = axisInk;
   ctx.textAlign = "right";
   yAxis.ticks.forEach(value => {
     const y = pad.top + plotHeight - value / maxY * plotHeight;
@@ -6122,7 +6124,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
     const x0 = pad.left + (bin.lower - fit.start) / (fit.end - fit.start) * plotWidth;
     const x1 = pad.left + (bin.upper - fit.start) / (fit.end - fit.start) * plotWidth;
     const barHeight = bin.observed*valueScale / maxY * plotHeight;
-    ctx.fillStyle = colors.blueSoft;
+    ctx.fillStyle = display.highContrast?'rgba(25,93,141,0.58)':colors.blueSoft;
     ctx.fillRect(x0 + 1, pad.top + plotHeight - barHeight, Math.max(1, x1 - x0 - 2), barHeight);
   });
   if (mode !== "histogram") {
@@ -6134,7 +6136,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
         const y=pad.top+plotHeight-gaussianCurveExpected(fit,point.value,componentIndex)*valueScale/maxY*plotHeight;
         if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
       });
-      ctx.strokeStyle=componentColors[componentIndex];ctx.lineWidth=1.8;ctx.lineJoin='round';ctx.lineCap='round';ctx.setLineDash([6,4]);ctx.stroke();ctx.setLineDash([]);
+      ctx.strokeStyle=componentColors[componentIndex];ctx.lineWidth=exportMode?3.2:1.8;ctx.lineJoin='round';ctx.lineCap='round';ctx.setLineDash(exportMode?[10,6]:[6,4]);ctx.stroke();ctx.setLineDash([]);
     });
     ctx.beginPath();
     curveSamples.forEach((point, index) => {
@@ -6143,8 +6145,8 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
       if (index === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
-    ctx.strokeStyle = colors.green;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = display.highContrast?'#17633f':colors.green;
+    ctx.lineWidth = exportMode?4:2;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     ctx.stroke();
@@ -6157,7 +6159,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
     { label: "97.5%", value: fit.high25, color: "#6d28d9" }
   ];
   ctx.save();
-  ctx.font = `${fontSize}px sans-serif`;
+  ctx.font = `${fontWeight} ${fontSize}px sans-serif`;
   ctx.textAlign = "left";
   ctx.fillStyle = "#172231";
   ctx.fillText(`${fit.components?.length?'Overall mean':'Mean'}: ${fit.mean.toFixed(3)}   ${fit.components?.length?'Overall sigma':'Sigma'}: ${fit.sigma.toFixed(3)}${normalized?'   ·   Normalized %':''}`, 8, fontSize + 4, width - 16);
@@ -6187,7 +6189,7 @@ function drawGaussian(canvas, fit, mode = "combined", dimensions, display={}) {
     ctx.beginPath();
     ctx.setLineDash([4, 3]);
     ctx.strokeStyle = cutoff.color;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = exportMode ? 2.5 : 1.5;
     ctx.moveTo(x, labelY + 5);
     ctx.lineTo(x, height - pad.bottom);
     ctx.stroke();
