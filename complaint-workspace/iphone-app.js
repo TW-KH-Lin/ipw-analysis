@@ -1168,11 +1168,14 @@ function renderParameterImportPreview() {
   const identifiers=new Set(["messungid","probenzeit","nummer","probentyp","probetype","type","ziehmaschinenname","chargennr","ziehart","filtertypnr"]);
   const headerKey=value=>text(value).normalize("NFKC").toLowerCase().replace(/[\s._-]+/g,"");
   const existingParameters=preview.existingHeaders.map(text).filter(name=>name&&!identifiers.has(headerKey(name)));
+  const existingKeys=new Set(existingParameters.map(headerKey)),lastAdded=session.lastAddedParameters||[];
+  const verifiedAdded=lastAdded.filter(name=>existingKeys.has(headerKey(name)));
   container.innerHTML=`
     <div class="metric-grid">
       ${metric("File",session.fileName)}${metric("Source sheet",current.name)}${metric("Matched rows",formatInteger(preview.matchedRows))}
       ${metric("Source keys",formatInteger(preview.sourceKeys))}${metric("Unmatched source rows",formatInteger(preview.unmatchedSourceKeys))}${metric("Duplicate source keys",formatInteger(preview.duplicateSourceKeys))}
     </div>
+    <div class="compact-actions parameter-import-actions"><button id="parameter-import-refresh" class="command" type="button">Refresh Parameter Tables</button><span>${lastAdded.length?`${formatInteger(verifiedAdded.length)} of ${formatInteger(lastAdded.length)} added parameters verified in Auswertung`:'Read directly from the current Auswertung worksheet'}</span></div>
     <div class="parameter-list-tabs" role="tablist" aria-label="Parameter lists">
       <button type="button" role="tab" data-parameter-list-tab="current" aria-selected="true">Current Auswertung Parameters <span>${formatInteger(existingParameters.length)}</span></button>
       <button type="button" role="tab" data-parameter-list-tab="incoming" aria-selected="false">Parameters to Add <span>${formatInteger(preview.parameters.length)}</span></button>
@@ -1192,6 +1195,7 @@ function renderParameterImportPreview() {
     container.querySelectorAll('[data-parameter-list-tab]').forEach(item=>item.setAttribute('aria-selected',String(item.dataset.parameterListTab===selected)));
     container.querySelectorAll('[data-parameter-list-panel]').forEach(panel=>panel.hidden=panel.dataset.parameterListPanel!==selected);
   }));
+  byId("parameter-import-refresh").addEventListener("click",()=>runAction(()=>refreshParameterImportTables()));
   byId("parameter-import-select-all").addEventListener("click",()=>{container.querySelectorAll('input[data-parameter-import]:not(:disabled)').forEach(input=>input.checked=true);updateParameterImportAction();});
   byId("parameter-import-clear").addEventListener("click",()=>{container.querySelectorAll('input[data-parameter-import]').forEach(input=>input.checked=false);updateParameterImportAction();});
   updateParameterImportAction();
@@ -1228,10 +1232,27 @@ async function importSelectedParameters() {
   writeDataLabelsToWorkbook(workbook,clean.headers,clean.rows);
   const bytes=XLSX.write(workbook,{type:"array",bookType:workbookBookType(fileName),bookVBA:/\.xlsm$/i.test(fileName),cellDates:true,cellStyles:true,compression:true});
   preparePendingWorkbook(bytes,fileName);
-  await parseWorkbook(bytes,fileName);openPanel("merge-panel");
+  const refreshedSession={...session,lastAddedParameters:[...result.selectedHeaders]};
+  await parseWorkbook(bytes,fileName);
+  refreshParameterImportTables(refreshedSession,bytes,false);openPanel("merge-panel");
   byId("workbook-save-as").disabled=false;
   byId("workbook-ready-status").textContent=`Workbook ready · ${fileName} · ${formatInteger(pendingWorkbookDownload.blob.size)} bytes`;
   setStatus(`${formatInteger(result.updatedCells)} cells from ${formatInteger(result.selectedHeaders.length)} parameters added. Click Save Workbook As…`,false,true);
+}
+
+function refreshParameterImportTables(session=state.parameterImport,data=state.originalData,announce=true) {
+  if(!session||!data)throw new Error("Choose a parameter workbook first.");
+  const XLSX=getXlsx(),target=XLSX.read(data.slice(0),{type:"array",cellDates:true,cellFormula:true,cellHTML:false,cellText:true,dense:false,sheets:["Auswertung"]});
+  const existingTable=readWorkbookSheetWithBlankRows(target,"Auswertung");
+  const sheets=session.sheets.map(item=>({name:item.name,table:item.table,preview:analyzeAuswertungParameterImport(existingTable,item.table)}));
+  state.parameterImport={...session,existingTable,sheets};
+  fillSelect(byId("parameter-import-sheet"),sheets.map(item=>item.name),session.sourceSheet);
+  byId("parameter-import-controls").hidden=false;
+  renderParameterImportPreview();
+  const current=state.parameterImport.sheets.find(item=>item.name===state.parameterImport.sourceSheet)||sheets[0];
+  const keys=new Set(current.preview.existingHeaders.map(value=>text(value).normalize("NFKC").toLowerCase().replace(/[\s._-]+/g,"")));
+  const added=state.parameterImport.lastAddedParameters||[],verified=added.filter(value=>keys.has(text(value).normalize("NFKC").toLowerCase().replace(/[\s._-]+/g,"")));
+  if(announce)setStatus(added.length?`Parameter tables refreshed. ${verified.length} of ${added.length} added parameters verified in Auswertung.`:"Parameter tables refreshed from the current Auswertung worksheet.",false,true);
 }
 
 function renderMergePreview() {
