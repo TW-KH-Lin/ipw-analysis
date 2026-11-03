@@ -196,6 +196,9 @@
 .gaussian-component-selector strong { color:#17633f; }
 .gaussian-component-selector label { display:inline-flex; align-items:center; gap:4px; margin:0; font-weight:700; }
 .gaussian-component-selector input { width:16px; min-height:16px; margin:0; padding:0; }
+.gaussian-zone-tabs { display:flex; gap:4px; margin:8px 0; padding:3px; border:1px solid var(--line); border-radius:8px; background:#eef3f5; }
+.gaussian-zone-tabs button { flex:1 1 0; min-height:34px; margin:0; border:0; border-radius:6px; background:transparent; color:var(--muted); font-weight:700; }
+.gaussian-zone-tabs button.active { background:#fff; color:var(--blue-dark); box-shadow:0 1px 3px rgba(23,34,49,.18); }
 .gaussian-comparison-axis-controls { display:grid; gap:8px; padding:8px 0; }
 .gaussian-comparison-axis-options { display:flex; flex-wrap:wrap; gap:8px 18px; }
 .gaussian-axis-pair-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; }

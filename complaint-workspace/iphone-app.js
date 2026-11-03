@@ -2819,11 +2819,15 @@ async function createGaussian() {
     ? buildGaussianZoneDistributionsFromRecords(records,method)
     : [];
   const zoneViewRange=gaussianZoneFullRange(zoneDistributions);
+  const comparisonZoneDistributions=byId('gaussian-zone-distributions').checked&&comparison
+    ? buildGaussianZoneDistributionsFromRecords(comparisonRecords,method)
+    : [];
+  const comparisonZoneViewRange=gaussianZoneFullRange(comparisonZoneDistributions);
   const sourceLabel=combinedContext.active?(byId('gaussian-source')?.selectedOptions[0]?.textContent || state.source):state.source;
   const comparisonLabel=comparisonId?(byId('gaussian-compare-source')?.selectedOptions[0]?.textContent || sourceLabel):sourceLabel;
   const dateFilter=gaussianDateFilter([...records,...comparisonRecords]);
-  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,activeRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:Boolean(comparison),comparisonSharedX:Boolean(comparison&&sameParameter),comparisonSharedY:false,zoneDistributions,zoneViewRange,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
-    comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope:effectiveComparisonScope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,activeRecords:comparisonRecords,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
+  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,activeRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:Boolean(comparison),comparisonSharedX:Boolean(comparison&&sameParameter),comparisonSharedY:false,zoneDistributionTab:'primary',zoneDistributions,zoneViewRange,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
+    comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope:effectiveComparisonScope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,activeRecords:comparisonRecords,zoneDistributions:comparisonZoneDistributions,zoneViewRange:comparisonZoneViewRange,zoneSharedY:false,zoneNormalized:false,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
   if(primary.fit.components?.length)state.lastGaussian.componentSelection=primary.fit.components.map((_,index)=>index);
   if(state.lastGaussian.comparison?.fit.components?.length)state.lastGaussian.comparison.componentSelection=state.lastGaussian.comparison.fit.components.map((_,index)=>index);
   if(comparison&&sameParameter){const range={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};state.lastGaussian.viewRange={...range};state.lastGaussian.comparison.viewRange={...range};}
@@ -3007,6 +3011,10 @@ function refitGaussianDateRange(active) {
   if(comparison){Object.assign(current.comparison,comparison);current.comparison.activeRecords=comparisonRecords;}
   current.zoneDistributions=current.zoneDistributions?.length?buildGaussianZoneDistributionsFromRecords(primaryRecords,current.method,current.zoneDistributions):[];
   current.zoneViewRange=gaussianZoneFullRange(current.zoneDistributions);
+  if(current.comparison){
+    current.comparison.zoneDistributions=current.comparison.zoneDistributions?.length?buildGaussianZoneDistributionsFromRecords(comparisonRecords,current.method,current.comparison.zoneDistributions):[];
+    current.comparison.zoneViewRange=gaussianZoneFullRange(current.comparison.zoneDistributions);
+  }
   current.dateFilter={...range,active,start,end};
   if(comparison&&current.comparisonSharedX){const view={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};current.viewRange={...view};current.comparison.viewRange={...view};}
   else {current.viewRange={start:primary.fit.start,end:primary.fit.end};if(comparison)current.comparison.viewRange={start:comparison.fit.start,end:comparison.fit.end};}
@@ -3016,15 +3024,19 @@ function refitGaussianDateRange(active) {
 
 function renderGaussianZoneDistributions(result) {
   if(!result.zoneDistributions?.length)return '';
-  const available=result.zoneDistributions.some(item=>item.fit);
-  const fullRange=gaussianZoneFullRange(result.zoneDistributions),viewRange=result.zoneViewRange || fullRange;
+  const hasComparison=Boolean(result.comparison?.zoneDistributions?.length);
+  const side=hasComparison&&result.zoneDistributionTab==='comparison'?'comparison':'primary';
+  const selection=side==='comparison'?result.comparison:result;
+  const available=selection.zoneDistributions.some(item=>item.fit);
+  const fullRange=gaussianZoneFullRange(selection.zoneDistributions),viewRange=selection.zoneViewRange || fullRange;
   const step=gaussianZoneAxisStep(fullRange);
   return `<details class="gaussian-zone-section" open><summary>Individual Zone distributions (3 × 2)</summary>
-    <div class="assessment-plot-toolbar"><h3>${escapeHtml(result.parameter)} · Zones 1–6</h3><button id="export-gaussian-zones-png" class="command" type="button" ${available?'':'disabled'}>Export 3 × 2 PNG</button></div>
+    ${hasComparison?`<div class="gaussian-zone-tabs" role="tablist" aria-label="Zone distribution dataset"><button type="button" class="${side==='primary'?'active':''}" data-zone-tab="primary" role="tab" aria-selected="${side==='primary'}">Primary</button><button type="button" class="${side==='comparison'?'active':''}" data-zone-tab="comparison" role="tab" aria-selected="${side==='comparison'}">Comparison</button></div>`:''}
+    <div class="assessment-plot-toolbar"><h3>${side==='comparison'?'Comparison':'Primary'} · ${escapeHtml(selection.parameter)} · Zones 1–6</h3><button id="export-gaussian-zones-png" class="command" type="button" ${available?'':'disabled'}>Export ${side==='comparison'?'Comparison':'Primary'} 3 × 2 PNG</button></div>
     <div class="gaussian-zone-scale-controls">
-      <label class="choice-row"><input id="gaussian-zone-shared-y" type="checkbox" ${result.zoneSharedY?'checked':''}>Same Y-axis range</label>
-      <label class="choice-row"><input id="gaussian-zone-normalized" type="checkbox" ${result.zoneNormalized?'checked':''}>Normalize each Zone (%)</label>
-      <span>${result.zoneNormalized?'Y-axis shows percent of each Zone sample.':'Y-axis shows observation counts.'}</span>
+      <label class="choice-row"><input id="gaussian-zone-shared-y" type="checkbox" ${selection.zoneSharedY?'checked':''}>Same Y-axis range</label>
+      <label class="choice-row"><input id="gaussian-zone-normalized" type="checkbox" ${selection.zoneNormalized?'checked':''}>Normalize each Zone (%)</label>
+      <span>${selection.zoneNormalized?'Y-axis shows percent of each Zone sample.':'Y-axis shows observation counts.'}</span>
     </div>
     <div class="gaussian-zone-x-controls">
       <strong>Shared X-axis range</strong>
@@ -3035,11 +3047,15 @@ function renderGaussianZoneDistributions(result) {
       <button id="gaussian-zone-x-reset" class="command" type="button">Reset X-axis</button>
       <span id="gaussian-zone-x-error" role="alert"></span>
     </div>
-    <div class="gaussian-zone-grid">${result.zoneDistributions.map(item=>`<article class="chart-card gaussian-zone-card">
+    <div class="gaussian-zone-grid">${selection.zoneDistributions.map(item=>`<article class="chart-card gaussian-zone-card">
       <h3>Zone ${item.zone}</h3>
-      ${item.fit?`<p>N ${formatInteger(item.fit.n)} · Mu ${formatNumber(item.fit.mean,3)} · Sigma ${formatNumber(item.fit.sigma,3)} · Bin ${formatNumber(item.fit.binWidth,3)} · Range ${formatNumber(item.fit.start,2)} to ${formatNumber(item.fit.end,2)}</p>${renderGaussianComponentSelector(item,`zone-${item.zone}`)}<canvas id="gaussian-zone-chart-${item.zone}" aria-label="Zone ${item.zone} Gaussian distribution"></canvas>`:`<p class="empty-state">${escapeHtml(item.error || 'No usable numeric data.')}</p>`}
+      ${item.fit?`<p>N ${formatInteger(item.fit.n)} · Mu ${formatNumber(item.fit.mean,3)} · Sigma ${formatNumber(item.fit.sigma,3)} · Bin ${formatNumber(item.fit.binWidth,3)} · Range ${formatNumber(item.fit.start,2)} to ${formatNumber(item.fit.end,2)}</p>${renderGaussianComponentSelector(item,`zone-${side}-${item.zone}`)}<canvas id="gaussian-zone-chart-${item.zone}" aria-label="${side==='comparison'?'Comparison':'Primary'} Zone ${item.zone} Gaussian distribution"></canvas>`:`<p class="empty-state">${escapeHtml(item.error || 'No usable numeric data.')}</p>`}
     </article>`).join('')}</div>
   </details>`;
+}
+
+function gaussianActiveZoneSelection(result=state.lastGaussian) {
+  return result?.zoneDistributionTab==='comparison'&&result.comparison?.zoneDistributions?.length?result.comparison:result;
 }
 
 function gaussianSelectionLabel(selection) {
@@ -3065,7 +3081,8 @@ function gaussianComponentLineLabel(selection) {
 function renderGaussianComponentSelector(selection,side) {
   if(!selection?.fit?.components?.length)return '';
   const selected=new Set(gaussianSelectedComponentIndexes(selection));
-  const groupLabel=side==='comparison'?'Comparison':side.startsWith('zone-')?`Zone ${side.slice(5)}`:'Primary';
+  const zoneMatch=side.match(/^zone-(?:primary|comparison)-(\d+)$/);
+  const groupLabel=side==='comparison'?'Comparison':zoneMatch?`Zone ${zoneMatch[1]}`:'Primary';
   return `<div class="gaussian-component-selector" role="group" aria-label="${groupLabel} solid curve components"><strong>Green solid line</strong>${selection.fit.components.map((_,index)=>`<label><input class="gaussian-component-toggle" data-component-side="${side}" data-component-index="${index}" type="checkbox" ${selected.has(index)?'checked':''}>C${index+1}</label>`).join('')}</div>`;
 }
 
@@ -3148,7 +3165,9 @@ function renderGaussianResult() {
   byId('export-gaussian-overlay-png')?.addEventListener('click',()=>runAction(saveGaussianOverlaySnapshot));
   byId('gaussian-result').querySelectorAll('.gaussian-component-toggle').forEach(input=>input.addEventListener('change',event=>{
     const side=event.target.dataset.componentSide;
-    const selection=side==='comparison'?result.comparison:side.startsWith('zone-')?result.zoneDistributions.find(item=>item.zone===Number(side.slice(5))):result;
+    const zoneMatch=side.match(/^zone-(primary|comparison)-(\d+)$/);
+    const zoneOwner=zoneMatch?.[1]==='comparison'?result.comparison:result;
+    const selection=side==='comparison'?result.comparison:zoneMatch?zoneOwner?.zoneDistributions.find(item=>item.zone===Number(zoneMatch[2])):result;
     if(!selection)return;
     const index=Number(event.target.dataset.componentIndex);
     const selected=new Set(gaussianSelectedComponentIndexes(selection));
@@ -3157,9 +3176,12 @@ function renderGaussianResult() {
     selection.componentSelection=[...selected].sort((a,b)=>a-b);
     requestAnimationFrame(drawGaussianCharts);
   }));
+  byId('gaussian-result').querySelectorAll('[data-zone-tab]').forEach(button=>button.addEventListener('click',()=>{
+    result.zoneDistributionTab=button.dataset.zoneTab;renderGaussianResult();
+  }));
   byId('export-gaussian-zones-png')?.addEventListener('click',()=>runAction(saveGaussianZoneSnapshot));
-  byId('gaussian-zone-shared-y')?.addEventListener('change',event=>{result.zoneSharedY=event.target.checked;requestAnimationFrame(drawGaussianCharts);});
-  byId('gaussian-zone-normalized')?.addEventListener('change',event=>{result.zoneNormalized=event.target.checked;renderGaussianResult();});
+  byId('gaussian-zone-shared-y')?.addEventListener('change',event=>{gaussianActiveZoneSelection(result).zoneSharedY=event.target.checked;requestAnimationFrame(drawGaussianCharts);});
+  byId('gaussian-zone-normalized')?.addEventListener('change',event=>{gaussianActiveZoneSelection(result).zoneNormalized=event.target.checked;renderGaussianResult();});
   ['start','end'].forEach(side=>{
     byId(`gaussian-zone-x-${side}`)?.addEventListener('input',()=>updateGaussianZoneView());
     byId(`gaussian-zone-x-${side}-slider`)?.addEventListener('input',event=>{
@@ -3167,7 +3189,7 @@ function renderGaussianResult() {
     });
   });
   byId('gaussian-zone-x-reset')?.addEventListener('click',()=>{
-    result.zoneViewRange=gaussianZoneFullRange(result.zoneDistributions);renderGaussianResult();
+    const selection=gaussianActiveZoneSelection(result);selection.zoneViewRange=gaussianZoneFullRange(selection.zoneDistributions);renderGaussianResult();
   });
   ['start','end'].forEach(side=>{
     byId(`gaussian-time-${side}`)?.addEventListener('change',event=>{
@@ -3216,9 +3238,9 @@ function drawGaussianCharts() {
     const comparison=gaussianFitWithComponentSelection(state.lastGaussian.comparison,state.lastGaussian.comparison.viewRange);
     drawGaussianOverlay(byId('gaussian-overlay-chart'),primary,comparison,gaussianOverlayDetails(state.lastGaussian));
   }
-  const zoneDisplay=gaussianZoneDisplayOptions(state.lastGaussian);
-  state.lastGaussian.zoneDistributions?.forEach(item=>{
-    if(item.fit)drawGaussian(byId(`gaussian-zone-chart-${item.zone}`),gaussianFitWithComponentSelection(item,state.lastGaussian.zoneViewRange),'combined',undefined,zoneDisplay);
+  const zoneSelection=gaussianActiveZoneSelection(state.lastGaussian),zoneDisplay=gaussianZoneDisplayOptions(zoneSelection);
+  zoneSelection?.zoneDistributions?.forEach(item=>{
+    if(item.fit)drawGaussian(byId(`gaussian-zone-chart-${item.zone}`),gaussianFitWithComponentSelection(item,zoneSelection.zoneViewRange),'combined',undefined,zoneDisplay);
   });
 }
 
@@ -3234,7 +3256,7 @@ function gaussianZoneAxisStep(range) {
 }
 
 function updateGaussianZoneView() {
-  const current=state.lastGaussian;if(!current)return;
+  const current=gaussianActiveZoneSelection();if(!current)return;
   const start=Number(byId('gaussian-zone-x-start')?.value),end=Number(byId('gaussian-zone-x-end')?.value),error=byId('gaussian-zone-x-error');
   if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start){if(error)error.textContent='End must be greater than Start.';return;}
   current.zoneViewRange={start,end};if(error)error.textContent='';
@@ -3414,7 +3436,7 @@ function saveGaussianOverlaySnapshot() {
 }
 
 function saveGaussianZoneSnapshot() {
-  const current=state.lastGaussian;
+  const root=state.lastGaussian,current=gaussianActiveZoneSelection(root),side=current===root?.comparison?'Comparison':'Primary';
   if(!current?.zoneDistributions?.some(item=>item.fit))throw new Error('Run Gaussian fit with Individual Zone distributions selected before exporting.');
   const columns=3,rows=2,cardWidth=620,cardHeight=500,gap=18,margin=24,headerHeight=82;
   const canvas=document.createElement('canvas');
@@ -3423,7 +3445,7 @@ function saveGaussianZoneSnapshot() {
   const ctx=canvas.getContext('2d');
   ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
   ctx.fillStyle='#172231';ctx.font='bold 24px sans-serif';
-  ctx.fillText(`Individual Zone distributions · ${current.parameter}`,margin,32,canvas.width-margin*2);
+  ctx.fillText(`${side} · Individual Zone distributions · ${current.parameter}`,margin,32,canvas.width-margin*2);
   ctx.fillStyle='#526579';ctx.font='16px sans-serif';
   ctx.fillText(`${current.sourceLabel || current.source}${current.selectedLot?` · Lot ${current.selectedLot}`:''} · ${current.scope} · ${current.fit.method} · X ${formatNumber(current.zoneViewRange.start,2)} to ${formatNumber(current.zoneViewRange.end,2)} · ${current.zoneNormalized?'Normalized %':'Counts'}${current.zoneSharedY?' · Shared Y-axis':''}`,margin,60,canvas.width-margin*2);
   const zoneDisplay=gaussianZoneDisplayOptions(current);
@@ -3438,7 +3460,7 @@ function saveGaussianZoneSnapshot() {
     drawGaussian(chart,gaussianFitWithComponentSelection(item,current.zoneViewRange),'combined',{width:cardWidth-20,height:cardHeight-66},zoneDisplay);
     ctx.drawImage(chart,x+10,y+58,cardWidth-20,cardHeight-66);
   });
-  const fileName=`${baseFileName()}_${safeFilePart(current.parameter)}_Gaussian_Zones_3x2_${fileDateStamp(new Date())}.png`;
+  const fileName=`${baseFileName()}_${safeFilePart(current.parameter)}_${side}_Gaussian_Zones_3x2_${fileDateStamp(new Date())}.png`;
   const link=document.createElement('a');link.href=canvas.toDataURL('image/png');link.download=fileName;document.body.append(link);link.click();link.remove();
   setStatus(`Saved ${fileName}.`,false,true);
 }
