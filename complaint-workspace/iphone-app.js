@@ -1386,6 +1386,12 @@ async function saveWorkbookBytes(bytes, fileName, handle) {
 function preparePendingWorkbook(bytes,fileName) {
   const payload=workbookPayload(bytes,fileName);
   pendingWorkbookDownload={fileName,blob:payload.blob};
+  syncPendingWorkbookSaveAction();
+}
+
+function syncPendingWorkbookSaveAction() {
+  const button=byId("workbook-save-as");
+  if(button)button.disabled=!pendingWorkbookDownload;
 }
 
 async function savePendingWorkbookAs() {
@@ -6787,6 +6793,7 @@ async function runAction(action) {
     const merge = state.newLotImport?.preview;
     byId("merge-new-lots").disabled = !merge || Boolean(merge.missingHeaders.length || !merge.addedRows);
     updateParameterImportAction();
+    syncPendingWorkbookSaveAction();
     updateLabelActionState();
     renderComparisonControls();
     applyCombinedControlState();
