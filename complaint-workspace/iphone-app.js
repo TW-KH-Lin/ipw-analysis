@@ -170,7 +170,7 @@ function registerOfflineApp() {
 const REMEMBERED_CONTROLS = [
   "correlation-analysis", "correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions",
   "reference-temperature", "reference-humidity",
-  "summary-parameter", "gaussian-data-scope", "gaussian-compare-data-scope", "gaussian-parameter", "gaussian-compare-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end", "gaussian-compare-bin-width", "gaussian-compare-start", "gaussian-compare-end", "gaussian-initial-means", "gaussian-compare-initial-means", "gaussian-extreme-sigma", "gaussian-extreme-side", "gaussian-zone-distributions",
+  "summary-parameter", "gaussian-worksheet", "gaussian-compare-worksheet", "gaussian-data-scope", "gaussian-compare-data-scope", "gaussian-parameter", "gaussian-compare-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end", "gaussian-compare-bin-width", "gaussian-compare-start", "gaussian-compare-end", "gaussian-initial-means", "gaussian-compare-initial-means", "gaussian-extreme-sigma", "gaussian-extreme-side", "gaussian-zone-distributions",
   "trend-parameter", "period-parameter", "period-mode", "period-plot", "period-lot", "period-lot-b",
   "zone-profile-data-scope", "zone-profile-parameter-a", "zone-profile-parameter-b",
   "period-a-start", "period-a-end", "period-b-start", "period-b-end", "period-c-start", "period-c-end",
@@ -241,7 +241,8 @@ function restoreAnalysisSettings() {
   syncPeriodMode();
   syncGaussianComparisonParameter();
   syncGaussianMethod();
-  syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
+  syncGaussianWorksheetChoices();
+  syncGaussianZoneChoices();
   syncZoneChoices("export-zones", byId("export-parameter").value);
   syncCorrelationZones();
   syncCorrelationRemovalInput();
@@ -353,10 +354,11 @@ function bindEvents() {
   byId('gaussian-compare-data-scope').addEventListener('change',()=>{
     if(byId('gaussian-compare-data-scope').value==='none'){
       byId('gaussian-compare-parameter').value='';
+      byId('gaussian-compare-worksheet').value='';
       if(byId('gaussian-compare-source'))byId('gaussian-compare-source').value='';
       syncGaussianComparisonParameter();
     }
-    syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();
+    syncGaussianLotChoices();syncGaussianZoneChoices();syncGaussianMethod();invalidateGaussian();
   });
   byId('gaussian-lot').addEventListener('change',()=>{syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();});
   byId('gaussian-compare-lot').addEventListener('change',()=>{syncGaussianMethod();invalidateGaussian();});
@@ -461,9 +463,11 @@ function bindEvents() {
     invalidateGaussian();
     syncGaussianComparisonParameter();
     syncGaussianMethod();
-    syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
+    syncGaussianZoneChoices();
   });
-  byId("gaussian-compare-parameter").addEventListener("change",()=>{activateGaussianComparisonScope();syncGaussianComparisonParameter();syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();});
+  byId("gaussian-compare-parameter").addEventListener("change",()=>{activateGaussianComparisonScope();syncGaussianComparisonParameter();syncGaussianLotChoices();syncGaussianZoneChoices();syncGaussianMethod();invalidateGaussian();});
+  byId("gaussian-worksheet").addEventListener("change",()=>{syncGaussianWorksheetChoices();syncGaussianMethod();invalidateGaussian();});
+  byId("gaussian-compare-worksheet").addEventListener("change",()=>{activateGaussianComparisonScope();syncGaussianWorksheetChoices();syncGaussianMethod();invalidateGaussian();});
   ["gaussian-compare-bin-width","gaussian-compare-start","gaussian-compare-end"].forEach(id=>byId(id).addEventListener("input",invalidateGaussian));
   byId('gaussian-source')?.addEventListener('change',()=>{syncGaussianSourceChoices();syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();});
   byId('gaussian-compare-source')?.addEventListener('change',()=>{activateGaussianComparisonScope();syncGaussianLotChoices();syncGaussianMethod();invalidateGaussian();});
@@ -686,13 +690,14 @@ function syncGaussianSourceChoices() {
   const host=byId('gaussian-source-controls');if(!host)return;
   host.hidden=!combinedContext.active;
   const primary=byId('gaussian-source'),secondary=byId('gaussian-compare-source');
-  if(!combinedContext.active){fillSelect(primary,["all"],"all");fillSelect(secondary,[""],"");return;}
+  if(!combinedContext.active){fillSelect(primary,["all"],"all");fillSelect(secondary,[""],"");syncGaussianWorksheetChoices();return;}
   const choices=[['all','Combined selected workbooks'],...combinedContext.selectedIds.map(id=>{const entry=workbookLibrary.get(id);return [id,`Workbook · ${entry?.file.name || id} · ${entry?.index?.source || ''}`];})];
   const prior=choices.some(([value])=>value===primary.value)?primary.value:'all';
   primary.replaceChildren(...choices.map(([value,label])=>new Option(label,value)));primary.value=prior;
   const compareChoices=[['','No separate dataset'],...choices.filter(([value])=>value!==primary.value)];
   const comparePrior=compareChoices.some(([value])=>value===secondary.value)?secondary.value:'';
   secondary.replaceChildren(...compareChoices.map(([value,label])=>new Option(label,value)));secondary.value=comparePrior;
+  syncGaussianWorksheetChoices();
   syncGaussianLotChoices();
 }
 
@@ -2150,6 +2155,8 @@ function populateWorkbookControls() {
     "clear-summary-mean-groups",
     "gaussian-data-scope",
     "gaussian-compare-data-scope",
+    "gaussian-worksheet",
+    "gaussian-compare-worksheet",
     "gaussian-lot",
     "gaussian-compare-lot",
     "gaussian-parameter",
@@ -2245,10 +2252,9 @@ function populateWorkbookControls() {
   byId("show-zm-plan").disabled = !state.lastAssessment || state.lastAssessment.parameter === "All parameters";
   byId("save-gaussian-snapshot").disabled = !state.lastGaussian;
   byId("export-gaussian-extremes").disabled = !state.lastGaussian;
-  syncGaussianComparisonParameter();
-  syncGaussianLotChoices();
+  syncGaussianWorksheetChoices();
   syncGaussianMethod();
-  syncZoneChoices("gaussian-zones", byId("gaussian-parameter").value);
+  syncGaussianZoneChoices();
   syncZoneChoices("export-zones", byId("export-parameter").value);
   syncCorrelationZones();
   syncCorrelationRemovalInput();
@@ -2735,7 +2741,8 @@ function recommendGaussian() {
     throw new Error("NaCl truncated fitting is available only for the NaCl parameter.");
   }
   const scope=byId('gaussian-data-scope').value,lot=scope==='single'?byId('gaussian-lot').value:'';
-  const records = collectGaussianRecords(parameter, includedZones,byId('gaussian-source')?.value || 'all',scope,lot);
+  const worksheet=byId('gaussian-worksheet')?.value || state.source;
+  const records = collectGaussianRecords(parameter, includedZones,byId('gaussian-source')?.value || 'all',scope,lot,worksheet);
   const settings = recommendGaussianSettings(records.map((record) => record.value), { method, lowerLimit: 1 });
   byId("gaussian-bin-width").value = inputNumber(settings.binWidth);
   byId("gaussian-start").value = inputNumber(settings.start);
@@ -2748,10 +2755,36 @@ function recommendGaussian() {
   );
 }
 
-function gaussianLotsForSource(sourceId) {
-  const lotColumn=headerIndex(state.headers,'Lot');if(lotColumn<0)return [];
+function gaussianWorksheetNames() {
+  return [...new Set([...state.sheets,...state.generatedSources.keys()])];
+}
+
+function gaussianDatasetForWorksheet(worksheet) {
+  if(combinedContext.active || !worksheet || worksheet===state.source)return {name:state.source,headers:state.headers,rows:state.rows,rowNumbers:state.rows.map(row=>state.sourceLocations.get(row)?.row || 0),columnOffset:0,sourceColumns:state.sourceColumns,sheet:combinedContext.active?null:state.workbook?.Sheets?.[state.source]};
+  const source=prepareSource(worksheet);
+  return {name:worksheet,headers:source.headers,rows:source.rows,rowNumbers:source.rowNumbers,columnOffset:source.columnOffset,sourceColumns:source.headers.map((_,index)=>source.columnOffset+index),sheet:state.workbook?.Sheets?.[worksheet] || null};
+}
+
+function gaussianFilteredDatasetRows(dataset) {
+  const filterMode=byId('filter-mode').value || 'all',typeValue=byId('type-filter').value || ALL,keyword=byId('classification-keyword').value;
+  const lotColumn=headerIndex(dataset.headers,'Lot'),typeColumn=headerIndex(dataset.headers,'Type'),classificationColumn=headerIndex(dataset.headers,'Classification');
+  return dataset.rows.map((row,index)=>({row,index})).filter(({row})=>{
+    if(!isDataRow(dataset.headers,row))return false;
+    if(typeValue!==ALL&&typeColumn>=0&&text(row[typeColumn])!==typeValue)return false;
+    if(filterMode==='lots'&&lotColumn>=0&&!state.filterSelections.lots.has(text(row[lotColumn])))return false;
+    if(filterMode==='classification-keyword'&&!classificationIncludesKeyword(row[classificationColumn],keyword))return false;
+    if(filterMode==='classification'){
+      const value=classificationColumn>=0&&text(row[classificationColumn])?text(row[classificationColumn]):UNCLASSIFIED;
+      if(!state.filterSelections.classification.has(value))return false;
+    }
+    return true;
+  });
+}
+
+function gaussianLotsForSource(sourceId,worksheet=byId('gaussian-worksheet')?.value || state.source) {
+  const dataset=gaussianDatasetForWorksheet(worksheet),lotColumn=headerIndex(dataset.headers,'Lot');if(lotColumn<0)return [];
   const lots=new Set();
-  for(const row of dataRows()){
+  for(const {row} of dataset.rows.map((row,index)=>({row,index})).filter(({row})=>isDataRow(dataset.headers,row))){
     const origin=combinedContext.active?combinedContext.origins.get(row):null;
     if(sourceId!=='all' && origin?.source.id!==sourceId)continue;
     const lot=text(row[lotColumn]);if(lot)lots.add(lot);
@@ -2765,13 +2798,14 @@ function syncGaussianLotChoices() {
   const comparisonSingle=comparisonScope==='single';
   byId('gaussian-lot-field').hidden=!primarySingle;
   const primarySource=byId('gaussian-source')?.value || 'all',comparisonSource=byId('gaussian-compare-source')?.value || '';
-  const primaryLots=gaussianLotsForSource(primarySource),primaryValue=byId('gaussian-lot').value;
+  const primaryWorksheet=byId('gaussian-worksheet')?.value || state.source,comparisonWorksheet=byId('gaussian-compare-worksheet')?.value || primaryWorksheet;
+  const primaryLots=gaussianLotsForSource(primarySource,primaryWorksheet),primaryValue=byId('gaussian-lot').value;
   fillSelect(byId('gaussian-lot'),primaryLots,primaryLots.includes(primaryValue)?primaryValue:primaryLots[0]);
   byId('gaussian-lot').disabled=!primarySingle || !primaryLots.length;
   const effectiveComparisonSource=comparisonSource || primarySource;
-  const sameSource=!comparisonSource || comparisonSource===primarySource;
+  const sameSource=(!comparisonSource || comparisonSource===primarySource)&&comparisonWorksheet===primaryWorksheet;
   const sameParameter=!byId('gaussian-compare-parameter').value;
-  const comparisonLots=gaussianLotsForSource(effectiveComparisonSource)
+  const comparisonLots=gaussianLotsForSource(effectiveComparisonSource,comparisonWorksheet)
     .filter(lot=>!primarySingle || !sameParameter || !sameSource || !sameDataValue(lot,byId('gaussian-lot').value));
   const comparisonValue=byId('gaussian-compare-lot').value;
   const selectedComparison=comparisonLots.some(lot=>sameDataValue(lot,comparisonValue))
@@ -2784,38 +2818,37 @@ function syncGaussianLotChoices() {
 
 function activateGaussianComparisonScope() {
   const scope=byId('gaussian-compare-data-scope');
-  if(scope.value==='none' && (byId('gaussian-compare-parameter').value || byId('gaussian-compare-source')?.value))scope.value=byId('gaussian-data-scope').value;
+  if(scope.value==='none' && (byId('gaussian-compare-parameter').value || byId('gaussian-compare-source')?.value || byId('gaussian-compare-worksheet')?.value))scope.value=byId('gaussian-data-scope').value;
 }
 
-function gaussianRows(scope='all',lot='') {
-  if(scope==='all')return dataRows();
-  if(scope==='filtered')return filteredRows();
-  const lotColumn=headerIndex(state.headers,'Lot');
-  return lotColumn<0?[]:dataRows().filter(row=>sameDataValue(row[lotColumn],lot));
+function gaussianRows(dataset,scope='all',lot='') {
+  const rows=scope==='filtered'?gaussianFilteredDatasetRows(dataset):dataset.rows.map((row,index)=>({row,index})).filter(({row})=>isDataRow(dataset.headers,row));
+  if(scope!=='single')return rows;
+  const lotColumn=headerIndex(dataset.headers,'Lot');
+  return lotColumn<0?[]:rows.filter(({row})=>sameDataValue(row[lotColumn],lot));
 }
 
-function collectGaussianRecords(parameter, includedZones, sourceId = 'all',scope='all',lot='') {
-  const columns = zoneColumns(state.headers, parameter), records = [], XLSX = getXlsx();
-  const lotColumn = headerIndex(state.headers, "Lot"), batchColumn = headerIndex(state.headers, "N");
-  const sheet = combinedContext.active ? null : state.workbook.Sheets[state.source];
-  for (const row of gaussianRows(scope,lot)) {
-    const location = state.sourceLocations.get(row);
+function collectGaussianRecords(parameter,includedZones,sourceId='all',scope='all',lot='',worksheet=byId('gaussian-worksheet')?.value || state.source) {
+  const dataset=gaussianDatasetForWorksheet(worksheet),columns=zoneColumns(dataset.headers,parameter),records=[],XLSX=getXlsx();
+  const lotColumn=headerIndex(dataset.headers,"Lot"),batchColumn=headerIndex(dataset.headers,"N"),sheet=dataset.sheet;
+  for(const {row,index} of gaussianRows(dataset,scope,lot)){
+    const location={row:dataset.rowNumbers[index],column:dataset.columnOffset};
     const origin = combinedContext.active ? combinedContext.origins.get(row) : null;
     if(sourceId!=='all' && origin?.source.id!==sourceId)continue;
-    if (!origin && !location) throw new Error("Source row mapping is unavailable. Reopen the workbook before fitting.");
-    if (!combinedContext.active && byId("gaussian-visible-rows").checked && sheet?.["!rows"]?.[location.row - 1]?.hidden) continue;
-    const dateInfo=trendDateForRow(state.headers,row,state.trendDateLookup || new Map());
+    if(!origin&&!location.row)throw new Error("Source row mapping is unavailable. Reopen the workbook before fitting.");
+    if(!combinedContext.active&&byId("gaussian-visible-rows").checked&&sheet?.["!rows"]?.[location.row-1]?.hidden)continue;
+    const dateInfo=trendDateForRow(dataset.headers,row,state.trendDateLookup || new Map());
     for (const zone of includedZones) {
       const column = columns?.[zone - 1];
       if (column === undefined || column < 0) continue;
       const originalColumn=origin?.columnMap[column];
       const located=origin ? origin.source.entry.index.locate(origin.originalRow,originalColumn) : null;
-      const sourceCell=origin ? located?.cell || '' : XLSX.utils.encode_cell({ r: location.row - 1, c: state.sourceColumns[column] });
+      const sourceCell=origin?located?.cell || '':XLSX.utils.encode_cell({r:location.row-1,c:dataset.sourceColumns[column]});
       const cellError=origin ? origin.source.entry.index.isError?.(origin.originalRow,originalColumn) : sheet?.[sourceCell]?.t === "e";
       const value = row[column];
       if (cellError || !["number", "string"].includes(typeof value) || text(value) === "" || !Number.isFinite(Number(value))) continue;
       records.push({ value: Number(value), lot: lotColumn >= 0 ? text(row[lotColumn]) : "", batch: batchColumn >= 0 ? text(row[batchColumn]) : "", zone,
-        source: origin ? `${origin.source.name} · ${origin.source.source}` : state.source, sourceRow: origin ? located?.row : location.row, sourceCell, parameter,date:dateInfo.date,dateFallback:dateInfo.fallback });
+        source:origin?`${origin.source.name} · ${origin.source.source}`:dataset.name,sourceRow:origin?located?.row:location.row,sourceCell,parameter,date:dateInfo.date,dateFallback:dateInfo.fallback });
     }
   }
   return records;
@@ -2823,6 +2856,8 @@ function collectGaussianRecords(parameter, includedZones, sourceId = 'all',scope
 
 async function createGaussian() {
   invalidateGaussian();
+  const primaryWorksheet=byId('gaussian-worksheet')?.value || state.source;
+  const comparisonWorksheet=byId('gaussian-compare-worksheet')?.value || primaryWorksheet;
   const parameter = byId("gaussian-parameter").value;
   const comparisonParameter=byId('gaussian-compare-parameter').value||parameter;
   const sameParameter=comparisonParameter===parameter;
@@ -2838,7 +2873,7 @@ async function createGaussian() {
   const sourceId=byId('gaussian-source')?.value || 'all';
   const comparisonId=byId('gaussian-compare-source')?.value || '';
   const selectedLot=scope==='single'?byId('gaussian-lot').value:'';
-  const comparisonRequested=requestedComparisonScope!=='none';
+  const comparisonRequested=requestedComparisonScope!=='none' || Boolean(byId('gaussian-compare-worksheet')?.value || byId('gaussian-compare-parameter').value);
   const effectiveComparisonScope=requestedComparisonScope==='none'?scope:requestedComparisonScope;
   const comparisonLot=effectiveComparisonScope==='single'?byId('gaussian-compare-lot').value:'';
   const effectiveComparisonLot=effectiveComparisonScope==='single'?(comparisonLot||(requestedComparisonScope==='none'?selectedLot:'')):'';
@@ -2847,11 +2882,11 @@ async function createGaussian() {
     try{await loadTrendDateLookup();}
     catch{state.trendDateLookup=new Map();}
   }
-  const records = collectGaussianRecords(parameter, includedZones,sourceId,scope,selectedLot);
-  if(records.length<2)throw new Error(`Primary worksheet${selectedLot?` · Lot ${selectedLot}`:''} has ${records.length} numeric value(s). Choose a Lot with at least two values.`);
+  const records = collectGaussianRecords(parameter, includedZones,sourceId,scope,selectedLot,primaryWorksheet);
+  if(records.length<2)throw new Error(`${primaryWorksheet} · ${parameter}${selectedLot?` · Lot ${selectedLot}`:''} has ${records.length} numeric value(s). Choose a selection with at least two values.`);
   const primary=fitGaussianSelection(records,method);
-  const comparisonRecords=effectiveComparisonId?collectGaussianRecords(comparisonParameter,includedZones,effectiveComparisonId,effectiveComparisonScope,effectiveComparisonLot):[];
-  if(effectiveComparisonId && comparisonRecords.length<2)throw new Error(`Comparison dataset · ${comparisonParameter}${effectiveComparisonLot?` · Lot ${effectiveComparisonLot}`:''} has ${comparisonRecords.length} numeric value(s). Choose a selection with at least two values.`);
+  const comparisonRecords=effectiveComparisonId?collectGaussianRecords(comparisonParameter,includedZones,effectiveComparisonId,effectiveComparisonScope,effectiveComparisonLot,comparisonWorksheet):[];
+  if(effectiveComparisonId && comparisonRecords.length<2)throw new Error(`${comparisonWorksheet} · ${comparisonParameter}${effectiveComparisonLot?` · Lot ${effectiveComparisonLot}`:''} has ${comparisonRecords.length} numeric value(s). Choose a selection with at least two values.`);
   const comparison=effectiveComparisonId?fitGaussianSelection(comparisonRecords,method,{usePrimaryRange:sameParameter,initialMeansId:'gaussian-compare-initial-means'}):null;
   const zoneDistributions=byId('gaussian-zone-distributions').checked
     ? buildGaussianZoneDistributionsFromRecords(records,method)
@@ -2861,11 +2896,11 @@ async function createGaussian() {
     ? buildGaussianZoneDistributionsFromRecords(comparisonRecords,method)
     : [];
   const comparisonZoneViewRange=gaussianZoneFullRange(comparisonZoneDistributions);
-  const sourceLabel=combinedContext.active?(byId('gaussian-source')?.selectedOptions[0]?.textContent || state.source):state.source;
-  const comparisonLabel=comparisonId?(byId('gaussian-compare-source')?.selectedOptions[0]?.textContent || sourceLabel):sourceLabel;
+  const sourceLabel=combinedContext.active?(byId('gaussian-source')?.selectedOptions[0]?.textContent || state.source):`${state.workbookName} · ${primaryWorksheet}`;
+  const comparisonLabel=combinedContext.active?(comparisonId?(byId('gaussian-compare-source')?.selectedOptions[0]?.textContent || sourceLabel):sourceLabel):`${state.workbookName} · ${comparisonWorksheet}`;
   const dateFilter=gaussianDateFilter([...records,...comparisonRecords]);
-  state.lastGaussian = { parameter, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,activeRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:Boolean(comparison),comparisonSharedX:Boolean(comparison&&sameParameter),comparisonSharedY:false,zoneDistributionTab:'primary',zoneDistributions,zoneViewRange,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
-    comparison:comparison?{parameter:comparisonParameter,zones:includedZones,scope:effectiveComparisonScope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,activeRecords:comparisonRecords,zoneDistributions:comparisonZoneDistributions,zoneViewRange:comparisonZoneViewRange,zoneSharedY:false,zoneNormalized:false,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
+  state.lastGaussian = { parameter,worksheet:primaryWorksheet, zones: includedZones, scope, selectedLot,sourceId,sourceLabel,sameParameter,method,allRecords:records,activeRecords:records,comparisonAllRecords:comparisonRecords,dateFilter,overlayVisible:Boolean(comparison),comparisonSharedX:Boolean(comparison&&sameParameter),comparisonSharedY:false,zoneDistributionTab:'primary',zoneDistributions,zoneViewRange,zoneSharedY:false,zoneNormalized:false,visibleExcelRowsOnly: byId("gaussian-visible-rows").checked, source: sourceLabel, savedAt: new Date().toISOString(), ...primary,
+    comparison:comparison?{parameter:comparisonParameter,worksheet:comparisonWorksheet,zones:includedZones,scope:effectiveComparisonScope,selectedLot:effectiveComparisonLot,sourceId:effectiveComparisonId,sourceLabel:comparisonLabel,source:comparisonLabel,activeRecords:comparisonRecords,zoneDistributions:comparisonZoneDistributions,zoneViewRange:comparisonZoneViewRange,zoneSharedY:false,zoneNormalized:false,savedAt:new Date().toISOString(),visibleExcelRowsOnly:false,...comparison}:null };
   if(primary.fit.components?.length)state.lastGaussian.componentSelection=primary.fit.components.map((_,index)=>index);
   if(state.lastGaussian.comparison?.fit.components?.length)state.lastGaussian.comparison.componentSelection=state.lastGaussian.comparison.fit.components.map((_,index)=>index);
   if(comparison&&sameParameter){const range={start:Math.min(primary.fit.start,comparison.fit.start),end:Math.max(primary.fit.end,comparison.fit.end)};state.lastGaussian.viewRange={...range};state.lastGaussian.comparison.viewRange={...range};}
@@ -5945,7 +5980,7 @@ function syncGaussianMethod() {
   truncatedOption.disabled = parameter !== "nacl";
   if (truncatedOption.disabled && methodSelect.value === "nacl-truncated") methodSelect.value = "standard";
   const mixture=methodSelect.value==='mixture-2'||methodSelect.value==='mixture-3';
-  const comparisonRequested=Boolean(byId('gaussian-compare-data-scope').value!=='none'||byId('gaussian-compare-parameter').value||byId('gaussian-compare-source')?.value);
+  const comparisonRequested=Boolean(byId('gaussian-compare-data-scope').value!=='none'||byId('gaussian-compare-parameter').value||byId('gaussian-compare-source')?.value||byId('gaussian-compare-worksheet')?.value);
   byId('gaussian-mixture-row').hidden=!mixture;
   byId('gaussian-initial-means').disabled=!mixture || !state.workbook;
   byId('gaussian-compare-initial-means-field').hidden=!mixture || !comparisonRequested;
@@ -5957,16 +5992,65 @@ function syncGaussianMethod() {
   }
 }
 
+function syncGaussianWorksheetChoices() {
+  const row=byId('gaussian-worksheet-row'),primarySelect=byId('gaussian-worksheet'),comparisonSelect=byId('gaussian-compare-worksheet');
+  if(!row||!primarySelect||!comparisonSelect)return;
+  row.hidden=combinedContext.active;
+  if(combinedContext.active){
+    fillSelect(primarySelect,[state.source],state.source);
+    fillSelect(comparisonSelect,[''],'',value=>value||'Same as primary');
+    primarySelect.disabled=true;comparisonSelect.disabled=true;
+  } else {
+    const names=gaussianWorksheetNames().filter(name=>{
+      try{return getRegionalParameters(gaussianDatasetForWorksheet(name).headers).length>0;}catch{return false;}
+    });
+    const primaryValue=names.includes(primarySelect.value)?primarySelect.value:(names.includes(state.source)?state.source:names[0]||'');
+    fillSelect(primarySelect,names,primaryValue);
+    const comparisonChoices=['',...names];
+    const comparisonValue=comparisonChoices.includes(comparisonSelect.value)?comparisonSelect.value:'';
+    fillSelect(comparisonSelect,comparisonChoices,comparisonValue,value=>value||'Same as primary');
+    primarySelect.disabled=!names.length;comparisonSelect.disabled=!names.length;
+  }
+  const primaryWorksheet=primarySelect.value||state.source;
+  const primaryParameters=getRegionalParameters(gaussianDatasetForWorksheet(primaryWorksheet).headers);
+  const parameterSelect=byId('gaussian-parameter'),priorParameter=parameterSelect.value;
+  fillSelect(parameterSelect,primaryParameters,primaryParameters.includes(priorParameter)?priorParameter:primaryParameters[0]);
+  parameterSelect.disabled=!primaryParameters.length;
+  syncGaussianComparisonParameter();
+  syncGaussianLotChoices();
+  syncGaussianZoneChoices();
+}
+
 function syncGaussianComparisonParameter() {
   const select=byId('gaussian-compare-parameter');if(!select)return;
   const primary=byId('gaussian-parameter').value,previous=select.value;
-  const choices=['',...state.parameters.filter(parameter=>parameter!==primary)];
+  const primaryWorksheet=byId('gaussian-worksheet')?.value||state.source;
+  const comparisonWorksheet=byId('gaussian-compare-worksheet')?.value||primaryWorksheet;
+  const parameters=getRegionalParameters(gaussianDatasetForWorksheet(comparisonWorksheet).headers);
+  const choices=['',...parameters.filter(parameter=>parameter!==primary)];
   fillSelect(select,choices,choices.includes(previous)?previous:'',value=>value||'Same as primary');
-  select.disabled=state.parameters.length<2;
+  select.disabled=!parameters.length;
   const distinct=Boolean(select.value);
   ['bin-width','start','end'].forEach(name=>{
     byId(`gaussian-compare-${name}-field`).hidden=!distinct;
     byId(`gaussian-compare-${name}`).disabled=!distinct;
+  });
+}
+
+function syncGaussianZoneChoices() {
+  const primaryWorksheet=byId('gaussian-worksheet')?.value||state.source;
+  const comparisonWorksheet=byId('gaussian-compare-worksheet')?.value||primaryWorksheet;
+  const primaryParameter=byId('gaussian-parameter').value;
+  const comparisonParameter=byId('gaussian-compare-parameter').value||primaryParameter;
+  const comparisonRequested=byId('gaussian-compare-data-scope').value!=='none'||Boolean(byId('gaussian-compare-worksheet')?.value||byId('gaussian-compare-parameter').value);
+  const primaryColumns=zoneColumns(gaussianDatasetForWorksheet(primaryWorksheet).headers,primaryParameter)||[];
+  const comparisonColumns=zoneColumns(gaussianDatasetForWorksheet(comparisonWorksheet).headers,comparisonParameter)||[];
+  byId('gaussian-zones').querySelectorAll('input').forEach(input=>{
+    const zone=Number(input.value)-1;
+    const available=(primaryColumns[zone]??-1)>=0&&(!comparisonRequested||(comparisonColumns[zone]??-1)>=0);
+    input.disabled=!available;
+    if(!available)input.checked=false;
+    else if(![...byId('gaussian-zones').querySelectorAll('input')].some(item=>item.checked&&!item.disabled))input.checked=true;
   });
 }
 
