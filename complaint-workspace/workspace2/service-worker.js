@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v83-gaussian-cross-worksheet";
+const CACHE_NAME = "ipw-complaint-workspace-v84-three-gaussian-datasets";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -25,7 +25,7 @@ const APP_SHELL = [
   "./workbook-comparison.js?v=2",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=174",
+  "../iphone-app.js?v=175",
   "../xlsx-write-worker.js?v=1",
   "./zone-profile.js?v=1",
   "../structured-correlation.js?v=10",
