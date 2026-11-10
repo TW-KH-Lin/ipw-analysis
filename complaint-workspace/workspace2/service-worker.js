@@ -1,4 +1,4 @@
-const CACHE_NAME = "ipw-complaint-workspace-v85-gaussian-help-layout";
+const CACHE_NAME = "ipw-complaint-workspace-v86-value-band-correlation";
 const APP_SHELL = [
   "../workspace2/label-table-view.js?v=1",
   "../vendor/exceljs.min.js", "./complaint-export.js?v=1",
@@ -25,14 +25,14 @@ const APP_SHELL = [
   "./workbook-comparison.js?v=2",
   "./manifest.webmanifest",
   "../iphone.css?v=27",
-  "../iphone-app.js?v=176",
+  "../iphone-app.js?v=177",
   "../xlsx-write-worker.js?v=1",
   "./zone-profile.js?v=1",
   "../structured-correlation.js?v=10",
   "../lot-classification.js?v=2",
   "../foldable-ui.js?v=7",
   "../local-preferences.js?v=1",
-  "../analysis.js?v=21",
+  "../analysis.js?v=22",
   "../v90-analysis.js?v=7",
   "../clean-data.js?v=6",
   "../data-management.js?v=7",

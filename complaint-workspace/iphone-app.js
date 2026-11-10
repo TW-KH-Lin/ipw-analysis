@@ -6,6 +6,7 @@ import { buildCombinedDataset, commonRegionalParameters, compareRegionalWorkbook
 import { readPreference, writePreference, clearPreferences, setRememberSettings, rememberSettingsEnabled, datasetPreferenceKey } from "./local-preferences.js?v=1";
 import {
   buildCorrelation,
+  buildValueBandCorrelation,
   buildLotAssessment,
   buildOriginExport,
   buildOriginExportWide,
@@ -30,7 +31,7 @@ import {
   text,
   trendDateForRow,
   zoneColumns
-} from "./analysis.js?v=21";
+} from "./analysis.js?v=22";
 import {
   buildCleanDataFromAuswertung,
   buildFullSummary,
@@ -168,7 +169,7 @@ function registerOfflineApp() {
 }
 
 const REMEMBERED_CONTROLS = [
-  "correlation-analysis", "correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions",
+  "correlation-analysis", "correlation-band-axis", "correlation-band-width", "correlation-band-min-lots", "correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions",
   "reference-temperature", "reference-humidity",
   "summary-parameter", "gaussian-worksheet", "gaussian-compare-worksheet", "gaussian-data-scope", "gaussian-compare-data-scope", "gaussian-compare2-data-scope", "gaussian-parameter", "gaussian-compare-parameter", "gaussian-method", "gaussian-bin-width", "gaussian-start", "gaussian-end", "gaussian-compare-bin-width", "gaussian-compare-start", "gaussian-compare-end", "gaussian-initial-means", "gaussian-compare-initial-means", "gaussian-compare2-initial-means", "gaussian-extreme-sigma", "gaussian-extreme-side", "gaussian-zone-distributions",
   "trend-parameter", "period-parameter", "period-mode", "period-plot", "period-lot", "period-lot-b",
@@ -509,6 +510,7 @@ function bindEvents() {
     syncCorrelationComparisonControls();
     invalidateCorrelation();
   });
+  ["correlation-band-axis","correlation-band-width","correlation-band-min-lots"].forEach(id=>byId(id).addEventListener("input",invalidateCorrelation));
   ["correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions"].forEach(id => {
     byId(id).addEventListener("input", () => {
       syncStructuredCorrelationControls(false);
@@ -709,9 +711,10 @@ function syncGaussianSourceChoices() {
 
 function syncCorrelationSourceChoices() {
   const host=byId('correlation-source-controls');if(!host)return;
-  const structured=byId('correlation-analysis').value==='structured';
+  const structured=byId('correlation-analysis').value==='structured',valueBand=byId('correlation-analysis').value==='value-band';
   host.hidden=!combinedContext.active||structured;
   const primary=byId('correlation-source'),secondary=byId('correlation-compare-source');
+  secondary.closest('label').hidden=valueBand;
   if(!combinedContext.active){fillSelect(primary,['all'],'all');fillSelect(secondary,[''],'');return;}
   const choices=[['all','Combined selected workbooks'],...combinedContext.selectedIds.map(id=>{const entry=workbookLibrary.get(id);return [id,`Workbook · ${entry?.file.name||id} · ${entry?.index?.source||''}`];})];
   const prior=choices.some(([value])=>value===primary.value)?primary.value:'all';
@@ -722,7 +725,7 @@ function syncCorrelationSourceChoices() {
 }
 
 function syncCorrelationComparisonControls() {
-  const structured=byId('correlation-analysis').value==='structured';
+  const structured=byId('correlation-analysis').value==='structured',valueBand=byId('correlation-analysis').value==='value-band';
   const single=byId('correlation-data-scope').value==='single'&&!structured;
   const primarySource=byId('correlation-source').value||'all',comparisonSource=byId('correlation-compare-source').value||'';
   const primaryLots=gaussianLotsForSource(primarySource),primaryValue=byId('correlation-lot').value;
@@ -735,6 +738,7 @@ function syncCorrelationComparisonControls() {
   fillSelect(byId('correlation-compare-lot'),['',...comparisonLots],selected,value=>value||'One lot');
   byId('correlation-compare-lot-field').hidden=!single;byId('correlation-compare-lot').disabled=!single||!comparisonLots.length;
   byId('correlation-source-controls').hidden=!combinedContext.active||structured;
+  byId('correlation-compare-source').closest('label').hidden=valueBand;
 }
 
 function syncZoneProfileSourceChoices() {
@@ -2131,7 +2135,7 @@ function populateWorkbookControls() {
   if (byId("correlation-x").options.length > 1) byId("correlation-x").value = secondParameter;
   if (byId("zone-profile-parameter-b").options.length > 1 && byId("zone-profile-parameter-b").value === byId("zone-profile-parameter-a").value) byId("zone-profile-parameter-b").value = secondParameter;
   enableControls([
-    "correlation-analysis", "correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions",
+    "correlation-analysis", "correlation-band-axis", "correlation-band-width", "correlation-band-min-lots", "correlation-method", "correlation-compare", "correlation-min-n", "correlation-coverage", "correlation-min-regions", "correlation-expected-regions",
     "filter-mode",
     "classification-keyword",
     "limit-lot-period",
@@ -5326,6 +5330,17 @@ async function createCorrelation() {
   const xParameter = byId("correlation-x").value;
   if (xParameter === yParameter) throw new Error("Select two different parameters.");
   const scope = byId("correlation-data-scope").value;
+  if(byId("correlation-analysis").value==="value-band"){
+    if(scope==='single')throw new Error('Cross-lot value-band correlation requires All lots or Filtered data.');
+    const sourceId=byId('correlation-source').value||'all';
+    const rows=correlationRowsFor(sourceId,'');
+    const result=buildValueBandCorrelation(state.headers,rows,xParameter,yParameter,byId('correlation-scope').value,byId('correlation-band-axis').value,requiredNumber('correlation-band-width'),requiredNumber('correlation-band-min-lots'));
+    const sourceLabel=combinedContext.active?(byId('correlation-source').selectedOptions[0]?.textContent||state.source):`${state.workbookName} · ${state.source}`;
+    state.lastCorrelation={analysisType:'value-band',xParameter,yParameter,scope,result,sourceId,sourceLabel,selectedLot:'',comparison:null};
+    renderCorrelationResult();
+    setStatus(`Cross-lot value-band correlation: ${formatInteger(result.rawSourceN)} Raw pooled pairs averaged into ${formatInteger(result.rawN)} eligible bands.`,false,true);
+    return;
+  }
   const removalMethod = byId("correlation-outliers").value;
   const removalValue = requiredNumber("correlation-removal");
   const sourceId=byId('correlation-source').value||'all',comparisonId=byId('correlation-compare-source').value||'';
@@ -5523,13 +5538,17 @@ function renderCorrelationResult() {
     ...result.pairs.filter((pair) => !pair.included),
     ...result.pairs.filter((pair) => pair.included)
   ];
+  const valueBand=current.analysisType==='value-band';
   byId("correlation-result").innerHTML = `
     <div class="metric-grid">
-      ${metric("Included", formatInteger(result.rawN))}
-      ${metric("Excluded", formatInteger(result.excludedN))}
+      ${valueBand?metric("Raw pooled pairs",formatInteger(result.rawSourceN)):''}
+      ${metric(valueBand?"Eligible bands":"Included", formatInteger(result.rawN))}
+      ${metric(valueBand?"Excluded bands":"Excluded", formatInteger(result.excludedN))}
       ${metric("Pearson r", formatNumber(result.r, 4))}
+      ${metric("R²", formatNumber(result.r===null?null:result.r*result.r,4))}
       ${metric("Slope", formatNumber(result.slope, 4))}
     </div>
+    ${valueBand?`<p class="result-note">Raw pooled pairs grouped by similar ${result.groupAxis.toUpperCase()} values · Band width ${formatNumber(result.bandWidth,4)} · Minimum ${formatInteger(result.minimumLots)} Lots per band. X and Y are averaged within each Lot first, then across Lots so every Lot contributes equally.</p>`:''}
     <div class="correlation-comparison-grid ${current.comparison?'has-comparison':''}">
       <article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(current.sourceLabel || state.source)}${current.selectedLot?` · Lot ${escapeHtml(current.selectedLot)}`:''}</h3><button id="export-correlation-png" class="command" type="button">Export PNG</button></div><canvas id="correlation-chart" aria-label="Primary matched-zone correlation scatter plot"></canvas></article>
       ${current.comparison?`<article class="chart-card"><div class="assessment-plot-toolbar"><h3>${escapeHtml(current.comparison.sourceLabel)}${current.comparison.selectedLot?` · Lot ${escapeHtml(current.comparison.selectedLot)}`:''}</h3><button id="export-correlation-comparison-png" class="command" type="button">Export PNG</button></div><canvas id="correlation-comparison-chart" aria-label="Comparison matched-zone correlation scatter plot"></canvas></article>`:''}
@@ -5540,7 +5559,10 @@ function renderCorrelationResult() {
         <p>Blue: Primary · Orange: Comparison · Shared X and Y scales</p>
         <canvas id="correlation-overlay-chart" aria-label="Overlaid primary and comparison correlation plot"></canvas>
       </section>`:''}
-    <div class="table-wrap mini-table">${renderTable([
+    <div class="table-wrap mini-table">${renderTable(valueBand?[
+      ["Value band","Lots N","Measurements N","Average X","Average Y","Status"],
+      ...displayPairs.slice(0,120).map(pair=>[`${formatNumber(pair.bandLower,4)} to ${formatNumber(pair.bandUpper,4)}`,pair.lotCount,pair.measurementN,pair.x,pair.y,pair.included?"Included":`Excluded: ${pair.exclusionReason}`])
+    ]:[
       ["Lot", "MR N", "Zone", "X", "Y", "Status"],
       ...displayPairs.slice(0, 80).map((pair) => [pair.lot, pair.batch, `Zone ${pair.zone}`, pair.x, pair.y, pair.included ? "Included" : `Excluded: ${pair.exclusionReason || "Extreme"}`])
     ])}</div>
@@ -6122,11 +6144,15 @@ function syncZoneChoices(containerId, parameter) {
 
 function syncStructuredCorrelationControls(refreshParameters = true) {
   const structured = byId("correlation-analysis").value === "structured";
+  const valueBand = byId("correlation-analysis").value === "value-band";
   byId("correlation-structured-settings").hidden = !structured;
+  byId("correlation-value-band-settings").hidden = !valueBand;
+  ["correlation-band-axis","correlation-band-width","correlation-band-min-lots"].forEach(id=>{byId(id).disabled=!valueBand;});
   const singleScope=byId('correlation-data-scope').querySelector('option[value="single"]');
-  if(singleScope)singleScope.disabled=structured;
-  if(structured&&byId('correlation-data-scope').value==='single')byId('correlation-data-scope').value='filtered';
-  ["correlation-scope", "correlation-outliers", "correlation-removal"].forEach(id => { byId(id).closest("label").hidden = structured; });
+  if(singleScope)singleScope.disabled=structured||valueBand;
+  if((structured||valueBand)&&byId('correlation-data-scope').value==='single')byId('correlation-data-scope').value='filtered';
+  ["correlation-scope"].forEach(id => { byId(id).closest("label").hidden = structured; });
+  ["correlation-outliers", "correlation-removal"].forEach(id => { byId(id).closest("label").hidden = structured||valueBand; });
   if (refreshParameters) {
     const choices = structured ? state.structuredParameters : state.parameters;
     fillSelect(byId("correlation-y"), choices, byId("correlation-y").value || choices[0]);

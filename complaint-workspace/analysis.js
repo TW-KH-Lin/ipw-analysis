@@ -956,6 +956,29 @@ export function buildCorrelation(headers, rows, xParameter, yParameter, scope, o
   return { pairs, included, totalN: pairs.length, excludedN: pairs.length - included.length, ...pearsonAndLine(included) };
 }
 
+export function buildValueBandCorrelation(headers, rows, xParameter, yParameter, scope, groupAxis, bandWidth, minimumLots) {
+  const width=Number(bandWidth),minLots=Number(minimumLots);
+  if(!(width>0))throw new Error("Band width must be greater than zero.");
+  if(!Number.isInteger(minLots)||minLots<2)throw new Error("Minimum Lots per band must be a whole number of at least two.");
+  if(groupAxis!=="x"&&groupAxis!=="y")throw new Error("Choose X or Y as the grouping axis.");
+  const raw=buildCorrelation(headers,rows,xParameter,yParameter,scope,"keep",0),bands=new Map();
+  raw.included.forEach(pair=>{
+    const lower=Math.floor(pair[groupAxis]/width)*width,key=String(Number(lower.toPrecision(12)));
+    if(!bands.has(key))bands.set(key,{lower,upper:lower+width,pairs:[],lots:new Set()});
+    const band=bands.get(key);band.pairs.push(pair);if(String(pair.lot).trim())band.lots.add(String(pair.lot));
+  });
+  const grouped=[...bands.values()].sort((a,b)=>a.lower-b.lower).map(band=>{
+    const byLot=new Map();
+    band.pairs.forEach(pair=>{const lot=String(pair.lot).trim();if(!lot)return;if(!byLot.has(lot))byLot.set(lot,[]);byLot.get(lot).push(pair);});
+    const lotMeans=[...byLot.entries()].map(([lot,pairs])=>({lot,x:pairs.reduce((sum,pair)=>sum+pair.x,0)/pairs.length,y:pairs.reduce((sum,pair)=>sum+pair.y,0)/pairs.length,n:pairs.length}));
+    const lotCount=lotMeans.length,n=band.pairs.length;
+    return {lot:lotMeans.map(item=>item.lot).join(", "),batch:n,zone:`${band.lower}–${band.upper}`,x:lotCount?lotMeans.reduce((sum,item)=>sum+item.x,0)/lotCount:NaN,y:lotCount?lotMeans.reduce((sum,item)=>sum+item.y,0)/lotCount:NaN,included:lotCount>=minLots,lotCount,measurementN:n,bandLower:band.lower,bandUpper:band.upper,exclusionReason:lotCount>=minLots?"":`Fewer than ${minLots} Lots`};
+  });
+  const included=grouped.filter(pair=>pair.included);
+  if(included.length<3)throw new Error("Fewer than three value bands meet the minimum Lot requirement.");
+  return {pairs:grouped,included,totalN:grouped.length,excludedN:grouped.length-included.length,rawSourceN:raw.rawN,groupAxis,bandWidth:width,minimumLots,...pearsonAndLine(included)};
+}
+
 function removeRatioExtremes(pairs, removalPct) {
   const maxRemove = Math.floor(pairs.length * Math.max(0, Math.min(50, removalPct)) / 100);
   if (!maxRemove) return;
